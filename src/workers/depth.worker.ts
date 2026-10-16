@@ -114,6 +114,8 @@ async function loadModel(request: LoadRequest, onProgress: (p: LoadProgress) => 
       created = await ort.InferenceSession.create(bytes, {
         executionProviders: [attempt.device],
         graphOptimizationLevel: 'all',
+        // 只输出错误：形状相关算子被分配到 CPU 的警告属于正常现象
+        logSeverityLevel: 3,
       })
       await selfTest(created)
       session = created

@@ -65,6 +65,14 @@ function makeColormap(): THREE.DataTexture {
   return dataTexture(data, n, 1, THREE.UnsignedByteType)
 }
 
+function depthPlaceholder(): DepthTextures {
+  return {
+    coef: dataTexture(new Uint16Array(4), 1, 1, THREE.HalfFloatType),
+    aux: dataTexture(new Uint16Array(4), 1, 1, THREE.HalfFloatType),
+    normal: dataTexture(new Uint8Array([128, 128, 255, 0]), 1, 1, THREE.UnsignedByteType),
+  }
+}
+
 function depthTextures(result: DepthResult): DepthTextures {
   const { width, height } = result.guideSize
   return {
@@ -114,11 +122,8 @@ export class Engine {
   private readonly previewMaxEdge: number
 
   private readonly placeholder = makePlaceholder()
-  private readonly depthPlaceholder: DepthTextures = {
-    coef: dataTexture(new Uint16Array(4), 1, 1, THREE.HalfFloatType),
-    aux: dataTexture(new Uint16Array(4), 1, 1, THREE.HalfFloatType),
-    normal: dataTexture(new Uint8Array([128, 128, 255, 0]), 1, 1, THREE.UnsignedByteType),
-  }
+  // 每个图层各用一套占位纹理：three.js 按纹理 uuid 合并 uniform，共用时替换其中一个图层会失效
+  private readonly depthPlaceholder: Record<DepthLayer, DepthTextures> = { background: depthPlaceholder(), character: depthPlaceholder() }
   private readonly colormap = makeColormap()
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
@@ -209,7 +214,7 @@ export class Engine {
     const textures = result ? depthTextures(result) : null
     this.depth[layer] = result && textures ? { result, textures } : null
     const nodes = this.composite.depth[layer]
-    const src = textures ?? this.depthPlaceholder
+    const src = textures ?? this.depthPlaceholder[layer]
     nodes.coef.value = src.coef
     nodes.aux.value = src.aux
     nodes.normal.value = src.normal
@@ -335,7 +340,7 @@ export class Engine {
     this.docRT.dispose()
     this.placeholder.dispose()
     this.colormap.dispose()
-    for (const t of Object.values(this.depthPlaceholder)) t.dispose()
+    for (const set of Object.values(this.depthPlaceholder)) for (const t of Object.values(set)) t.dispose()
     for (const layer of Object.values(this.depth)) if (layer) for (const t of Object.values(layer.textures)) t.dispose()
     for (const q of Object.values(this.quads)) (q.material as THREE.Material).dispose()
     this.renderer.dispose()

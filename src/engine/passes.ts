@@ -52,7 +52,7 @@ const SKY_TINT = vec3(0.05, 0.35, 1.0)
  * 文档空间合成：背景 + 按变换摆放的立绘。输出到文档尺寸（或预览尺寸）的渲染目标。
  * view 不为 0 时按调试视图（深度、法线、天空）着色，再按 overlay 与合成结果混合。
  */
-export function createCompositePass(bgPlaceholder: THREE.Texture, charTexture: THREE.Texture, depthPlaceholder: DepthTextures, colormap: THREE.Texture) {
+export function createCompositePass(bgPlaceholder: THREE.Texture, charTexture: THREE.Texture, depthPlaceholder: { background: DepthTextures; character: DepthTextures }, colormap: THREE.Texture) {
   const u = {
     docSize: uniform(new THREE.Vector2(1, 1)),
     charCenter: uniform(new THREE.Vector2(0, 0)),
@@ -87,9 +87,9 @@ export function createCompositePass(bgPlaceholder: THREE.Texture, charTexture: T
     select(u.view.equal(1), cmap(depth), select(u.view.equal(2), srgbDecode(normal.rgb).mul(mix(0.3, 1, normal.a)), sky))
 
   // 背景：引导分辨率的系数与全分辨率颜色组合，得到边缘锐利的深度
-  const bgCoef = texture(depthPlaceholder.coef, screenUV)
-  const bgAux = texture(depthPlaceholder.aux, screenUV)
-  const bgNormal = texture(depthPlaceholder.normal, screenUV)
+  const bgCoef = texture(depthPlaceholder.background.coef, screenUV)
+  const bgAux = texture(depthPlaceholder.background.aux, screenUV)
+  const bgNormal = texture(depthPlaceholder.background.normal, screenUV)
   const bgDepth = saturate(mix(bgAux.r, dot(bgCoef.rgb, srgbEncode(saturate(bg.rgb))).add(bgCoef.a), u.edgeAlign))
   const bgSky = mix(bg.rgb.mul(0.25), SKY_TINT, bgAux.g.mul(0.8))
   const bgDebug = mix(bg.rgb, debugColor(bgDepth, bgNormal, bgSky), u.hasBgDepth)
@@ -97,9 +97,9 @@ export function createCompositePass(bgPlaceholder: THREE.Texture, charTexture: T
   // 立绘：引导图是合成到中性灰上的 sRGB 颜色，与推理输入一致
   const straight = chRaw.rgb.div(max(chRaw.a, 1e-4))
   const chGuide = mix(vec3(NEUTRAL_GRAY), srgbEncode(saturate(straight)), chRaw.a)
-  const chCoef = texture(depthPlaceholder.coef, charUV)
-  const chAux = texture(depthPlaceholder.aux, charUV)
-  const chNormal = texture(depthPlaceholder.normal, charUV)
+  const chCoef = texture(depthPlaceholder.character.coef, charUV)
+  const chAux = texture(depthPlaceholder.character.aux, charUV)
+  const chNormal = texture(depthPlaceholder.character.normal, charUV)
   const chDepth = saturate(mix(chAux.r, dot(chCoef.rgb, chGuide).add(chCoef.a), u.edgeAlign))
   const chDebug = mix(straight, debugColor(chDepth, chNormal, straight.mul(0.25)), u.hasCharDepth)
 
