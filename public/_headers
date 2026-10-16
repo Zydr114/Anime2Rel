@@ -1,0 +1,23 @@
+# Cloudflare Pages 响应头（见 docs/Plan.md §1.4）。
+# 站点部署在域名根路径时生效；部署到子路径请相应修改路径前缀。
+
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# 构建产物文件名带内容哈希，可以永久缓存。
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# 模型文件放在带版本号的目录里（如 /models/<模型名>-<版本>/），换模型即换路径，
+# 因此同样可以永久缓存。不要原地覆盖同名模型文件。
+/models/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/LICENSE.txt
+  Content-Type: text/plain; charset=utf-8
+
+/THIRD_PARTY_NOTICES.txt
+  Content-Type: text/plain; charset=utf-8

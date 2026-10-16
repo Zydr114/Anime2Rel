@@ -1,0 +1,26 @@
+# Anime2Rel 的 Caddy 示例配置（见 docs/Plan.md §1.4）。
+# Caddy 会自动申请 HTTPS 证书；把 `pnpm build` 生成的 dist/ 目录内容放到 root
+# 指向的位置，再把域名改成自己的即可。
+
+anime2rel.example.com {
+	root * /var/www/anime2rel
+	# ONNX 模型压缩率很低，Caddy 默认只压缩文本类型，无需特殊处理。
+	encode zstd gzip
+
+	header {
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Embedder-Policy "credentialless"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# 构建产物带内容哈希；模型放在带版本号的目录里。两者都可以永久缓存。
+	@immutable path /assets/* /models/*
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+	# index.html 不缓存，保证发布新版本后立即生效。
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
+	file_server
+}
