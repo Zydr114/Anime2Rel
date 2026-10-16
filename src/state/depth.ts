@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Attempt, Device, ModelSource, Precision } from '@/depth/models'
+import { MODEL_SOURCES, PRECISIONS, type Attempt, type Device, type ModelSource, type Precision } from '@/depth/models'
 import type { AttemptFailure, DepthResult, EstimateTimings, LoadPhase, ModelInfo } from '@/depth/protocol'
 
 export type DebugView = 'composite' | 'depth' | 'normal' | 'sky'
@@ -29,7 +29,13 @@ const DEFAULT_SETTINGS: DepthSettings = { source: 'self', device: 'auto', precis
 function loadSettings(): DepthSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    return raw ? { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<DepthSettings>) } : DEFAULT_SETTINGS
+    const saved = raw ? (JSON.parse(raw) as Partial<DepthSettings>) : {}
+    // 旧版本或手工修改的值不在可选范围内时回到默认值
+    return {
+      source: MODEL_SOURCES.includes(saved.source as ModelSource) ? saved.source! : DEFAULT_SETTINGS.source,
+      device: (['auto', 'webgpu', 'wasm'] as const).includes(saved.device as DepthSettings['device']) ? saved.device! : DEFAULT_SETTINGS.device,
+      precision: saved.precision === 'auto' || PRECISIONS.includes(saved.precision as Precision) ? saved.precision! : DEFAULT_SETTINGS.precision,
+    }
   } catch {
     return DEFAULT_SETTINGS
   }

@@ -3,15 +3,20 @@ import manifest from './models.json'
 
 export type Precision = keyof typeof manifest.variants
 export type Device = 'webgpu' | 'wasm'
-export type ModelSource = 'self' | 'hf' | 'mirror'
+export type ModelSource = 'self' | 'hf' | 'modelscope'
 
 export const MODEL = manifest
 export const PRECISIONS = Object.keys(manifest.variants) as Precision[]
-export const MODEL_SOURCES: readonly ModelSource[] = ['self', 'hf', 'mirror']
+export const MODEL_SOURCES: readonly ModelSource[] = ['self', 'hf', 'modelscope']
 
-const HOSTS: Record<Exclude<ModelSource, 'self'>, string> = {
-  hf: 'https://huggingface.co',
-  mirror: 'https://hf-mirror.com',
+/**
+ * 远程源的下载地址。Hugging Face 固定到清单中的提交。
+ * 魔搭（ModelScope）同步了同名仓库但只有 master 分支，内容由 SHA-256 校验保证。
+ * hf-mirror.com 会拒绝带有第三方 Referer 的请求（防盗链），不适合网页直接下载，因此不提供。
+ */
+const REMOTE: Record<Exclude<ModelSource, 'self'>, (file: string) => string> = {
+  hf: (file) => `https://huggingface.co/${manifest.repo}/resolve/${manifest.revision}/onnx/${file}`,
+  modelscope: (file) => `https://modelscope.cn/models/${manifest.repo}/resolve/master/onnx/${file}`,
 }
 
 /** 与 scripts/fetch-models.mjs 中的 partNames 保持一致。 */
@@ -28,7 +33,7 @@ export function modelUrls(precision: Precision, source: ModelSource, siteBase: s
     const dir = new URL(`models/${manifest.name}/${manifest.revision.slice(0, 8)}/`, siteBase).href
     return partNames(v.file, v.size, manifest.partSize).map((n) => dir + n)
   }
-  return [`${HOSTS[source]}/${manifest.repo}/resolve/${manifest.revision}/onnx/${v.file}`]
+  return [REMOTE[source](v.file)]
 }
 
 export interface Attempt {

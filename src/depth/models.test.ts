@@ -20,9 +20,12 @@ describe('modelUrls', () => {
     expect(urls[0]).toBe(`https://example.com/app/models/depth-anything-v2-small/${MODEL.revision.slice(0, 8)}/model_fp16.onnx.000`)
   })
 
-  it('pins the revision for remote sources', () => {
-    expect(modelUrls('q4f16', 'mirror', 'https://example.com/')).toEqual([
-      `https://hf-mirror.com/onnx-community/depth-anything-v2-small/resolve/${MODEL.revision}/onnx/model_q4f16.onnx`,
+  it('builds remote URLs', () => {
+    expect(modelUrls('q4f16', 'hf', 'https://example.com/')).toEqual([
+      `https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/${MODEL.revision}/onnx/model_q4f16.onnx`,
+    ])
+    expect(modelUrls('q4f16', 'modelscope', 'https://example.com/')).toEqual([
+      'https://modelscope.cn/models/onnx-community/depth-anything-v2-small/resolve/master/onnx/model_q4f16.onnx',
     ])
   })
 })

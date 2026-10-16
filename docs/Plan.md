@@ -42,7 +42,7 @@
 | 展示组件 | Magic UI（通过 shadcn CLI 复制进仓库）+ motion | MIT | Dock、BorderBeam、ShimmerButton、BlurFade、AnimatedBeam 等动效 |
 | 液态玻璃 | 自研 `<GlassSurface>`，算法参考 iyinchao/liquid-glass-studio | MIT | 见 §6.3 |
 | 渲染 | three.js r186 `WebGPURenderer` + TSL | MIT | WebGPU 不可用时自动回退到 WebGL2；内置 Bloom、DOF、Film、Lut3D、radialBlur、GaussianBlur、Sharpen 等节点 |
-| 推理 | `@huggingface/transformers` v4（底层 onnxruntime-web） | Apache-2.0 / MIT | 在独立 Worker 中运行，优先 `device: 'webgpu'`，失败时回退 `wasm` |
+| 推理 | onnxruntime-web 1.30（M1 起直接使用，不经过 transformers.js） | MIT | 在独立 Worker 中运行，优先 WebGPU，失败时回退 WASM。直接使用便于分片下载运行时与模型（Cloudflare Pages 单文件 25 MiB 上限）并自行控制缓存，包体积也更小 |
 | 状态 | Zustand + immer + zundo | MIT | 参数树可序列化，支持撤销/重做、预设和工程保存 |
 | Worker 通信 | Comlink | Apache-2.0 | |
 | 颜色工具 | culori、@material/material-color-utilities | MIT / Apache-2.0 | |
@@ -58,14 +58,15 @@
 | --- | --- | --- | --- | --- |
 | 深度（默认） | Depth Anything V2 Small · `onnx-community/depth-anything-v2-small` · `model_q4f16.onnx` | **19.1 MB** | Apache-2.0 | ✅ 默认 |
 | 深度（高质量） | 同上 · `model_fp16.onnx` | 49.6 MB | Apache-2.0 | ✅ 可选 |
-| 深度（回退） | 同上 · `model_int8.onnx` | 27.3 MB | Apache-2.0 | ✅ 用于不支持 f16 的设备和 WASM 路径 |
+| 深度（回退） | 同上 · `model_q4.onnx` | 27.4 MB | Apache-2.0 | ✅ 用于不支持 f16 的设备和 WASM 路径（M1 实测比 int8 快：WebGPU 上 int8 大量算子回落到 CPU） |
+| 深度（可选） | 同上 · `model_int8.onnx` | 27.3 MB | Apache-2.0 | ✅ 仅手动选择 |
 | 深度（未来） | Depth Anything 3 Small · `onnx-community/depth-anything-v3-small` | 104.7 MB（仅 fp32） | Apache-2.0 | ⏳ 等有量化版本后再评估 |
 | — | DA V2/V3 Base 及以上、DA3 Large/Giant | — | CC-BY-NC-4.0 | ❌ 非商用，与 AGPL 冲突 |
 | — | Apple DepthPro | — | Apple ASCL | ❌ |
 
-**模型分发**：默认随站点自托管在 `/models/`。设置中提供备用源：Hugging Face 和 hf-mirror.com，通过 transformers.js 的 `env.localModelPath` 或 `env.remoteHost` 切换，下载后由 Cache API 持久缓存。
+**模型分发**：默认随站点自托管在 `/models/`（构建时由 `scripts/fetch-models.mjs` 下载，超过 20 MiB 的文件切片）。设置中提供备用源：Hugging Face 和魔搭 ModelScope。下载后校验 SHA-256，由 Cache API 持久缓存。hf-mirror.com 对带第三方 Referer 的请求返回防盗链页面，不适合网页直接下载，M1 起改用 ModelScope。
 
-**降级链**：WebGPU q4f16（需要 `shader-f16` 特性）→ WebGPU fp16 → WebGPU int8 → WASM int8。
+**降级链**：WebGPU q4f16（需要 `shader-f16` 特性）→ WebGPU fp16 → WebGPU q4 → WASM q4。
 
 ### 1.3 协议核对
 
@@ -361,8 +362,8 @@ C_out      = C · lerp(1, S(N) / S_neutral, strength)
 | 单张图片估计光源本身存在歧义 | 结果只作为候选，交给用户确认；显示置信度；灰球预览辅助判断 |
 | 原画自带明暗，导致双重阴影 | 比值式增量重光照，并提供强度控制 |
 | 大图显存压力 | 预览上限 2048 px，导出分块 |
-| 浏览器不支持 WebGPU | 渲染回退到 WebGL2，推理回退到 WASM int8，并提示耗时会变长 |
-| 国内访问 Hugging Face 不稳定 | 默认自托管模型，hf-mirror 作为备用 |
+| 浏览器不支持 WebGPU | 渲染回退到 WebGL2，推理回退到 WASM q4，并提示耗时会变长 |
+| 国内访问 Hugging Face 不稳定 | 默认自托管模型，魔搭 ModelScope 作为备用 |
 | 液态玻璃的兼容性和性能 | Chromium 使用折射版，其他浏览器使用毛玻璃；提供“减少特效”开关 |
 | 三种设计语言混搭显得割裂 | 按 §6.2 分工，统一 token |
 
