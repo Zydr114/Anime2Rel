@@ -51,7 +51,7 @@ ONNX Runtime 的 WebAssembly 运行时约 26 MB，构建时同样会被切成分
 CHROME_PATH=/usr/bin/chromium pnpm test:e2e
 ```
 
-不设置 `CHROME_PATH` 时使用 Playwright 自带的浏览器，需要先执行 `pnpm exec playwright install chromium` 下载与当前 Playwright 版本匹配的浏览器。WebGPU 用例需要能访问 GPU 的环境。`pnpm test:e2e` 会先下载模型；M0 用例的图像在测试中程序生成，M1 用例使用 `docs/example.png`。
+不设置 `CHROME_PATH` 时使用 Playwright 自带的浏览器，需要先执行 `pnpm exec playwright install chromium` 下载与当前 Playwright 版本匹配的浏览器。WebGPU 用例需要能访问 GPU 的环境。`pnpm test:e2e` 会先下载模型。测试图像都在测试中程序生成（M1 用例是天空、透视地面和球体组成的合成场景），仓库不包含示例图片。
 
 ## 部署
 
