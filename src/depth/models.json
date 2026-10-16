@@ -1,0 +1,13 @@
+{
+  "name": "depth-anything-v2-small",
+  "repo": "onnx-community/depth-anything-v2-small",
+  "revision": "4472b7362082ad9968fee890ca0f1e5aca36b93d",
+  "license": "Apache-2.0",
+  "partSize": 20971520,
+  "variants": {
+    "q4f16": { "file": "model_q4f16.onnx", "size": 19126267, "sha256": "eca72971aea64216d767c70c534160de53b5435b588d362bac6dbd5a73f9bf1e" },
+    "fp16": { "file": "model_fp16.onnx", "size": 49642442, "sha256": "2df6223f206b5164e21f664ace61dabeb9bb6a49b8b5a3e00510b4807d0f5b04" },
+    "q4": { "file": "model_q4.onnx", "size": 27404416, "sha256": "5d55b02762e1907589158af3e366bd61ddf648155852a07bbf5e3a074639fcf8" },
+    "int8": { "file": "model_int8.onnx", "size": 27258801, "sha256": "01aa7a23de3f4a0ee1a2bb9997e6918104c85a9f95dea46d27b9b3fb0c6b9001" }
+  }
+}

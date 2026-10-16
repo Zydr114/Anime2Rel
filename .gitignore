@@ -6,3 +6,6 @@ playwright-report/
 .vite/
 .DS_Store
 *.log
+
+# 由 scripts/fetch-models.mjs 下载
+public/models/
