@@ -118,6 +118,13 @@ test('depth, normal and sky debug views', async ({ page }, info) => {
   // 回到合成视图后与之前一致
   await page.keyboard.press('v')
   expect(await docPixels(page, points)).toEqual(composite)
+
+  // 开关获得焦点后按空格（用于平移视图）不会切换开关
+  const align = page.getByTestId('depth-edge-align')
+  await align.click()
+  await align.click()
+  await page.keyboard.press(' ')
+  await expect(align).toHaveJSProperty('checked', true)
 })
 
 test('falls back when a model variant is unavailable', async ({ page }, info) => {
