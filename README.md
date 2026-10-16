@@ -4,7 +4,7 @@
 
 上传一张背景照片和一张带透明通道的立绘，摆放好位置后导出 PNG。所有计算都在本地完成，图片不会上传。项目计划见 [`docs/Plan.md`](docs/Plan.md)。
 
-> 当前处于 **M0 脚手架** 阶段：已实现导入、摆放、视口缩放平移、撤销重做和 PNG 导出。深度、光源分析、立绘融合、景深、调色和后期效果会在后续里程碑中逐步加入。
+> 当前处于 **M1 深度** 阶段：已实现导入、摆放、视口缩放平移、撤销重做、PNG 导出，以及基于 Depth Anything V2 Small 的深度估计（法线、天空遮罩和调试视图）。光源分析、立绘融合、景深、调色和后期效果会在后续里程碑中逐步加入。
 
 本项目不提供抠图功能，立绘需要自带透明背景。
 
@@ -13,6 +13,7 @@
 - 推荐使用支持 WebGPU 的桌面浏览器（Chrome / Edge 113+）。不支持 WebGPU 时会自动回退到 WebGL2。
 - 在地址后加 `?renderer=webgl` 可以强制使用 WebGL2，用于测试回退路径。
 - 必须通过 HTTPS 或 `localhost` 访问，否则 WebGPU 不可用。
+- 深度估计优先使用 WebGPU 推理，不可用时回退到 WebAssembly（CPU）。WebAssembly 多线程需要跨源隔离响应头（COOP/COEP），本仓库的部署配置均已包含。
 
 ## 开发
 
@@ -20,13 +21,27 @@
 
 ```sh
 pnpm install
-pnpm dev          # 开发服务器
-pnpm build        # 类型检查 + 生产构建，输出到 dist/
+pnpm dev          # 开发服务器（首次运行会下载模型）
+pnpm build        # 下载模型 + 类型检查 + 生产构建，输出到 dist/
+pnpm models       # 只下载模型
 pnpm preview      # 本地预览构建结果（http://localhost:4173）
 pnpm lint         # ESLint
 pnpm typecheck    # TypeScript 类型检查
 pnpm test         # 单元测试（Vitest）
 ```
+
+### 深度模型
+
+深度估计使用 [Depth Anything V2 Small](https://huggingface.co/onnx-community/depth-anything-v2-small)（Apache-2.0）的 ONNX 版本，默认随站点自托管。`pnpm dev` 和 `pnpm build` 会先运行 `scripts/fetch-models.mjs`，把 [`src/depth/models.json`](src/depth/models.json) 中列出的模型下载到 `public/models/`（已在 `.gitignore` 中忽略），校验 SHA-256，并把超过 20 MiB 的文件切成分片。已下载且完整的文件会跳过。
+
+| 环境变量 | 说明 |
+| --- | --- |
+| `A2R_MODELS` | 要下载的精度，逗号分隔，默认全部（`q4f16,fp16,q4,int8`，共约 123 MB）；设为 `none` 跳过下载 |
+| `A2R_HF_ENDPOINT` | 下载源，默认 `https://huggingface.co`；构建机在国内时可设为 `https://hf-mirror.com` |
+
+不带模型构建（`A2R_MODELS=none`）时，站点仍可运行，但只能在设置中改用 Hugging Face 或魔搭 ModelScope 远程下载模型。
+
+ONNX Runtime 的 WebAssembly 运行时约 26 MB，构建时同样会被切成分片放到 `dist/assets/ort-<哈希>/`。模型和运行时下载后都会存入浏览器的 Cache API，可在“深度”面板中查看占用并清除。
 
 ### 端到端测试
 
@@ -36,11 +51,11 @@ pnpm test         # 单元测试（Vitest）
 CHROME_PATH=/usr/bin/chromium pnpm test:e2e
 ```
 
-不设置 `CHROME_PATH` 时使用 Playwright 自带的浏览器，需要先执行 `pnpm exec playwright install chromium` 下载与当前 Playwright 版本匹配的浏览器。WebGPU 用例需要能访问 GPU 的环境。测试图像都在测试中程序生成，仓库不包含示例图片。
+不设置 `CHROME_PATH` 时使用 Playwright 自带的浏览器，需要先执行 `pnpm exec playwright install chromium` 下载与当前 Playwright 版本匹配的浏览器。WebGPU 用例需要能访问 GPU 的环境。`pnpm test:e2e` 会先下载模型；M0 用例的图像在测试中程序生成，M1 用例使用 `docs/example.png`。
 
 ## 部署
 
-`pnpm build` 生成的 `dist/` 是纯静态目录，可以部署到 Cloudflare Pages 或自己的服务器。对服务器的要求见 [`docs/Plan.md` §1.4](docs/Plan.md#14-部署)。
+`pnpm build` 生成的 `dist/` 是纯静态目录（含模型约 146 MB，单个文件均不超过 20 MiB），可以部署到 Cloudflare Pages 或自己的服务器。对服务器的要求见 [`docs/Plan.md` §1.4](docs/Plan.md#14-部署)。
 
 ### Cloudflare Pages
 
@@ -50,14 +65,14 @@ CHROME_PATH=/usr/bin/chromium pnpm test:e2e
 | 输出目录 | `dist` |
 | 环境变量 | `NODE_VERSION=24` |
 
-响应头由 [`public/_headers`](public/_headers) 配置，构建时会自动复制到 `dist/`。
+构建时会从 Hugging Face 下载模型。响应头由 [`public/_headers`](public/_headers) 配置，构建时会自动复制到 `dist/`。
 
 ### 自有服务器
 
 - Nginx：参考 [`deploy/nginx.conf`](deploy/nginx.conf)
 - Caddy：参考 [`deploy/Caddyfile`](deploy/Caddyfile)
 
-把 `dist/` 的内容复制到配置中 `root` 指向的目录，再修改域名和证书路径即可。
+在本地构建后，把 `dist/` 的内容复制到配置中 `root` 指向的目录，再修改域名和证书路径即可。构建机无法访问 Hugging Face 时，设置 `A2R_HF_ENDPOINT=https://hf-mirror.com`。
 
 ## 协议
 
@@ -69,4 +84,4 @@ CHROME_PATH=/usr/bin/chromium pnpm test:e2e
 A2R_SOURCE_URL=https://example.com/your/fork pnpm build
 ```
 
-构建时会自动生成 `THIRD_PARTY_NOTICES.txt`（第三方依赖的协议声明）和 `LICENSE.txt`，与站点一起发布。`src/ui/magicui/` 中的组件改编自 [Magic UI](https://github.com/magicuidesign/magicui)（MIT），原协议见该目录下的 `LICENSE`。
+构建时会自动生成 `THIRD_PARTY_NOTICES.txt`（第三方依赖的协议声明，包括 ONNX Runtime Web 及其第三方声明、Depth Anything V2 Small 模型权重的 Apache-2.0 协议）和 `LICENSE.txt`，与站点一起发布。`src/ui/magicui/` 中的组件改编自 [Magic UI](https://github.com/magicuidesign/magicui)（MIT），原协议见该目录下的 `LICENSE`。
