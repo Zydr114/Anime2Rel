@@ -11,7 +11,7 @@ export interface StepDef {
 
 export const steps: StepDef[] = [
   { id: 'assets', label: t.steps.assets, icon: 'layers--outlined' },
-  { id: 'depth', label: t.steps.depth, icon: 'landscape--outlined', milestone: 'M1' },
+  { id: 'depth', label: t.steps.depth, icon: 'landscape--outlined' },
   { id: 'light', label: t.steps.light, icon: 'light-mode--outlined', milestone: 'M2' },
   { id: 'character', label: t.steps.character, icon: 'face--outlined' },
   { id: 'focus', label: t.steps.focus, icon: 'center-focus-strong--outlined', milestone: 'M4' },

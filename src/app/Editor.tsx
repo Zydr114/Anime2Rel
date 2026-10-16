@@ -1,5 +1,6 @@
-import { createElement, useRef, useState } from 'react'
+import { createElement, useEffect, useRef, useState } from 'react'
 import type { NavigationRail } from 'mdui/components/navigation-rail.js'
+import { startAutoDepth } from '@/depth/service'
 import { t } from '@/i18n'
 import { useApp, type StepId } from '@/state/store'
 import { useDomEvent } from '@/ui/useDomEvent'
@@ -7,6 +8,7 @@ import { AboutDialog } from './AboutDialog'
 import { LegalLinks } from './LegalLinks'
 import { AssetsPanel } from './panels/AssetsPanel'
 import { CharacterPanel } from './panels/CharacterPanel'
+import { DepthPanel } from './panels/DepthPanel'
 import { ExportPanel } from './panels/ExportPanel'
 import { PlaceholderPanel } from './panels/PlaceholderPanel'
 import { steps } from './steps'
@@ -15,6 +17,7 @@ import { useShortcuts } from './useShortcuts'
 
 function StepPanel({ step }: { step: StepId }) {
   if (step === 'assets') return <AssetsPanel />
+  if (step === 'depth') return <DepthPanel />
   if (step === 'character') return <CharacterPanel />
   if (step === 'export') return <ExportPanel />
   const def = steps.find((s) => s.id === step)
@@ -28,6 +31,8 @@ export function Editor() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const railRef = useRef<NavigationRail>(null)
   useShortcuts()
+  // 编辑器打开后自动加载模型并估计深度
+  useEffect(() => startAutoDepth(), [])
 
   useDomEvent(railRef, 'change', (_e, el) => {
     if (el.value) setStep(el.value as StepId)

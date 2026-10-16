@@ -84,17 +84,27 @@ function requestForDocument(): void {
   if (character) requestDepth(character.id, 'character')
 }
 
-/**
- * 丢弃模型和所有结果，按当前设置重新加载并估计。
- * 用于修改模型设置、出错后重试和“重新估计”。
- */
-export function reloadDepth(): void {
+/** 丢弃所有结果和排队的任务。 */
+function discardResults(): void {
   generation++
   pending.clear()
   clearDepthResults()
-  const depth = useDepth.getState()
-  depth.resetJobs()
-  depth.setModel({ state: 'idle' })
+  useDepth.getState().resetJobs()
+}
+
+/** 保留已加载的模型，重新估计当前文档。 */
+export function reestimate(): void {
+  discardResults()
+  requestForDocument()
+}
+
+/**
+ * 丢弃模型和所有结果，按当前设置重新加载并估计。
+ * 用于修改模型设置和出错后重试。
+ */
+export function reloadDepth(): void {
+  discardResults()
+  useDepth.getState().setModel({ state: 'idle' })
   const gen = generation
   enqueue(async () => {
     if (gen === generation) await remote().unload()

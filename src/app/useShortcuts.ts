@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { DEBUG_VIEWS, useDepth } from '@/state/depth'
 import { useApp } from '@/state/store'
 import { isTypingTarget } from './keyboard'
 import { zoomBy, zoomToActual } from './viewActions'
@@ -29,7 +30,10 @@ export function useShortcuts(): void {
       else if (key === '1') zoomToActual()
       else if (key === '+' || key === '=') zoomBy(1.25)
       else if (key === '-') zoomBy(1 / 1.25)
-      else if (key === 'h' && s.doc.character) s.setCharTransform({ flipX: !s.doc.charTransform.flipX })
+      else if (key === 'v') {
+        const d = useDepth.getState()
+        d.setView(DEBUG_VIEWS[(DEBUG_VIEWS.indexOf(d.view) + 1) % DEBUG_VIEWS.length])
+      } else if (key === 'h' && s.doc.character) s.setCharTransform({ flipX: !s.doc.charTransform.flipX })
       else if (key.startsWith('arrow') && s.doc.character && (s.step === 'assets' || s.step === 'character')) {
         e.preventDefault()
         const d = e.shiftKey ? 10 : 1
