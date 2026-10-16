@@ -22,7 +22,10 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      # CI 只检查构建，不下载模型；部署构建（Cloudflare Pages 等）会自动下载
       - run: pnpm build
+        env:
+          A2R_MODELS: none
       - uses: actions/upload-artifact@v4
         with:
           name: dist

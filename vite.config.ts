@@ -5,11 +5,15 @@ import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import license from 'rollup-plugin-license'
+import { ortRuntime, ortWebgpuEntry } from './scripts/vite-plugin-ort-runtime.ts'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
   version: string
   repository: { url: string }
+  dependencies: Record<string, string>
 }
+const models = JSON.parse(readFileSync(new URL('./src/depth/models.json', import.meta.url), 'utf8')) as { repo: string; revision: string }
+const text = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 // 跨域隔离响应头：只有 WASM 多线程回退路径需要，开发和预览服务器与线上配置保持一致。
 const isolationHeaders = {
@@ -31,15 +35,29 @@ const repoUrl = pkg.repository.url.replace(/^git\+/, '').replace(/\.git$/, '')
 // AGPL §13：部署修改版时，请通过 A2R_SOURCE_URL 指向你自己的源码仓库。
 const sourceUrl = process.env.A2R_SOURCE_URL || (commit ? `${repoUrl}/tree/${commit}` : repoUrl)
 
-// 复制进仓库的第三方源码不在 node_modules 中，需要手动写入声明。
+// 以下组件不经过主包打包（复制进仓库的源码、只在 Worker 中使用的依赖、模型权重），需要手动写入声明。
 const vendoredNotices = [
   {
     name: 'Magic UI（src/ui/magicui/，已修改）',
     url: 'https://github.com/magicuidesign/magicui',
     license: 'MIT',
-    text: readFileSync(new URL('./src/ui/magicui/LICENSE', import.meta.url), 'utf8'),
+    text: text('./src/ui/magicui/LICENSE'),
+  },
+  {
+    name: `ONNX Runtime Web（onnxruntime-web@${pkg.dependencies['onnxruntime-web']}，含 WebAssembly 运行时）`,
+    url: 'https://github.com/microsoft/onnxruntime',
+    license: 'MIT',
+    text: text('./licenses/onnxruntime-LICENSE') + '\n\n' + text('./licenses/onnxruntime-ThirdPartyNotices.txt'),
+  },
+  {
+    name: `Depth Anything V2 Small 模型权重（ONNX 转换版 ${models.repo}@${models.revision.slice(0, 8)}）`,
+    url: 'https://huggingface.co/depth-anything/Depth-Anything-V2-Small',
+    license: 'Apache-2.0',
+    text: text('./licenses/Apache-2.0.txt'),
   },
 ]
+
+const ort = ortRuntime()
 
 /** 发布 AGPL 全文；开发服务器下提供法律文件的占位内容。 */
 function legalFiles(): Plugin {
@@ -62,10 +80,15 @@ function legalFiles(): Plugin {
 
 export default defineConfig({
   base: './',
-  plugins: [react(), tailwindcss(), legalFiles()],
+  plugins: [react(), tailwindcss(), legalFiles(), ort.main],
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: [
+      { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
+      // 使用不内嵌 WebAssembly 的入口，运行时由 scripts/vite-plugin-ort-runtime.ts 分片发布
+      { find: /^onnxruntime-web\/webgpu$/, replacement: ortWebgpuEntry },
+    ],
   },
+  optimizeDeps: { exclude: ['onnxruntime-web'] },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __APP_COMMIT__: JSON.stringify(commit ? commit.slice(0, 7) + dirty : 'dev'),
@@ -73,7 +96,7 @@ export default defineConfig({
   },
   server: { headers: isolationHeaders },
   preview: { headers: isolationHeaders },
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: () => [ort.worker] },
   build: {
     target: 'es2023',
     chunkSizeWarningLimit: 1500,

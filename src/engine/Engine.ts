@@ -1,9 +1,11 @@
 import * as THREE from 'three/webgpu'
 import { detectCapabilities, type GpuCapabilities } from './capabilities'
-import { createCharPrepPass, createCompositePass, createEncodePass, createPresentPass } from './passes'
+import { createCharPrepPass, createCompositePass, createEncodePass, createPresentPass, DEBUG_VIEW_INDEX, type DepthTextures } from './passes'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
+import type { DepthResult } from '@/depth/protocol'
 import { getAsset } from '@/state/assets'
+import type { DebugView } from '@/state/depth'
 import type { DocState } from '@/state/store'
 
 export interface EngineOptions {
@@ -24,6 +26,60 @@ function makePlaceholder(): THREE.DataTexture {
   t.colorSpace = THREE.SRGBColorSpace
   t.needsUpdate = true
   return t
+}
+
+/** 原始数据纹理（不做色彩空间转换），线性过滤，无 mipmap。 */
+function dataTexture(data: Uint8Array | Uint16Array, width: number, height: number, type: THREE.TextureDataType): THREE.DataTexture {
+  const t = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, type)
+  t.colorSpace = THREE.NoColorSpace
+  t.flipY = false
+  t.generateMipmaps = false
+  t.minFilter = THREE.LinearFilter
+  t.magFilter = THREE.LinearFilter
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping
+  t.needsUpdate = true
+  return t
+}
+
+/** inferno 色带的 17 个采样点（sRGB），取自 matplotlib（CC0）。 */
+const INFERNO = [
+  0x000004, 0x0b0724, 0x210c4a, 0x3d0965, 0x57106e, 0x71196e, 0x8a226a, 0xa32c61, 0xbc3754, 0xd24644, 0xe45a31, 0xf1731d, 0xf98e09,
+  0xfcac11, 0xf9cb35, 0xf2ea69, 0xfcffa4,
+]
+
+/** 深度视图的色带：256×1，存 sRGB 编码值，着色器中解码。 */
+function makeColormap(): THREE.DataTexture {
+  const n = 256
+  const data = new Uint8Array(n * 4)
+  for (let i = 0; i < n; i++) {
+    const t = (i / (n - 1)) * (INFERNO.length - 1)
+    const k = Math.min(INFERNO.length - 2, Math.floor(t))
+    const f = t - k
+    for (let c = 0; c < 3; c++) {
+      const a = (INFERNO[k] >> (16 - 8 * c)) & 0xff
+      const b = (INFERNO[k + 1] >> (16 - 8 * c)) & 0xff
+      data[i * 4 + c] = Math.round(a + (b - a) * f)
+    }
+    data[i * 4 + 3] = 255
+  }
+  return dataTexture(data, n, 1, THREE.UnsignedByteType)
+}
+
+function depthTextures(result: DepthResult): DepthTextures {
+  const { width, height } = result.guideSize
+  return {
+    coef: dataTexture(result.coefHalf, width, height, THREE.HalfFloatType),
+    aux: dataTexture(result.auxHalf, width, height, THREE.HalfFloatType),
+    normal: dataTexture(result.normal, width, height, THREE.UnsignedByteType),
+  }
+}
+
+export type DepthLayer = 'background' | 'character'
+
+export interface DebugSettings {
+  view: DebugView
+  overlay: number
+  edgeAlign: boolean
 }
 
 function bitmapTexture(bitmap: ImageBitmap): THREE.Texture {
@@ -58,6 +114,13 @@ export class Engine {
   private readonly previewMaxEdge: number
 
   private readonly placeholder = makePlaceholder()
+  private readonly depthPlaceholder: DepthTextures = {
+    coef: dataTexture(new Uint16Array(4), 1, 1, THREE.HalfFloatType),
+    aux: dataTexture(new Uint16Array(4), 1, 1, THREE.HalfFloatType),
+    normal: dataTexture(new Uint8Array([128, 128, 255, 0]), 1, 1, THREE.UnsignedByteType),
+  }
+  private readonly colormap = makeColormap()
+  private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
   private readonly docRT = linearTarget(1, 1, true)
 
@@ -85,7 +148,7 @@ export class Engine {
     this.previewMaxEdge = Math.min(options.previewMaxEdge ?? 2048, capabilities.maxTextureSize)
 
     this.charPrep = createCharPrepPass(this.placeholder)
-    this.composite = createCompositePass(this.placeholder, this.charRT.texture)
+    this.composite = createCompositePass(this.placeholder, this.charRT.texture, this.depthPlaceholder, this.colormap)
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder)
     this.quads = {
@@ -135,6 +198,34 @@ export class Engine {
       this.renderer.setSize(viewport.width, viewport.height, false)
     }
     this.viewDirty = true
+    this.schedule()
+  }
+
+  /** 设置某一图层的深度结果；同一个结果对象不会重复上传。 */
+  setDepth(layer: DepthLayer, result: DepthResult | undefined): void {
+    const current = this.depth[layer]
+    if ((current?.result ?? undefined) === result) return
+    if (current) for (const t of Object.values(current.textures)) t.dispose()
+    const textures = result ? depthTextures(result) : null
+    this.depth[layer] = result && textures ? { result, textures } : null
+    const nodes = this.composite.depth[layer]
+    const src = textures ?? this.depthPlaceholder
+    nodes.coef.value = src.coef
+    nodes.aux.value = src.aux
+    nodes.normal.value = src.normal
+    const u = this.composite.uniforms
+    if (layer === 'background') u.hasBgDepth.value = textures ? 1 : 0
+    else u.hasCharDepth.value = textures ? 1 : 0
+    this.docDirty = true
+    this.schedule()
+  }
+
+  setDebug(settings: DebugSettings): void {
+    const u = this.composite.uniforms
+    u.view.value = DEBUG_VIEW_INDEX[settings.view]
+    u.overlay.value = settings.overlay
+    u.edgeAlign.value = settings.edgeAlign ? 1 : 0
+    this.docDirty = true
     this.schedule()
   }
 
@@ -210,6 +301,9 @@ export class Engine {
     const r = this.renderer
     const linear = linearTarget(width, height)
     const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
+    // 导出始终是合成结果，不带调试视图
+    const view = this.composite.uniforms.view.value
+    this.composite.uniforms.view.value = 0
     try {
       r.setRenderTarget(linear)
       this.quads.composite.render(r)
@@ -223,6 +317,7 @@ export class Engine {
       const pixels = unpackRows(raw, width, height, 4, stride, webgl)
       return { width, height, pixels }
     } finally {
+      this.composite.uniforms.view.value = view
       this.encode.source.value = this.placeholder
       linear.dispose()
       out.dispose()
@@ -239,6 +334,9 @@ export class Engine {
     this.charRT.dispose()
     this.docRT.dispose()
     this.placeholder.dispose()
+    this.colormap.dispose()
+    for (const t of Object.values(this.depthPlaceholder)) t.dispose()
+    for (const layer of Object.values(this.depth)) if (layer) for (const t of Object.values(layer.textures)) t.dispose()
     for (const q of Object.values(this.quads)) (q.material as THREE.Material).dispose()
     this.renderer.dispose()
   }

@@ -14,19 +14,22 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "node scripts/fetch-models.mjs && vite",
+    "build": "node scripts/fetch-models.mjs && tsc -b && vite build",
+    "models": "node scripts/fetch-models.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "test:e2e": "vite build && playwright test"
+    "test:e2e": "node scripts/fetch-models.mjs && vite build && playwright test"
   },
   "dependencies": {
     "@mdui/icons": "^1.0.4",
     "clsx": "^2.1.1",
+    "comlink": "4.4.2",
     "mdui": "^2.1.5",
     "motion": "^14.3.0",
+    "onnxruntime-web": "1.30.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tailwind-merge": "^3.7.0",

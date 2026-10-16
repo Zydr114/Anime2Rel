@@ -1,0 +1,3 @@
+allowBuilds:
+  # postinstall 只打印版本提示，不需要运行
+  protobufjs: false

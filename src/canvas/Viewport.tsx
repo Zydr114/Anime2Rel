@@ -3,6 +3,7 @@ import type { Engine } from '@/engine/Engine'
 import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
 import { t } from '@/i18n'
+import { getDepthResult, useDepth } from '@/state/depth'
 import { useEngine } from '@/state/engine'
 import { useApp } from '@/state/store'
 import { TransformGizmo } from './TransformGizmo'
@@ -47,10 +48,28 @@ export function Viewport() {
         const s = useApp.getState()
         e.setView(s.view, s.viewport)
         e.setDocument(s.doc)
-        unsubscribe = useApp.subscribe((next, prev) => {
-          if (next.doc !== prev.doc) e.setDocument(next.doc)
+        const syncDepth = () => {
+          const { doc } = useApp.getState()
+          const d = useDepth.getState()
+          e.setDepth('background', getDepthResult(doc.background?.id))
+          e.setDepth('character', getDepthResult(doc.character?.id))
+          e.setDebug({ view: d.view, overlay: d.overlay, edgeAlign: d.edgeAlign })
+        }
+        syncDepth()
+        const offApp = useApp.subscribe((next, prev) => {
+          if (next.doc !== prev.doc) {
+            e.setDocument(next.doc)
+            syncDepth()
+          }
           if (next.view !== prev.view || next.viewport !== prev.viewport) e.setView(next.view, next.viewport)
         })
+        const offDepth = useDepth.subscribe((next, prev) => {
+          if (next.resultsVersion !== prev.resultsVersion || next.view !== prev.view || next.overlay !== prev.overlay || next.edgeAlign !== prev.edgeAlign) syncDepth()
+        })
+        unsubscribe = () => {
+          offApp()
+          offDepth()
+        }
         useEngine.getState().setEngine(e)
       })
       .catch((err: unknown) => {
