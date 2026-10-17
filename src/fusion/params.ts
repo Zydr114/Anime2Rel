@@ -34,14 +34,16 @@ export function whiteAdaptation(colorMatch: FusionDoc['colorMatch'], background:
 }
 
 /**
- * 影调曲线：立绘明度的 P1/P50/P99 按强度映射到背景对应分位。以中位数为支点限制两段的斜率，
- * 分位点重合等退化情况返回恒等曲线。
+ * 影调曲线：立绘明度的 P1（黑位）与 P50（中间调）按强度映射到背景对应分位；P99 跟随中间调的曝光变化，
+ * 而不是匹配背景的 P99——立绘周围的背景里往往没有白色物体，其最亮处并不代表光照的强弱。
+ * 以中位数为支点限制两段的斜率，分位点重合等退化情况返回恒等曲线。
  */
 export function toneCurve(character: LabStats, local: LabStats, strength: number): MonotoneCurve {
   const xs = character.quantiles
   const identity = monotoneCurve([0, 0.5, 1], [0, 0.5, 1])
   if (!(xs[1] - xs[0] > 1e-3 && xs[2] - xs[1] > 1e-3)) return identity
-  const target = xs.map((x, i) => x + (local.quantiles[i] - x) * strength)
+  const mid = xs[1] + (local.quantiles[1] - xs[1]) * strength
+  const target = [xs[0] + (local.quantiles[0] - xs[0]) * strength, mid, (xs[2] * mid) / xs[1]]
   const lo = clamp((target[1] - target[0]) / (xs[1] - xs[0]), ...TONE_SLOPE)
   const hi = clamp((target[2] - target[1]) / (xs[2] - xs[1]), ...TONE_SLOPE)
   const ys = [target[1] - lo * (xs[1] - xs[0]), target[1], target[1] + hi * (xs[2] - xs[1])]

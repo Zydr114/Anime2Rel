@@ -1,4 +1,6 @@
 // 界面文案。M6 增加英文时按相同结构新增语言文件。
+import type { RelightStyle } from '@/fusion/model'
+
 export const zhCN = {
   app: {
     name: 'Anime2Rel',
@@ -50,6 +52,43 @@ export const zhCN = {
     flip: '水平翻转',
     reset: '重置摆放',
     gizmoHint: '在画布上拖动立绘移动，拖动四角缩放，拖动上方圆点旋转（按住 Shift 以 15° 为步进）。',
+  },
+  fusion: {
+    depthSection: '前后位置',
+    depth: '深度',
+    depthAuto: '自动（取脚下地面的深度）',
+    depthHint: '数值越大越靠近镜头。点光源的方向和衰减、立绘周围的颜色统计都按这个深度计算。',
+    colorMatch: '颜色匹配',
+    whiteBalance: '白平衡',
+    tone: '影调',
+    chroma: '环境色调',
+    saturation: '饱和度收敛',
+    skinProtect: '肤色保护',
+    colorHint: '影调和色调参照立绘周围、深度相近的背景，移动立绘时自动更新。',
+    waitingStats: '正在统计立绘周围的背景…',
+    relight: '重光照',
+    styles: { realistic: '写实', soft: '柔和', cel: '赛璐璐' } as Record<RelightStyle, string>,
+    strength: '强度',
+    celThreshold: '明暗分界',
+    celSoftness: '过渡宽度',
+    rim: '轮廓光',
+    specular: '高光',
+    relightHint: '使用“光源”步骤中的光源。原画已有的明暗会保留，只叠加光照方向带来的变化。',
+    noLights: '没有启用的光源，重光照和轮廓光不起作用。',
+    edge: '边缘与质感',
+    lightWrap: 'Light Wrap',
+    wrapRadius: 'Light Wrap 半径（相对背景短边）',
+    feather: '边缘羽化',
+    noise: '噪声匹配',
+    noiseMeasured: (v: string) => `背景噪声 σ ≈ ${v} / 255`,
+    normals: '法线（高级）',
+    showNormals: '在画布上显示法线',
+    normalDepth: '深度法线',
+    normalInflate: '膨胀法线',
+    normalDetail: '细节凹凸',
+    inflateRadius: '膨胀半径（相对立绘长边）',
+    normalsHint: '三路法线按权重混合：深度模型的法线、按轮廓膨胀的法线，以及由明暗得到的细节凹凸（线稿不参与）。',
+    reset: '重置融合参数',
   },
   depth: {
     model: '模型',
@@ -187,6 +226,7 @@ export const zhCN = {
     redo: '重做 (Ctrl+Shift+Z)',
     export: '导出',
     debugView: '调试视图 (V)',
+    compare: '前后对比 (\\)',
     about: '关于',
   },
   import: {

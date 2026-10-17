@@ -3,11 +3,15 @@ import type { Dropdown } from 'mdui/components/dropdown.js'
 import type { Menu } from 'mdui/components/menu.js'
 import { t } from '@/i18n'
 import { DEBUG_VIEWS, useDepth, type DebugView } from '@/state/depth'
+import { useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 import { Dock, DockIcon } from '@/ui/magicui/dock'
 import { IconButton } from '@/ui/IconButton'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { zoomBy } from './viewActions'
+
+/** 开关类按钮按下时的样式 */
+const ACTIVE = 'bg-primary/20 text-primary hover:bg-primary/25'
 
 /** 底部工具栏（Magic UI Dock）。 */
 export function Toolbar({ onExport }: { onExport: () => void }) {
@@ -17,6 +21,8 @@ export function Toolbar({ onExport }: { onExport: () => void }) {
   const undo = useApp((s) => s.undo)
   const redo = useApp((s) => s.redo)
   const fitToView = useApp((s) => s.fitToView)
+  const hasCharacter = useApp((s) => !!s.doc.character)
+  const compare = useFusion((s) => s.compare)
 
   return (
     <Dock className="glass" iconSize={40} iconMagnification={52} iconDistance={110}>
@@ -50,6 +56,18 @@ export function Toolbar({ onExport }: { onExport: () => void }) {
         </IconButton>
       </DockIcon>
       <div className="mx-1 h-6 w-px bg-white/15" />
+      <DockIcon>
+        <IconButton
+          label={t.toolbar.compare}
+          onClick={() => useFusion.getState().setCompare(!compare)}
+          disabled={!hasCharacter}
+          pressed={compare}
+          className={compare ? ACTIVE : undefined}
+          testId="compare"
+        >
+          <mdui-icon-compare--outlined />
+        </IconButton>
+      </DockIcon>
       <DockIcon>
         <DebugViewMenu />
       </DockIcon>
@@ -85,7 +103,7 @@ function DebugViewMenu() {
           label={t.toolbar.debugView}
           onClick={() => {}}
           tooltipDisabled={open}
-          className={view === 'composite' ? undefined : 'bg-primary/20 text-primary hover:bg-primary/25'}
+          className={view === 'composite' ? undefined : ACTIVE}
           testId="debug-view"
         >
           <mdui-icon-preview--outlined />

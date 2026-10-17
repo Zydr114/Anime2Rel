@@ -96,12 +96,12 @@ describe('statistics', () => {
 describe('fusion parameters', () => {
   const stats = (q: [number, number, number], chromaP90 = 0.1): LabStats => ({ quantiles: q, mean: [0, 0], cov: [0, 0, 0], chromaP90, weight: 1 })
 
-  it('maps character quantiles onto the background and limits the contrast change', () => {
+  it('matches black level and midtones, lets highlights follow the exposure, and limits the contrast change', () => {
     const full = toneCurve(stats([0.2, 0.6, 0.9]), stats([0.1, 0.4, 0.7]), 1)
-    expect(full.ys.map((y) => +y.toFixed(3))).toEqual([0.1, 0.4, 0.7])
-    // 背景很平时，斜率被限制在下限，立绘不会被压成一片
+    expect(full.ys.map((y) => +y.toFixed(3))).toEqual([0.1, 0.4, 0.6])
+    // 背景很平时，斜率被限制在下限，立绘的暗部不会被压成一片
     const flat = toneCurve(stats([0.2, 0.6, 0.9]), stats([0.45, 0.5, 0.52]), 1)
-    expect(flat.ys[2] - flat.ys[1]).toBeCloseTo(0.4 * 0.3)
+    expect(flat.ys[1] - flat.ys[0]).toBeCloseTo(0.4 * 0.4)
   })
 
   it('normalizes relighting to the frontal hemisphere average and only adds rim light for back lights', () => {

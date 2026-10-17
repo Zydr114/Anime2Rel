@@ -6,7 +6,7 @@ import { useApp } from '@/state/store'
 import { SliderField } from '@/ui/SliderField'
 import { NumberField } from '@/ui/NumberField'
 import { useDomEvent } from '@/ui/useDomEvent'
-import { PlaceholderPanel } from './PlaceholderPanel'
+import { FusionSections } from './FusionSections'
 
 const RAD = Math.PI / 180
 
@@ -44,7 +44,7 @@ export function CharacterPanel() {
         </mdui-button>
         <p className="text-xs leading-5 text-on-surface-variant">{t.character.gizmoHint}</p>
       </section>
-      <PlaceholderPanel milestone="M3" />
+      <FusionSections />
     </div>
   )
 }

@@ -221,7 +221,8 @@ export function createFusionNode(input: FusionNodeInput) {
 
   // Light Wrap：边缘带内与模糊背景做滤色混合
   const lit = min(relit, vec3(1))
-  const wrapK = edge.mul(u.lightWrap)
+  // 线稿基本不参与，保持描边清晰
+  const wrapK = edge.mul(u.lightWrap).mul(mix(0.3, 1, lineMask))
   const wrapped = mix(relit, lit.add(blurredBg).sub(lit.mul(blurredBg)), wrapK)
 
   // 噪声匹配：在 sRGB 编码空间加噪，换算回线性后作为增量叠加（保留高光）

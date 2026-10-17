@@ -12,10 +12,12 @@ interface Props {
   testId?: string
   /** 为 true 时不显示悬浮提示（例如按钮打开的菜单会被提示遮挡时） */
   tooltipDisabled?: boolean
+  /** 开关类按钮的按下状态 */
+  pressed?: boolean
 }
 
 /** 带悬浮提示的图标按钮。图标尺寸随容器缩放，可放进 Dock。 */
-export function IconButton({ label, onClick, disabled, children, className, testId, tooltipDisabled }: Props) {
+export function IconButton({ label, onClick, disabled, children, className, testId, tooltipDisabled, pressed }: Props) {
   const tooltipRef = useRef<Tooltip>(null)
   // 禁用不会收起已显示的提示，也拦不住禁用前已开始计时的悬停，因此手动关闭并取消之后的打开
   useEffect(() => {
@@ -32,6 +34,7 @@ export function IconButton({ label, onClick, disabled, children, className, test
       <button
         type="button"
         aria-label={label}
+        aria-pressed={pressed}
         disabled={disabled}
         onClick={onClick}
         data-testid={testId}

@@ -8,7 +8,7 @@ export interface FusionDoc {
   colorMatch: {
     /** 白平衡适配：把立绘的白点（D65）适配到背景白点 */
     whiteBalance: number
-    /** 影调：明度分位点 P1/P50/P99 匹配到立绘周围的背景 */
+    /** 影调：黑位与中间调匹配到立绘周围的背景，高光随中间调的曝光变化 */
     tone: number
     /** 色度：a/b 均值与方差迁移 */
     chroma: number
@@ -51,9 +51,9 @@ export interface FusionDoc {
 export type FusionSection = 'colorMatch' | 'relight' | 'normals' | 'edge'
 
 export const DEFAULT_FUSION: FusionDoc = {
-  colorMatch: { whiteBalance: 0.7, tone: 0.5, chroma: 0.3, saturation: 0.3, skinProtect: true },
+  colorMatch: { whiteBalance: 0.7, tone: 0.4, chroma: 0.3, saturation: 0.3, skinProtect: true },
   relight: { style: 'realistic', strength: 0.6, celThreshold: 0.1, celSoftness: 0.05, rim: 0.6, specular: 0 },
   normals: { ...DEFAULT_NORMAL_WEIGHTS, inflateRadius: DEFAULT_INFLATE_RADIUS },
-  edge: { lightWrap: 0.25, wrapRadius: 0.008, feather: 0.5, noise: 1 },
+  edge: { lightWrap: 0.15, wrapRadius: 0.008, feather: 0.5, noise: 1 },
   depth: null,
 }

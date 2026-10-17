@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { DEBUG_VIEWS, useDepth } from '@/state/depth'
+import { useFusion } from '@/state/fusion'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { isTypingTarget } from './keyboard'
@@ -46,6 +47,9 @@ export function useShortcuts(): void {
       else if (key === 'v') {
         const d = useDepth.getState()
         d.setView(DEBUG_VIEWS[(DEBUG_VIEWS.indexOf(d.view) + 1) % DEBUG_VIEWS.length])
+      } else if (key === '\\' && s.doc.character) {
+        const f = useFusion.getState()
+        f.setCompare(!f.compare)
       } else if (key === 'h' && s.doc.character) s.setCharTransform({ flipX: !s.doc.charTransform.flipX })
       else if (key.startsWith('arrow') && s.doc.character && (s.step === 'assets' || s.step === 'character')) {
         e.preventDefault()
