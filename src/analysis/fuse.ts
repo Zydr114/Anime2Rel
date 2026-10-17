@@ -10,7 +10,7 @@
  *   另要求天空本身是亮的，排除同样平坦的夜空。
  */
 import { angleBetween, normalize, pixelToRay } from '@/algo/camera'
-import { normalizeColor } from '@/algo/kelvin'
+import { normalizeColor } from '@/algo/color'
 import { quantiles } from '@/algo/raster'
 import { LUMA, type ShRgb, type Vec3 } from '@/algo/sh'
 import type { ContourEstimate } from './contours'

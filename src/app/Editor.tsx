@@ -11,6 +11,7 @@ import { AssetsPanel } from './panels/AssetsPanel'
 import { CharacterPanel } from './panels/CharacterPanel'
 import { DepthPanel } from './panels/DepthPanel'
 import { ExportPanel } from './panels/ExportPanel'
+import { LightPanel } from './panels/LightPanel'
 import { PlaceholderPanel } from './panels/PlaceholderPanel'
 import { steps } from './steps'
 import { Toolbar } from './Toolbar'
@@ -19,6 +20,7 @@ import { useShortcuts } from './useShortcuts'
 function StepPanel({ step }: { step: StepId }) {
   if (step === 'assets') return <AssetsPanel />
   if (step === 'depth') return <DepthPanel />
+  if (step === 'light') return <LightPanel />
   if (step === 'character') return <CharacterPanel />
   if (step === 'export') return <ExportPanel />
   const def = steps.find((s) => s.id === step)

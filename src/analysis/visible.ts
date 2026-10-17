@@ -6,7 +6,7 @@
  * 颜色取过曝区外环中未过曝的像素，因为过曝区本身只剩白色。
  */
 import { labelRegions, outerRing, type Region } from '@/algo/blobs'
-import { normalizeColor } from '@/algo/kelvin'
+import { normalizeColor } from '@/algo/color'
 import { fastGaussianBlur, quantiles } from '@/algo/raster'
 import type { Vec3 } from '@/algo/sh'
 import type { Scene } from './scene'

@@ -3,6 +3,7 @@
  * 深度按 d = k/Z - β 生成，与法线估计的伪深度模型一致，因此由深度恢复的法线是准确的。
  */
 import { normalize, pixelToRay } from '@/algo/camera'
+import { linearToSrgb } from '@/algo/color'
 import { DEFAULT_NORMAL_OPTIONS } from '@/algo/normals'
 import type { Vec3 } from '@/algo/sh'
 
@@ -57,10 +58,7 @@ function hitSphere(o: Vec3, d: Vec3, s: Sphere): number {
   return t > 1e-4 ? t : Infinity
 }
 
-const encode = (v: number) => {
-  const c = Math.min(1, Math.max(0, v))
-  return Math.round((c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055) * 255)
-}
+const encode = (v: number) => Math.round(linearToSrgb(v) * 255)
 
 export function renderScene(width: number, height: number, light: SyntheticLight, fovDeg = 60): SyntheticScene {
   const size = { width, height }

@@ -1,6 +1,6 @@
 /** 主线程上的取样：深度/天空（光源落点）、背景颜色（吸管）。 */
 import type { Point, Size } from '@/algo/geometry'
-import { normalizeColor } from '@/algo/kelvin'
+import { normalizeColor, srgbToLinear } from '@/algo/color'
 import type { Vec3 } from '@/algo/sh'
 import type { DepthResult } from '@/depth/protocol'
 import { getAsset } from '@/state/assets'
@@ -35,11 +35,6 @@ function pickImage(assetId: string) {
   return img
 }
 
-const toLinear = (v: number) => {
-  const c = v / 255
-  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-}
-
 /** 吸管：背景在文档坐标 p 附近 5×5 像素的平均颜色（线性，最大分量为 1）。 */
 export function pickColor(assetId: string, p: Point, doc: Size): Vec3 | null {
   const img = pickImage(assetId)
@@ -50,7 +45,7 @@ export function pickColor(assetId: string, p: Point, doc: Size): Vec3 | null {
   for (let y = cy - 2; y <= cy + 2; y++)
     for (let x = cx - 2; x <= cx + 2; x++) {
       const i = (Math.min(img.height - 1, Math.max(0, y)) * img.width + Math.min(img.width - 1, Math.max(0, x))) * 4
-      for (let c = 0; c < 3; c++) sum[c] += toLinear(img.data[i + c])
+      for (let c = 0; c < 3; c++) sum[c] += srgbToLinear(img.data[i + c] / 255)
     }
   return normalizeColor(sum)
 }

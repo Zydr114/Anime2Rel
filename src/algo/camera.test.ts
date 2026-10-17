@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { angleBetween, fromAngles, pixelToRay, rayToPixel, toAngles, unproject } from './camera'
-import { kelvinToRgb } from './kelvin'
+import { kelvinToRgb, nearestKelvin } from './kelvin'
 
 describe('camera', () => {
   const size = { width: 800, height: 600 }
@@ -40,5 +40,14 @@ describe('kelvinToRgb', () => {
     expect(Math.min(...neutral)).toBeGreaterThan(0.85)
     expect(cool[2]).toBe(1)
     expect(cool[0]).toBeLessThan(0.85)
+  })
+})
+
+describe('nearestKelvin', () => {
+  it('recovers the temperature of locus colors and ignores green tint', () => {
+    for (const k of [2000, 3200, 5000, 6500, 9000]) expect(Math.abs(nearestKelvin(kelvinToRgb(k)) - k) / k).toBeLessThan(0.02)
+    const tinted = kelvinToRgb(5000).map((v, c) => v * (c === 1 ? 1.15 : 1))
+    expect(Math.abs(nearestKelvin(tinted) - 5000)).toBeLessThan(600)
+    expect(nearestKelvin([1, 1, 1], 2000, 10000)).toBeGreaterThan(6000)
   })
 })

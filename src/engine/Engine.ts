@@ -1,9 +1,10 @@
 import * as THREE from 'three/webgpu'
 import { detectCapabilities, type GpuCapabilities } from './capabilities'
-import { createCharPrepPass, createCompositePass, createEncodePass, createPresentPass, DEBUG_VIEW_INDEX, type DepthTextures } from './passes'
+import { createCharPrepPass, createCompositePass, createEncodePass, createPresentPass, DEBUG_VIEW_INDEX, PREVIEW_LIGHTS, type DepthTextures } from './passes'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
+import type { BallPreview } from '@/lighting/preview'
 import { getAsset } from '@/state/assets'
 import type { DebugView } from '@/state/depth'
 import type { DocState } from '@/state/store'
@@ -234,6 +235,26 @@ export class Engine {
     this.schedule()
   }
 
+  /** 显示或隐藏灰球预览。导出时始终隐藏。 */
+  setBallPreview(preview: BallPreview | null): void {
+    const u = this.composite.ball
+    u.showBall.value = preview ? 1 : 0
+    if (preview) {
+      u.ballCenter.value.set(preview.center.x, preview.center.y)
+      u.ballRadius.value = Math.max(preview.radius, 1)
+      u.sh.forEach((node, k) => node.value.set(preview.ambient[k * 3], preview.ambient[k * 3 + 1], preview.ambient[k * 3 + 2]))
+      u.lights.forEach((node, i) => {
+        const l = preview.lights[i]
+        node.direction.value.set(...(l?.direction ?? [0, 0, 1]))
+        node.color.value.set(...(l?.color ?? [0, 0, 0]))
+        node.softness.value = l?.softness ?? 0
+      })
+      if (preview.lights.length > PREVIEW_LIGHTS) console.warn('[engine] 灰球预览只使用前', PREVIEW_LIGHTS, '个光源')
+    }
+    this.docDirty = true
+    this.schedule()
+  }
+
   private syncBackground(doc: DocState): void {
     const id = doc.background?.id ?? null
     if (id === this.bgAssetId) return
@@ -306,9 +327,11 @@ export class Engine {
     const r = this.renderer
     const linear = linearTarget(width, height)
     const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
-    // 导出始终是合成结果，不带调试视图
+    // 导出始终是合成结果，不带调试视图和灰球
     const view = this.composite.uniforms.view.value
+    const ball = this.composite.ball.showBall.value
     this.composite.uniforms.view.value = 0
+    this.composite.ball.showBall.value = 0
     try {
       r.setRenderTarget(linear)
       this.quads.composite.render(r)
@@ -323,6 +346,7 @@ export class Engine {
       return { width, height, pixels }
     } finally {
       this.composite.uniforms.view.value = view
+      this.composite.ball.showBall.value = ball
       this.encode.source.value = this.placeholder
       linear.dispose()
       out.dispose()

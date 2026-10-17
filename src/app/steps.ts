@@ -12,7 +12,7 @@ export interface StepDef {
 export const steps: StepDef[] = [
   { id: 'assets', label: t.steps.assets, icon: 'layers--outlined' },
   { id: 'depth', label: t.steps.depth, icon: 'landscape--outlined' },
-  { id: 'light', label: t.steps.light, icon: 'light-mode--outlined', milestone: 'M2' },
+  { id: 'light', label: t.steps.light, icon: 'light-mode--outlined' },
   { id: 'character', label: t.steps.character, icon: 'face--outlined' },
   { id: 'focus', label: t.steps.focus, icon: 'center-focus-strong--outlined', milestone: 'M4' },
   { id: 'adjust', label: t.steps.adjust, icon: 'tune--outlined', milestone: 'M5' },

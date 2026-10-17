@@ -10,17 +10,20 @@
 import { normalize } from '@/algo/camera'
 import { wrapDiffuse } from '@/algo/shading'
 import { directionality, extractDominant, fitSh, LUMA, type ShRgb, type Vec3 } from '@/algo/sh'
-import { normalizeColor } from '@/algo/kelvin'
+import { kelvinToRgb, nearestKelvin } from '@/algo/kelvin'
 import type { Scene } from './scene'
 
 const MAX_SAMPLES = 15_000
+/** 主光色温的范围：日落暖光到阴影处的冷光 */
+const B_MIN_KELVIN = 2000
+const B_MAX_KELVIN = 10000
 
 export interface ShadingEstimate {
   /** 完整的球谐拟合（低频环境光照，含主光） */
   sh: ShRgb
   /** 主光方向（指向光源） */
   direction: Vec3
-  /** 主光颜色（最大分量为 1）。反照率颜色会混进拟合结果，这里向白色收敛一半 */
+  /** 主光颜色（最大分量为 1）。反照率颜色会混进拟合结果，因此投影到普朗克轨迹上，只保留冷暖 */
   color: Vec3
   confidence: number
   /** ‖L1‖/L0 归一化到 [0,1] */
@@ -188,7 +191,8 @@ export function estimateShading(scene: Scene): ShadingEstimate | null {
 
   // 固定方向，分通道求颜色
   const rgb = [0, 1, 2].map((c) => fitAt(s, Float64Array.from({ length: m }, (_, i) => s.rgb[i * 3 + c]), w, direction).light)
-  const color = normalizeColor(normalizeColor(rgb).map((v) => 0.5 + 0.5 * v))
+  // 分通道的颜色受朝光表面的反照率影响（例如朝上的草地让光偏绿），因此只保留冷暖：投影到普朗克轨迹
+  const color = kelvinToRgb(nearestKelvin(rgb, B_MIN_KELVIN, B_MAX_KELVIN))
 
   // 置信度：方向性 × 法线覆盖度 × 拟合优度
   let sw = 0

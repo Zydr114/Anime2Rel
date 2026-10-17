@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { DEBUG_VIEWS, useDepth } from '@/state/depth'
+import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { isTypingTarget } from './keyboard'
 import { zoomBy, zoomToActual } from './viewActions'
@@ -26,6 +27,18 @@ export function useShortcuts(): void {
       }
       if (mod || e.altKey) return
 
+      if (s.step === 'light') {
+        const l = useLighting.getState()
+        if (key === 'escape' && l.tool !== 'select') {
+          l.setTool('select')
+          return
+        }
+        if ((key === 'delete' || key === 'backspace') && l.selected) {
+          e.preventDefault()
+          s.removeLight(l.selected)
+          return
+        }
+      }
       if (key === 'f') s.fitToView()
       else if (key === '1') zoomToActual()
       else if (key === '+' || key === '=') zoomBy(1.25)

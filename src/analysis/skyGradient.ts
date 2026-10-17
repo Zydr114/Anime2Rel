@@ -4,7 +4,7 @@
  * 太阳附近的天空更亮。对天空像素拟合 log 亮度的线性平面，水平斜率指出太阳在左侧还是右侧。
  * 竖直方向的斜率还受“越靠近地平线越亮”的影响，只在它朝上时采用。
  */
-import { normalizeColor } from '@/algo/kelvin'
+import { normalizeColor } from '@/algo/color'
 import { robustLeastSquares } from '@/algo/linalg'
 import type { Vec3 } from '@/algo/sh'
 import type { Scene } from './scene'

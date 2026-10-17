@@ -1,6 +1,6 @@
 // 渲染各阶段使用的 TSL 材质。所有中间结果都是线性 sRGB；立绘使用预乘 alpha。
 import * as THREE from 'three/webgpu'
-import { cos, dot, float, max, mix, pow, saturate, screenUV, select, sin, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, cos, dot, float, fwidth, length, max, mix, pow, saturate, screenUV, select, sin, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 
 type Vec3Node = THREE.Node<'vec3'>
 type FloatNode = THREE.Node<'float'>
@@ -41,6 +41,53 @@ export interface DepthTextures {
   coef: THREE.Texture
   aux: THREE.Texture
   normal: THREE.Texture
+}
+
+/** 灰球预览最多使用的光源数，与 src/lighting/model.ts 的 MAX_LIGHTS 一致 */
+export const PREVIEW_LIGHTS = 8
+
+/** 2 阶实球谐求值，系数顺序与 src/algo/sh.ts 一致 */
+function evalSh(sh: THREE.UniformNode<'vec3', THREE.Vector3>[], n: Vec3Node): Vec3Node {
+  const basis = [
+    float(0.282095),
+    n.y.mul(0.488603),
+    n.z.mul(0.488603),
+    n.x.mul(0.488603),
+    n.x.mul(n.y).mul(1.092548),
+    n.y.mul(n.z).mul(1.092548),
+    n.z.mul(n.z).mul(3).sub(1).mul(0.315392),
+    n.x.mul(n.z).mul(1.092548),
+    n.x.mul(n.x).sub(n.y.mul(n.y)).mul(0.546274),
+  ]
+  return basis.reduce<Vec3Node>((acc, y, k) => acc.add(sh[k].mul(y)), vec3(0))
+}
+
+/**
+ * 灰球预览：在文档空间画一个漫反射球，着色公式与 src/algo/shading.ts 的 shade 一致。
+ * 返回叠加到 color 上的结果；showBall 为 0 时原样返回。
+ */
+function ballOverlay(color: Vec3Node, p: THREE.Node<'vec2'>) {
+  const u = {
+    showBall: uniform(0),
+    ballCenter: uniform(new THREE.Vector2(0, 0)),
+    ballRadius: uniform(1),
+    sh: Array.from({ length: 9 }, () => uniform(new THREE.Vector3())),
+    lights: Array.from({ length: PREVIEW_LIGHTS }, () => ({ direction: uniform(new THREE.Vector3(0, 0, 1)), color: uniform(new THREE.Vector3()), softness: uniform(0) })),
+  }
+  const q = p.sub(u.ballCenter).div(u.ballRadius)
+  const r = length(q)
+  const aa = max(fwidth(r), 1e-4)
+  // 文档 y 向下，法线 y 向上
+  const n = vec3(q.x, q.y.negate(), sqrt(max(float(1).sub(dot(q, q)), 0)))
+  const irradiance = u.lights.reduce<Vec3Node>(
+    (acc, l) => acc.add(l.color.mul(max(dot(n, l.direction).add(l.softness).div(l.softness.add(1)), 0))),
+    max(evalSh(u.sh, n), vec3(0)),
+  )
+  const inside = saturate(float(1).sub(r).div(aa).add(0.5)).mul(u.showBall)
+  // 球外 1.5 px 的暗色描边，在亮背景上也能看清轮廓
+  const ring = saturate(float(1).sub(abs(r.sub(1).sub(aa.mul(1.5))).div(aa.mul(1.5)))).mul(u.showBall)
+  const outlined = mix(color, color.mul(0.3), ring)
+  return { uniforms: u, color: mix(outlined, irradiance, inside) }
 }
 
 /** 立绘推理时垫底的中性灰（sRGB 编码值），与 src/depth/pipeline.ts 一致 */
@@ -105,15 +152,17 @@ export function createCompositePass(bgPlaceholder: THREE.Texture, charTexture: T
 
   const debug = chDebug.mul(ch.a).add(bgDebug.mul(float(1).sub(ch.a)))
   const out = mix(rgb, debug, u.overlay.mul(step(0.5, u.view)))
+  const ball = ballOverlay(out, p)
 
   return {
     uniforms: u,
+    ball: ball.uniforms,
     background: bg,
     depth: {
       background: { coef: bgCoef, aux: bgAux, normal: bgNormal },
       character: { coef: chCoef, aux: chAux, normal: chNormal },
     },
-    material: material(vec4(out, 1)),
+    material: material(vec4(ball.color, 1)),
   }
 }
 

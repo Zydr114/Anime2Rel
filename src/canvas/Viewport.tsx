@@ -3,8 +3,10 @@ import type { Engine } from '@/engine/Engine'
 import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
 import { t } from '@/i18n'
+import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useEngine } from '@/state/engine'
+import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { TransformGizmo } from './TransformGizmo'
 import { useSpaceHeld } from './useSpaceHeld'
@@ -55,20 +57,33 @@ export function Viewport() {
           e.setDepth('character', getDepthResult(doc.character?.id))
           e.setDebug({ view: d.view, overlay: d.overlay, edgeAlign: d.edgeAlign })
         }
+        // 灰球只在光源步骤显示
+        const syncBall = () => {
+          const { doc, step } = useApp.getState()
+          const show = step === 'light' && useLighting.getState().showBall
+          e.setBallPreview(show ? computeBallPreview(doc, getAnalysis(doc.background?.id), getDepthResult(doc.background?.id)) : null)
+        }
         syncDepth()
+        syncBall()
         const offApp = useApp.subscribe((next, prev) => {
           if (next.doc !== prev.doc) {
             e.setDocument(next.doc)
             syncDepth()
           }
+          if (next.doc !== prev.doc || next.step !== prev.step) syncBall()
           if (next.view !== prev.view || next.viewport !== prev.viewport) e.setView(next.view, next.viewport)
         })
         const offDepth = useDepth.subscribe((next, prev) => {
           if (next.resultsVersion !== prev.resultsVersion || next.view !== prev.view || next.overlay !== prev.overlay || next.edgeAlign !== prev.edgeAlign) syncDepth()
+          if (next.resultsVersion !== prev.resultsVersion) syncBall()
+        })
+        const offLighting = useLighting.subscribe((next, prev) => {
+          if (next.analyses !== prev.analyses || next.showBall !== prev.showBall) syncBall()
         })
         unsubscribe = () => {
           offApp()
           offDepth()
+          offLighting()
         }
         useEngine.getState().setEngine(e)
       })

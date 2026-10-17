@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react'
+import { useGestureChange } from '../useGestureChange'
 import type { Switch } from 'mdui/components/switch.js'
 import { t } from '@/i18n'
 import { useApp } from '@/state/store'
@@ -8,19 +9,6 @@ import { useDomEvent } from '@/ui/useDomEvent'
 import { PlaceholderPanel } from './PlaceholderPanel'
 
 const RAD = Math.PI / 180
-
-/** 滑块拖动期间合并为一次撤销记录。 */
-function useGestureChange<T>(apply: (v: T) => void) {
-  return useCallback(
-    (v: T, phase: 'input' | 'end') => {
-      const s = useApp.getState()
-      if (phase === 'input') s.beginGesture()
-      apply(v)
-      if (phase === 'end') useApp.getState().endGesture()
-    },
-    [apply],
-  )
-}
 
 const formatPercent = (v: number) => `${Math.round(v)}%`
 const formatDegrees = (v: number) => `${v.toFixed(1)}°`
