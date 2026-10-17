@@ -4,7 +4,7 @@
 
 上传一张背景照片和一张带透明通道的立绘，摆放好位置后导出 PNG。所有计算都在本地完成，图片不会上传。项目计划见 [`docs/Plan.md`](docs/Plan.md)。
 
-> 当前处于 **M1 深度** 阶段：已实现导入、摆放、视口缩放平移、撤销重做、PNG 导出，以及基于 Depth Anything V2 Small 的深度估计（法线、天空遮罩和调试视图）。光源分析、立绘融合、景深、调色和后期效果会在后续里程碑中逐步加入。
+> 当前处于 **M2 光源分析** 阶段：已实现导入、摆放、视口缩放平移、撤销重做、PNG 导出，基于 Depth Anything V2 Small 的深度估计（法线、天空遮罩和调试视图），以及光源分析：自动给出候选光源（方向光 / 点光源）并识别阴天，可在画布和光照方向球上拖动、添加、删除光源，调整颜色、色温、强度和软硬度，用灰球预览检查光照。立绘融合、景深、调色和后期效果会在后续里程碑中逐步加入。
 
 本项目不提供抠图功能，立绘需要自带透明背景。
 
@@ -51,7 +51,9 @@ ONNX Runtime 的 WebAssembly 运行时约 26 MB，构建时同样会被切成分
 CHROME_PATH=/usr/bin/chromium pnpm test:e2e
 ```
 
-不设置 `CHROME_PATH` 时使用 Playwright 自带的浏览器，需要先执行 `pnpm exec playwright install chromium` 下载与当前 Playwright 版本匹配的浏览器。WebGPU 用例需要能访问 GPU 的环境。`pnpm test:e2e` 会先下载模型。测试图像都在测试中程序生成（M1 用例是天空、透视地面和球体组成的合成场景），仓库不包含示例图片。
+不设置 `CHROME_PATH` 时使用 Playwright 自带的浏览器，需要先执行 `pnpm exec playwright install chromium` 下载与当前 Playwright 版本匹配的浏览器。WebGPU 用例需要能访问 GPU 的环境。`pnpm test:e2e` 会先下载模型。测试图像都在测试中程序生成（M1 用例是天空、透视地面和球体组成的合成场景；M2 用例由 [`src/analysis/synthetic.ts`](src/analysis/synthetic.ts) 光线追踪生成晴天、阴天和夜景），仓库不包含示例图片。
+
+测试会在 4173 端口启动预览服务器；如果本地已有其他服务占用这个端口，Playwright 会直接复用它，导致测试打开错误的页面，需要先停止该服务。
 
 ## 部署
 
