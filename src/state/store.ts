@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { AssetRef } from './assets'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
+import { DEFAULT_FUSION, type FusionDoc, type FusionSection } from '@/fusion/model'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
 export type StepId = 'assets' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
@@ -11,13 +12,14 @@ export interface DocState {
   character: AssetRef | null
   charTransform: LayerTransform
   lighting: LightingDoc
+  fusion: FusionDoc
 }
 
 const HISTORY_LIMIT = 100
 
 const emptyTransform: LayerTransform = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
 
-export const initialDoc: DocState = { background: null, character: null, charTransform: emptyTransform, lighting: DEFAULT_LIGHTING }
+export const initialDoc: DocState = { background: null, character: null, charTransform: emptyTransform, lighting: DEFAULT_LIGHTING, fusion: DEFAULT_FUSION }
 
 interface AppState {
   doc: DocState
@@ -53,6 +55,11 @@ interface AppState {
    * 换背景后的首次自动分析属于“换背景”这一步的结果，撤销时应与背景一起回退。
    */
   replaceLights: (lights: Light[], analyzedFor: string, record: boolean) => void
+
+  updateFusion: <K extends FusionSection>(section: K, update: Partial<FusionDoc[K]>) => void
+  /** 立绘所在深度；null 为自动 */
+  setCharDepth: (depth: number | null) => void
+  resetFusion: () => void
 
   setView: (view: ViewTransform) => void
   setViewport: (size: Size) => void
@@ -172,6 +179,18 @@ export const useApp = create<AppState>()((set, get) => ({
     const update = (d: DocState): DocState => ({ ...d, lighting: { ...d.lighting, lights: lights.slice(0, MAX_LIGHTS), analyzedFor } })
     if (record) get().setDoc(update)
     else set({ doc: update(get().doc) })
+  },
+
+  updateFusion: (section, update) => {
+    get().setDoc((d) => ({ ...d, fusion: { ...d.fusion, [section]: { ...d.fusion[section], ...update } } }))
+  },
+
+  setCharDepth: (depth) => {
+    get().setDoc((d) => ({ ...d, fusion: { ...d.fusion, depth } }))
+  },
+
+  resetFusion: () => {
+    get().setDoc((d) => ({ ...d, fusion: { ...DEFAULT_FUSION, depth: d.fusion.depth } }))
   },
 
   setView: (view) => set({ view }),

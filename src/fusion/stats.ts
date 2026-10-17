@@ -2,7 +2,6 @@
  * 立绘融合的统计量（docs/Plan.md §3.3 (1)(4)）：背景白点、局部影调与色度、立绘自身的统计、背景噪声。
  * 都在低分辨率数据上计算，供颜色匹配求参数。
  */
-import { luminance } from '@/algo/cat'
 import { nearestKelvin, kelvinToRgb } from '@/algo/kelvin'
 import { normalizeColor } from '@/algo/color'
 import { boxMean } from '@/algo/raster'
@@ -131,17 +130,4 @@ export function noiseSigma(rgb: Float32Array, w: number, h: number): Vec3 {
     result.push(flat[flat.length >> 1] / 0.6745 / 6)
   }
   return result as Vec3
-}
-
-/** 相对亮度（线性） */
-export function meanLuminance(linear: Float32Array, weights: ArrayLike<number>): number {
-  let s = 0
-  let sw = 0
-  for (let i = 0; i < weights.length; i++) {
-    const w = weights[i]
-    if (!(w > 0)) continue
-    s += w * luminance([linear[i * 3], linear[i * 3 + 1], linear[i * 3 + 2]])
-    sw += w
-  }
-  return sw > 0 ? s / sw : 0
 }

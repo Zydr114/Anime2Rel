@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { initialDoc, useApp } from './store'
 import type { AssetRef } from './assets'
 import type { LightCandidate } from '@/analysis/protocol'
+import { DEFAULT_FUSION } from '@/fusion/model'
 import { lightsFromCandidates, MAX_LIGHTS, newDirectionalLight } from '@/lighting/model'
 
 const asset = (id: string, width = 1000, height = 800): AssetRef => ({
@@ -150,5 +151,17 @@ describe('lights', () => {
     const s = useApp.getState()
     for (let i = 0; i < MAX_LIGHTS; i++) expect(s.addLight(newDirectionalLight())).toBe(true)
     expect(s.addLight(newDirectionalLight())).toBe(false)
+  })
+})
+
+describe('fusion', () => {
+  it('merges section updates and keeps the character depth on reset', () => {
+    const s = useApp.getState()
+    s.updateFusion('relight', { style: 'cel' })
+    useApp.getState().setCharDepth(0.4)
+    useApp.getState().resetFusion()
+    expect(useApp.getState().doc.fusion).toEqual({ ...DEFAULT_FUSION, depth: 0.4 })
+    useApp.getState().undo()
+    expect(useApp.getState().doc.fusion.relight).toEqual({ ...DEFAULT_FUSION.relight, style: 'cel' })
   })
 })

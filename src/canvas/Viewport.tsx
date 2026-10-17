@@ -6,6 +6,7 @@ import { t } from '@/i18n'
 import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useEngine } from '@/state/engine'
+import { characterBBox, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { LightGizmo } from './LightGizmo'
@@ -62,7 +63,7 @@ export function Viewport() {
         const syncBall = () => {
           const { doc, step } = useApp.getState()
           const show = step === 'light' && useLighting.getState().showBall
-          e.setBallPreview(show ? computeBallPreview(doc, getAnalysis(doc.background?.id), getDepthResult(doc.background?.id)) : null)
+          e.setBallPreview(show ? computeBallPreview(doc, getAnalysis(doc.background?.id), getDepthResult(doc.background?.id), characterBBox(doc.character?.id)) : null)
         }
         syncDepth()
         syncBall()
@@ -81,10 +82,14 @@ export function Viewport() {
         const offLighting = useLighting.subscribe((next, prev) => {
           if (next.analyses !== prev.analyses || next.showBall !== prev.showBall) syncBall()
         })
+        const offFusion = useFusion.subscribe((next, prev) => {
+          if (next.character !== prev.character) syncBall()
+        })
         unsubscribe = () => {
           offApp()
           offDepth()
           offLighting()
+          offFusion()
         }
         useEngine.getState().setEngine(e)
       })

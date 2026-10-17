@@ -1,0 +1,175 @@
+/**
+ * 主线程侧的立绘融合调度（docs/Plan.md §3.3）：把背景和立绘送入融合 Worker，
+ * 生成立绘法线，并在立绘移动、缩放或参数变化时重新计算立绘周围的背景统计。
+ */
+import * as Comlink from 'comlink'
+import { guideSize } from '@/depth/pipeline'
+import type { DepthResult } from '@/depth/protocol'
+import { getAsset } from '@/state/assets'
+import { getDepthResult, useDepth } from '@/state/depth'
+import { useFusion } from '@/state/fusion'
+import { useApp } from '@/state/store'
+import { whiteAdaptation } from './params'
+import { characterBox, characterDepth } from './placement'
+import type { FusionWorkerApi } from './protocol'
+
+/** 法线参数变化后的防抖时间 */
+const NORMALS_DEBOUNCE = 150
+
+let worker: Comlink.Remote<FusionWorkerApi> | null = null
+
+function remote(): Comlink.Remote<FusionWorkerApi> {
+  worker ??= Comlink.wrap<FusionWorkerApi>(new Worker(new URL('../workers/fusion.worker.ts', import.meta.url), { type: 'module', name: 'fusion' }))
+  return worker
+}
+
+function report(e: unknown): void {
+  console.error('[fusion]', e)
+}
+
+/** 已送入 Worker 的资源与深度结果；深度结果变化（就绪或重新估计）时重新送入 */
+interface Sent {
+  id: string
+  depth: DepthResult | undefined
+}
+let sentBackground: Sent | null = null
+let sentCharacter: Sent | null = null
+
+async function syncBackground(): Promise<void> {
+  const bg = useApp.getState().doc.background
+  const depth = getDepthResult(bg?.id)
+  if (sentBackground?.id === bg?.id && sentBackground?.depth === depth) return
+  if (sentBackground?.id !== bg?.id) useFusion.getState().setBackground(null)
+  const asset = bg && getAsset(bg.id)
+  if (!asset) {
+    sentBackground = null
+    return
+  }
+  const sent = (sentBackground = { id: asset.id, depth })
+  const bitmap = await createImageBitmap(asset.bitmap)
+  const info = await remote().setBackground(
+    Comlink.transfer({ id: asset.id, bitmap, depth: depth?.depth ?? null, sky: depth?.sky ?? null, depthSize: depth?.guideSize ?? null }, [bitmap]),
+  )
+  if (sentBackground !== sent) return
+  useFusion.getState().setBackground({ id: asset.id, info })
+  requestStats()
+}
+
+async function syncCharacter(): Promise<void> {
+  const ch = useApp.getState().doc.character
+  const depth = getDepthResult(ch?.id)
+  if (sentCharacter?.id === ch?.id && sentCharacter?.depth === depth) return
+  if (sentCharacter?.id !== ch?.id) {
+    const fusion = useFusion.getState()
+    fusion.setCharacter(null)
+    fusion.setNormals(null)
+  }
+  const asset = ch && getAsset(ch.id)
+  if (!asset) {
+    sentCharacter = null
+    return
+  }
+  const sent = (sentCharacter = { id: asset.id, depth })
+  // 与立绘深度结果同一分辨率，深度法线可以逐像素混合
+  const size = depth?.guideSize ?? guideSize(asset.bitmap.width, asset.bitmap.height)
+  const bitmap = await createImageBitmap(asset.bitmap, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: 'high', premultiplyAlpha: 'none' })
+  const info = await remote().setCharacter(Comlink.transfer({ id: asset.id, bitmap, depthNormal: depth?.normal ?? null }, [bitmap]))
+  if (sentCharacter !== sent) return
+  useFusion.getState().setCharacter({ id: asset.id, info })
+  void runNormals()
+  requestStats()
+}
+
+let normalsRun = 0
+let normalsTimer: ReturnType<typeof setTimeout> | undefined
+
+async function runNormals(): Promise<void> {
+  clearTimeout(normalsTimer)
+  const character = useFusion.getState().character
+  if (!character || useApp.getState().doc.character?.id !== character.id) return
+  const run = ++normalsRun
+  const { inflateRadius, ...weights } = useApp.getState().doc.fusion.normals
+  try {
+    const map = await remote().normals({ id: character.id, weights, inflateRadius })
+    if (run === normalsRun && useFusion.getState().character?.id === character.id) useFusion.getState().setNormals({ id: character.id, map })
+  } catch (e) {
+    report(e)
+  }
+}
+
+let statsBusy = false
+let statsDirty = false
+
+/** 立绘周围的背景统计：计算期间又有变化时，完成后用最新状态再算一次。 */
+function requestStats(): void {
+  statsDirty = true
+  if (statsBusy) return
+  statsBusy = true
+  void (async () => {
+    while (statsDirty) {
+      statsDirty = false
+      await runStats().catch(report)
+    }
+    statsBusy = false
+  })()
+}
+
+async function runStats(): Promise<void> {
+  const { doc } = useApp.getState()
+  const { background, character } = useFusion.getState()
+  const bg = doc.background
+  if (!bg || !doc.character || background?.id !== bg.id || character?.id !== doc.character.id) {
+    useFusion.getState().setStats(null)
+    return
+  }
+  const box = characterBox(doc, character.info.bbox)
+  const xs = box.map((p) => p.x / bg.width)
+  const ys = box.map((p) => p.y / bg.height)
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+  const stats = await remote().stats({
+    backgroundId: bg.id,
+    characterId: character.id,
+    cat: whiteAdaptation(doc.fusion.colorMatch, background.info.whitePoint),
+    region: { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, rx: (x1 - x0) / 2, ry: (y1 - y0) / 2 },
+    depth: characterDepth(doc, getDepthResult(bg.id), character.info.bbox),
+  })
+  const now = useFusion.getState()
+  if (now.background?.id === bg.id && now.character?.id === character.id) now.setStats(stats)
+}
+
+/** 编辑器打开期间自动更新融合数据；返回取消订阅函数。 */
+export function startAutoFusion(): () => void {
+  const sync = () => {
+    syncBackground().catch(report)
+    syncCharacter().catch(report)
+  }
+  sync()
+  const offDepth = useDepth.subscribe((s, prev) => {
+    if (s.resultsVersion !== prev.resultsVersion) {
+      sync()
+      requestStats()
+    }
+  })
+  const offApp = useApp.subscribe((s, prev) => {
+    const doc = s.doc
+    const old = prev.doc
+    if (doc.background?.id !== old.background?.id || doc.character?.id !== old.character?.id) sync()
+    if (doc.fusion.normals !== old.fusion.normals) {
+      clearTimeout(normalsTimer)
+      normalsTimer = setTimeout(() => void runNormals(), NORMALS_DEBOUNCE)
+    }
+    if (
+      doc.charTransform !== old.charTransform ||
+      doc.fusion.depth !== old.fusion.depth ||
+      doc.fusion.colorMatch.whiteBalance !== old.fusion.colorMatch.whiteBalance ||
+      doc.background?.id !== old.background?.id ||
+      doc.character?.id !== old.character?.id
+    )
+      requestStats()
+  })
+  return () => {
+    offDepth()
+    offApp()
+    clearTimeout(normalsTimer)
+  }
+}

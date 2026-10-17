@@ -3,14 +3,15 @@
  * 点光源按球心的 2.5D 位置求方向和衰减。画布上的灰球与面板里的光照方向球共用这里的结果。
  */
 import { normalize, unproject } from '@/algo/camera'
-import { layerToDoc, type Point, type Size } from '@/algo/geometry'
+import type { Point, Size } from '@/algo/geometry'
 import { pointAttenuation, type ShadeLight } from '@/algo/shading'
 import type { ShRgb, Vec3 } from '@/algo/sh'
 import type { AnalysisResult } from '@/analysis/protocol'
 import type { DepthResult } from '@/depth/protocol'
+import { characterDepth } from '@/fusion/placement'
+import type { CharacterInfo } from '@/fusion/protocol'
 import type { DocState } from '@/state/store'
 import type { Light } from './model'
-import { sampleDepth } from './sampling'
 
 export interface BallPreview {
   /** 文档像素 */
@@ -24,16 +25,16 @@ export interface BallPreview {
   ids: string[]
 }
 
-/** 灰球的位置和大小：有立绘时放在立绘中心，否则放在画面中央。深度取立绘脚下（包围盒底边中点）的背景深度。 */
-export function ballPlacement(doc: DocState, size: Size): { center: Point; radius: number; ground: Point } {
+/** 灰球的位置和大小：有立绘时放在立绘中心，否则放在画面中央。 */
+export function ballPlacement(doc: DocState, size: Size): { center: Point; radius: number } {
   const short = Math.min(size.width, size.height)
   const ch = doc.character
-  if (!ch) return { center: { x: size.width / 2, y: size.height / 2 }, radius: 0.08 * short, ground: { x: size.width / 2, y: size.height / 2 } }
+  if (!ch) return { center: { x: size.width / 2, y: size.height / 2 }, radius: 0.08 * short }
   const t = doc.charTransform
   const w = ch.width * t.scale
   const h = ch.height * t.scale
   const radius = Math.max(0.03 * short, Math.min(0.12 * h, 0.35 * w))
-  return { center: { x: t.x, y: t.y }, radius, ground: layerToDoc(t, { x: 0, y: ch.height / 2 }) }
+  return { center: { x: t.x, y: t.y }, radius }
 }
 
 /** 某个光源在 2.5D 位置 at 处的等效方向光。 */
@@ -48,12 +49,18 @@ export function effectiveLight(light: Light, at: Vec3, size: Size, fovDeg: numbe
   return { direction: normalize(v), color: color.map((c) => c * k) as Vec3, softness: light.softness }
 }
 
-export function computeBallPreview(doc: DocState, analysis: AnalysisResult | undefined, depth: DepthResult | undefined): BallPreview | null {
+/** 灰球深度与立绘相同（见 characterDepth）。 */
+export function computeBallPreview(
+  doc: DocState,
+  analysis: AnalysisResult | undefined,
+  depth: DepthResult | undefined,
+  bbox?: CharacterInfo['bbox'],
+): BallPreview | null {
   const bg = doc.background
   if (!bg) return null
-  const { center, radius, ground } = ballPlacement(doc, bg)
+  const { center, radius } = ballPlacement(doc, bg)
   const { fovDeg, ambient: k, lights } = doc.lighting
-  const at = unproject(center, sampleDepth(depth, ground, bg).depth, bg, fovDeg)
+  const at = unproject(center, characterDepth(doc, depth, bbox), bg, fovDeg)
   const enabled = lights.filter((l) => l.enabled)
   return {
     center,

@@ -10,6 +10,7 @@ import { t } from '@/i18n'
 import { MAX_LIGHTS, newDirectionalLight, type Light } from '@/lighting/model'
 import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
+import { useFusion } from '@/state/fusion'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { cn } from '@/ui/lib/cn'
@@ -199,7 +200,9 @@ function useBallPreview() {
   const analysis = useLighting((s) => s.analyses[doc.background?.id ?? ''])
   // 深度结果存在模块级缓存里，结果更新时 resultsVersion 变化会让选择器重新读取
   const depth = useDepth(() => getDepthResult(doc.background?.id))
-  return useMemo(() => computeBallPreview(doc, analysis?.state === 'done' ? analysis.result : undefined, depth), [doc, analysis, depth])
+  const character = useFusion((s) => s.character)
+  const bbox = character?.id === doc.character?.id ? character?.info.bbox : undefined
+  return useMemo(() => computeBallPreview(doc, analysis?.state === 'done' ? analysis.result : undefined, depth, bbox), [doc, analysis, depth, bbox])
 }
 
 function SphereSection() {
