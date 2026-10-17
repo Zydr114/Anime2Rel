@@ -1,5 +1,6 @@
 import { createElement, useEffect, useRef, useState } from 'react'
 import type { NavigationRail } from 'mdui/components/navigation-rail.js'
+import { startAutoAnalysis } from '@/analysis/service'
 import { startAutoDepth } from '@/depth/service'
 import { t } from '@/i18n'
 import { useApp, type StepId } from '@/state/store'
@@ -31,8 +32,9 @@ export function Editor() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const railRef = useRef<NavigationRail>(null)
   useShortcuts()
-  // 编辑器打开后自动加载模型并估计深度
+  // 编辑器打开后自动加载模型并估计深度，深度就绪后分析光源
   useEffect(() => startAutoDepth(), [])
+  useEffect(() => startAutoAnalysis(), [])
 
   useDomEvent(railRef, 'change', (_e, el) => {
     if (el.value) setStep(el.value as StepId)

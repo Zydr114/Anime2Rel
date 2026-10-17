@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { AssetRef } from './assets'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
+import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
 export type StepId = 'assets' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
 
@@ -9,13 +10,14 @@ export interface DocState {
   background: AssetRef | null
   character: AssetRef | null
   charTransform: LayerTransform
+  lighting: LightingDoc
 }
 
 const HISTORY_LIMIT = 100
 
 const emptyTransform: LayerTransform = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
 
-export const initialDoc: DocState = { background: null, character: null, charTransform: emptyTransform }
+export const initialDoc: DocState = { background: null, character: null, charTransform: emptyTransform, lighting: DEFAULT_LIGHTING }
 
 interface AppState {
   doc: DocState
@@ -40,6 +42,17 @@ interface AppState {
   setCharacter: (asset: AssetRef | null) => void
   setCharTransform: (update: Partial<LayerTransform>) => void
   resetCharTransform: () => void
+
+  setLighting: (update: Partial<Omit<LightingDoc, 'lights'>>) => void
+  /** 添加光源；达到上限时返回 false */
+  addLight: (light: Light) => boolean
+  updateLight: (id: string, update: Partial<Omit<Light, 'id'>>) => void
+  removeLight: (id: string) => void
+  /**
+   * 用分析得到的候选替换全部光源。record 为 false 时原地替换、不产生撤销记录：
+   * 换背景后的首次自动分析属于“换背景”这一步的结果，撤销时应与背景一起回退。
+   */
+  replaceLights: (lights: Light[], analyzedFor: string, record: boolean) => void
 
   setView: (view: ViewTransform) => void
   setViewport: (size: Size) => void
@@ -129,6 +142,36 @@ export const useApp = create<AppState>()((set, get) => ({
     const { background, character } = get().doc
     if (!background || !character) return
     get().setDoc((d) => ({ ...d, charTransform: defaultLayerTransform(background, character) }))
+  },
+
+  setLighting: (update) => {
+    get().setDoc((d) => ({ ...d, lighting: { ...d.lighting, ...update } }))
+  },
+
+  addLight: (light) => {
+    if (get().doc.lighting.lights.length >= MAX_LIGHTS) return false
+    get().setDoc((d) => ({ ...d, lighting: { ...d.lighting, lights: [...d.lighting.lights, light] } }))
+    return true
+  },
+
+  updateLight: (id, update) => {
+    get().setDoc((d) => {
+      const lights = d.lighting.lights.map((l) => (l.id === id ? { ...l, ...update } : l))
+      return { ...d, lighting: { ...d.lighting, lights } }
+    })
+  },
+
+  removeLight: (id) => {
+    get().setDoc((d) => {
+      const lights = d.lighting.lights.filter((l) => l.id !== id)
+      return lights.length === d.lighting.lights.length ? d : { ...d, lighting: { ...d.lighting, lights } }
+    })
+  },
+
+  replaceLights: (lights, analyzedFor, record) => {
+    const update = (d: DocState): DocState => ({ ...d, lighting: { ...d.lighting, lights: lights.slice(0, MAX_LIGHTS), analyzedFor } })
+    if (record) get().setDoc(update)
+    else set({ doc: update(get().doc) })
   },
 
   setView: (view) => set({ view }),

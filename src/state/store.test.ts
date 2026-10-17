@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { initialDoc, useApp } from './store'
 import type { AssetRef } from './assets'
+import type { LightCandidate } from '@/analysis/protocol'
+import { lightsFromCandidates, MAX_LIGHTS, newDirectionalLight } from '@/lighting/model'
 
 const asset = (id: string, width = 1000, height = 800): AssetRef => ({
   id,
@@ -94,5 +96,59 @@ describe('layers', () => {
     useApp.getState().setBackground(asset('bg2', 2000, 2000))
     const t = useApp.getState().doc.charTransform
     expect(t).toMatchObject({ x: 500, y: 1000, scale: 4 })
+  })
+})
+
+describe('lights', () => {
+  const candidate = (type: 'directional' | 'point', confidence: number): LightCandidate => ({
+    type,
+    direction: [0, 1, 0],
+    position: type === 'point' ? { u: 0.25, v: 0.5, depth: 0.6 } : null,
+    color: [1, 1, 1],
+    intensity: 0.4,
+    softness: 0.2,
+    confidence,
+    sources: ['A'],
+  })
+
+  it('enables only the strongest directional candidate', () => {
+    const lights = lightsFromCandidates([candidate('directional', 0.8), candidate('point', 0.5), candidate('directional', 0.6)], { width: 1000, height: 800 })
+    expect(lights.map((l) => l.enabled)).toEqual([true, true, false])
+    expect(lights[1].position).toEqual({ x: 250, y: 400, depth: 0.6 })
+  })
+
+  it('replaces candidates in place after a background change, so undo restores both together', () => {
+    const s = useApp.getState()
+    s.setBackground(asset('a'))
+    s.replaceLights([newDirectionalLight()], 'a', false)
+    s.setBackground(asset('b'))
+    useApp.getState().replaceLights([newDirectionalLight(), newDirectionalLight()], 'b', false)
+    expect(useApp.getState().doc.lighting.lights).toHaveLength(2)
+    useApp.getState().undo()
+    expect(useApp.getState().doc.background?.id).toBe('a')
+    expect(useApp.getState().doc.lighting).toMatchObject({ analyzedFor: 'a', lights: [expect.anything()] })
+    useApp.getState().redo()
+    expect(useApp.getState().doc.lighting.lights).toHaveLength(2)
+  })
+
+  it('records edits and explicit re-analysis', () => {
+    const s = useApp.getState()
+    s.setBackground(asset('a'))
+    const light = newDirectionalLight()
+    s.addLight(light)
+    useApp.getState().updateLight(light.id, { intensity: 2 })
+    useApp.getState().replaceLights([], 'a', true)
+    expect(useApp.getState().doc.lighting.lights).toHaveLength(0)
+    useApp.getState().undo()
+    expect(useApp.getState().doc.lighting.lights[0].intensity).toBe(2)
+    useApp.getState().undo()
+    useApp.getState().undo()
+    expect(useApp.getState().doc.lighting.lights).toHaveLength(0)
+  })
+
+  it('caps the number of lights', () => {
+    const s = useApp.getState()
+    for (let i = 0; i < MAX_LIGHTS; i++) expect(s.addLight(newDirectionalLight())).toBe(true)
+    expect(s.addLight(newDirectionalLight())).toBe(false)
   })
 })
