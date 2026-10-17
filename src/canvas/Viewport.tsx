@@ -8,6 +8,7 @@ import { getDepthResult, useDepth } from '@/state/depth'
 import { useEngine } from '@/state/engine'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
+import { LightGizmo } from './LightGizmo'
 import { TransformGizmo } from './TransformGizmo'
 import { useSpaceHeld } from './useSpaceHeld'
 
@@ -135,7 +136,7 @@ export function Viewport() {
   }, [])
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // 中键、空格 + 左键、或在空白处左键拖动都用于平移；立绘上的拖动由变换控件处理。
+    // 中键、空格 + 左键、或在空白处左键拖动都用于平移；立绘、光源上的拖动由各自的控件处理。
     const isPanButton = e.button === 1 || (e.button === 0 && (spaceHeld || e.target === e.currentTarget))
     if (!isPanButton || !hasDoc) return
     e.preventDefault()
@@ -182,6 +183,7 @@ export function Viewport() {
         }}
       >
         <TransformGizmo passThrough={spaceHeld || panning} />
+        <LightGizmo passThrough={spaceHeld || panning} />
       </div>
       {dragOver && (
         <div className="pointer-events-none absolute inset-4 flex items-center justify-center rounded-3xl border-2 border-dashed border-primary/70 bg-primary/10 text-lg">
