@@ -142,3 +142,14 @@ export function quantiles(values: Float32Array, qs: readonly number[], mask?: Ar
     return picked[lo] + (picked[hi] - picked[lo]) * (pos - lo)
   })
 }
+
+/**
+ * 近似高斯模糊：三次盒式滤波（方差相加），耗时与 σ 无关。
+ * 用于大 σ 且对核形状不敏感的场合（如 DoG 斑点检测）。
+ */
+export function fastGaussianBlur(src: Float32Array, w: number, h: number, sigma: number): Float32Array {
+  if (sigma <= 0) return src.slice()
+  // 半径 r 的盒式滤波方差为 r(r+1)/3，三次叠加为 r(r+1)
+  const r = Math.max(1, Math.round(Math.sqrt(sigma * sigma + 0.25) - 0.5))
+  return boxMean(boxMean(boxMean(src, w, h, r), w, h, r), w, h, r)
+}
