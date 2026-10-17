@@ -1,9 +1,12 @@
 import * as THREE from 'three/webgpu'
 import { detectCapabilities, type GpuCapabilities } from './capabilities'
+import { applyFusionParams } from './fusion'
 import { createCharPrepPass, createCompositePass, createEncodePass, createPresentPass, DEBUG_VIEW_INDEX, PREVIEW_LIGHTS, type DepthTextures } from './passes'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
+import type { FusionParams } from '@/fusion/params'
+import type { NormalMap } from '@/fusion/protocol'
 import type { BallPreview } from '@/lighting/preview'
 import { getAsset } from '@/state/assets'
 import type { DebugView } from '@/state/depth'
@@ -85,6 +88,13 @@ function depthTextures(result: DepthResult): DepthTextures {
 
 export type DepthLayer = 'background' | 'character'
 
+export interface FusionDisplay {
+  /** 前后对比：预览中显示未融合的立绘（导出不受影响） */
+  compare: boolean
+  /** 预览中显示立绘的融合法线 */
+  showNormals: boolean
+}
+
 export interface DebugSettings {
   view: DebugView
   overlay: number
@@ -126,6 +136,10 @@ export class Engine {
   // 每个图层各用一套占位纹理：three.js 按纹理 uuid 合并 uniform，共用时替换其中一个图层会失效
   private readonly depthPlaceholder: Record<DepthLayer, DepthTextures> = { background: depthPlaceholder(), character: depthPlaceholder() }
   private readonly colormap = makeColormap()
+  private readonly normalPlaceholder = dataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1, THREE.UnsignedByteType)
+  private charNormal: { map: NormalMap; texture: THREE.DataTexture } | null = null
+  private fusionReady = false
+  private fusionDisplay: FusionDisplay = { compare: false, showNormals: false }
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
   private readonly docRT = linearTarget(1, 1, true)
@@ -154,7 +168,7 @@ export class Engine {
     this.previewMaxEdge = Math.min(options.previewMaxEdge ?? 2048, capabilities.maxTextureSize)
 
     this.charPrep = createCharPrepPass(this.placeholder)
-    this.composite = createCompositePass(this.placeholder, this.charRT.texture, this.depthPlaceholder, this.colormap)
+    this.composite = createCompositePass(this.placeholder, this.charRT.texture, this.depthPlaceholder, this.colormap, this.normalPlaceholder)
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder)
     this.quads = {
@@ -255,6 +269,36 @@ export class Engine {
     this.schedule()
   }
 
+  /** 设置融合参数；null 表示数据未就绪，立绘按原样显示。 */
+  setFusion(params: FusionParams | null): void {
+    this.fusionReady = !!params
+    if (params) applyFusionParams(this.composite.fusion, params)
+    this.syncFusionDisplay()
+  }
+
+  setFusionDisplay(display: FusionDisplay): void {
+    this.fusionDisplay = display
+    this.syncFusionDisplay()
+  }
+
+  private syncFusionDisplay(): void {
+    const u = this.composite.fusion
+    u.enabled.value = this.fusionReady && !this.fusionDisplay.compare ? 1 : 0
+    u.showNormals.value = this.fusionDisplay.showNormals ? 1 : 0
+    this.docDirty = true
+    this.schedule()
+  }
+
+  /** 设置立绘的融合法线；同一个对象不会重复上传。 */
+  setCharacterNormals(map: NormalMap | null): void {
+    if ((this.charNormal?.map ?? null) === map) return
+    this.charNormal?.texture.dispose()
+    this.charNormal = map ? { map, texture: dataTexture(map.data, map.width, map.height, THREE.UnsignedByteType) } : null
+    this.composite.characterNormal.value = this.charNormal?.texture ?? this.normalPlaceholder
+    this.docDirty = true
+    this.schedule()
+  }
+
   private syncBackground(doc: DocState): void {
     const id = doc.background?.id ?? null
     if (id === this.bgAssetId) return
@@ -307,6 +351,7 @@ export class Engine {
     if (this.disposed) return
     const r = this.renderer
     if (this.docDirty && this.docSize) {
+      this.composite.fusion.targetScale.value = this.docRT.width / this.docSize.width
       r.setRenderTarget(this.docRT)
       this.quads.composite.render(r)
       this.docDirty = false
@@ -327,11 +372,15 @@ export class Engine {
     const r = this.renderer
     const linear = linearTarget(width, height)
     const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
-    // 导出始终是合成结果，不带调试视图和灰球
+    // 导出始终是融合后的合成结果，不带调试视图、灰球和对比
     const view = this.composite.uniforms.view.value
     const ball = this.composite.ball.showBall.value
+    const fusion = this.composite.fusion
     this.composite.uniforms.view.value = 0
     this.composite.ball.showBall.value = 0
+    fusion.enabled.value = this.fusionReady ? 1 : 0
+    fusion.showNormals.value = 0
+    fusion.targetScale.value = 1
     try {
       r.setRenderTarget(linear)
       this.quads.composite.render(r)
@@ -347,10 +396,11 @@ export class Engine {
     } finally {
       this.composite.uniforms.view.value = view
       this.composite.ball.showBall.value = ball
+      this.syncFusionDisplay()
       this.encode.source.value = this.placeholder
       linear.dispose()
       out.dispose()
-      this.viewDirty = true
+      this.docDirty = true
       this.schedule()
     }
   }
@@ -364,6 +414,8 @@ export class Engine {
     this.docRT.dispose()
     this.placeholder.dispose()
     this.colormap.dispose()
+    this.normalPlaceholder.dispose()
+    this.charNormal?.texture.dispose()
     for (const set of Object.values(this.depthPlaceholder)) for (const t of Object.values(set)) t.dispose()
     for (const layer of Object.values(this.depth)) if (layer) for (const t of Object.values(layer.textures)) t.dispose()
     for (const q of Object.values(this.quads)) (q.material as THREE.Material).dispose()

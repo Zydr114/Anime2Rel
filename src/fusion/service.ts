@@ -8,10 +8,11 @@ import type { DepthResult } from '@/depth/protocol'
 import { getAsset } from '@/state/assets'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useFusion } from '@/state/fusion'
-import { useApp } from '@/state/store'
-import { whiteAdaptation } from './params'
+import { getAnalysis } from '@/state/lighting'
+import { useApp, type DocState } from '@/state/store'
+import { fusionParams, whiteAdaptation, type FusionParams } from './params'
 import { characterBox, characterDepth } from './placement'
-import type { FusionWorkerApi } from './protocol'
+import type { FusionWorkerApi, NormalMap } from './protocol'
 
 /** 法线参数变化后的防抖时间 */
 const NORMALS_DEBOUNCE = 150
@@ -172,4 +173,29 @@ export function startAutoFusion(): () => void {
     offApp()
     clearTimeout(normalsTimer)
   }
+}
+
+/** 按当前文档和融合数据换算着色器参数；背景或立绘尚未送入 Worker 时返回 null。 */
+export function currentFusionParams(doc: DocState): FusionParams | null {
+  const bg = doc.background
+  const fusion = useFusion.getState()
+  if (!bg || !doc.character || fusion.background?.id !== bg.id || fusion.character?.id !== doc.character.id) return null
+  const bbox = fusion.character.info.bbox
+  const box = characterBox(doc, bbox)
+  return fusionParams({
+    fusion: doc.fusion,
+    lighting: doc.lighting,
+    size: bg,
+    background: fusion.background.info,
+    stats: fusion.stats,
+    ambient: getAnalysis(bg.id)?.ambient,
+    center: { x: box.reduce((s, p) => s + p.x, 0) / 4, y: box.reduce((s, p) => s + p.y, 0) / 4 },
+    depth: characterDepth(doc, getDepthResult(bg.id), bbox),
+  })
+}
+
+/** 当前立绘的融合法线 */
+export function currentNormals(doc: DocState): NormalMap | null {
+  const normals = useFusion.getState().normals
+  return normals && normals.id === doc.character?.id ? normals.map : null
 }

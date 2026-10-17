@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { kelvinToRgb, nearestKelvin } from '@/algo/kelvin'
 import { oklabImage } from '@/algo/oklab'
+import type { Vec3 } from '@/algo/sh'
+import { DEFAULT_LIGHTING, newDirectionalLight, type Light } from '@/lighting/model'
+import { DEFAULT_FUSION } from './model'
 import { characterNormals, inflateNormals, lineArtMask } from './normals'
-import { labStats, noiseSigma, whitePoint } from './stats'
+import { fusionParams, toneCurve } from './params'
+import { labStats, noiseSigma, whitePoint, type LabStats } from './stats'
 
 /** 可复现的伪随机数（xorshift）与近似正态分布 */
 function rng(seed: number) {
@@ -86,5 +90,36 @@ describe('statistics', () => {
         for (let c = 0; c < 3; c++) rgb[(y * w + x) * 3 + c] = base + sigma * r.normal()
       }
     for (const s of noiseSigma(rgb, w, w)) expect(Math.abs(s - sigma) / sigma).toBeLessThan(0.15)
+  })
+})
+
+describe('fusion parameters', () => {
+  const stats = (q: [number, number, number], chromaP90 = 0.1): LabStats => ({ quantiles: q, mean: [0, 0], cov: [0, 0, 0], chromaP90, weight: 1 })
+
+  it('maps character quantiles onto the background and limits the contrast change', () => {
+    const full = toneCurve(stats([0.2, 0.6, 0.9]), stats([0.1, 0.4, 0.7]), 1)
+    expect(full.ys.map((y) => +y.toFixed(3))).toEqual([0.1, 0.4, 0.7])
+    // 背景很平时，斜率被限制在下限，立绘不会被压成一片
+    const flat = toneCurve(stats([0.2, 0.6, 0.9]), stats([0.45, 0.5, 0.52]), 1)
+    expect(flat.ys[2] - flat.ys[1]).toBeCloseTo(0.4 * 0.3)
+  })
+
+  it('normalizes relighting to the frontal hemisphere average and only adds rim light for back lights', () => {
+    const base = {
+      fusion: DEFAULT_FUSION,
+      size: { width: 800, height: 600 },
+      background: null,
+      stats: null,
+      ambient: undefined,
+      center: { x: 400, y: 300 },
+      depth: 0.5,
+    }
+    const light = (direction: Vec3): Light => ({ ...newDirectionalLight(), direction, color: [1, 1, 1], intensity: 1, softness: 0 })
+    const front = fusionParams({ ...base, lighting: { ...DEFAULT_LIGHTING, lights: [light([0, 0, 1])] } })
+    // 正面光照下，朝向相机的法线 S(N) = 1，半球平均为 2/3
+    expect(1 / front.inverseReference[0]).toBeCloseTo(2 / 3, 1)
+    const unlit = fusionParams({ ...base, lighting: DEFAULT_LIGHTING })
+    expect(unlit.relight).toBe(0)
+    expect(unlit.rim).toBe(0)
   })
 })

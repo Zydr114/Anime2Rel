@@ -1,20 +1,8 @@
 // 渲染各阶段使用的 TSL 材质。所有中间结果都是线性 sRGB；立绘使用预乘 alpha。
 import * as THREE from 'three/webgpu'
-import { abs, cos, dot, float, fwidth, length, max, mix, pow, saturate, screenUV, select, sin, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
-
-type Vec3Node = THREE.Node<'vec3'>
-type FloatNode = THREE.Node<'float'>
-type Vec4Node = THREE.Node<'vec4'>
-
-/** sRGB OETF：线性 → sRGB 编码值（输入需已裁剪到 [0,1]） */
-function srgbEncode(c: Vec3Node): Vec3Node {
-  return mix(c.mul(12.92), pow(c, vec3(1 / 2.4)).mul(1.055).sub(0.055), step(vec3(0.0031308), c))
-}
-
-/** sRGB EOTF：sRGB 编码值 → 线性 */
-function srgbDecode(c: Vec3Node): Vec3Node {
-  return mix(c.div(12.92), pow(c.add(0.055).div(1.055), vec3(2.4)), step(vec3(0.04045), c))
-}
+import { abs, cos, dot, float, fwidth, length, max, mix, saturate, screenUV, select, sin, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { createFusionNode } from './fusion'
+import { evalSh, srgbDecode, srgbEncode, type FloatNode, type Vec3Node, type Vec4Node } from './nodes'
 
 function material(node: ReturnType<typeof vec4>): THREE.NodeMaterial {
   const m = new THREE.NodeMaterial()
@@ -45,22 +33,6 @@ export interface DepthTextures {
 
 /** 灰球预览最多使用的光源数，与 src/lighting/model.ts 的 MAX_LIGHTS 一致 */
 export const PREVIEW_LIGHTS = 8
-
-/** 2 阶实球谐求值，系数顺序与 src/algo/sh.ts 一致 */
-function evalSh(sh: THREE.UniformNode<'vec3', THREE.Vector3>[], n: Vec3Node): Vec3Node {
-  const basis = [
-    float(0.282095),
-    n.y.mul(0.488603),
-    n.z.mul(0.488603),
-    n.x.mul(0.488603),
-    n.x.mul(n.y).mul(1.092548),
-    n.y.mul(n.z).mul(1.092548),
-    n.z.mul(n.z).mul(3).sub(1).mul(0.315392),
-    n.x.mul(n.z).mul(1.092548),
-    n.x.mul(n.x).sub(n.y.mul(n.y)).mul(0.546274),
-  ]
-  return basis.reduce<Vec3Node>((acc, y, k) => acc.add(sh[k].mul(y)), vec3(0))
-}
 
 /**
  * 灰球预览：在文档空间画一个漫反射球，着色公式与 src/algo/shading.ts 的 shade 一致。
@@ -99,7 +71,13 @@ const SKY_TINT = vec3(0.05, 0.35, 1.0)
  * 文档空间合成：背景 + 按变换摆放的立绘。输出到文档尺寸（或预览尺寸）的渲染目标。
  * view 不为 0 时按调试视图（深度、法线、天空）着色，再按 overlay 与合成结果混合。
  */
-export function createCompositePass(bgPlaceholder: THREE.Texture, charTexture: THREE.Texture, depthPlaceholder: { background: DepthTextures; character: DepthTextures }, colormap: THREE.Texture) {
+export function createCompositePass(
+  bgPlaceholder: THREE.Texture,
+  charTexture: THREE.Texture,
+  depthPlaceholder: { background: DepthTextures; character: DepthTextures },
+  colormap: THREE.Texture,
+  normalPlaceholder: THREE.Texture,
+) {
   const u = {
     docSize: uniform(new THREE.Vector2(1, 1)),
     charCenter: uniform(new THREE.Vector2(0, 0)),
@@ -126,7 +104,19 @@ export function createCompositePass(bgPlaceholder: THREE.Texture, charTexture: T
 
   const bg = texture(bgPlaceholder, screenUV)
   const chRaw = texture(charTexture, charUV)
-  const ch = chRaw.mul(inside.mul(u.hasChar))
+  const fusion = createFusionNode({
+    p,
+    charUV,
+    character: chRaw,
+    background: bg,
+    normalPlaceholder,
+    docSize: u.docSize,
+    charSize: u.charSize,
+    charRotation: u.charRotation,
+    charScale: u.charScale,
+    charFlip: u.charFlip,
+  })
+  const ch = fusion.output.mul(inside.mul(u.hasChar))
   const rgb = ch.rgb.add(bg.rgb.mul(float(1).sub(ch.a)))
 
   const cmap = (v: FloatNode) => srgbDecode(texture(colormap, vec2(v, 0.5)).rgb)
@@ -157,6 +147,8 @@ export function createCompositePass(bgPlaceholder: THREE.Texture, charTexture: T
   return {
     uniforms: u,
     ball: ball.uniforms,
+    fusion: fusion.uniforms,
+    characterNormal: fusion.normal,
     background: bg,
     depth: {
       background: { coef: bgCoef, aux: bgAux, normal: bgNormal },

@@ -51,9 +51,9 @@ export interface FusionDoc {
 export type FusionSection = 'colorMatch' | 'relight' | 'normals' | 'edge'
 
 export const DEFAULT_FUSION: FusionDoc = {
-  colorMatch: { whiteBalance: 0.8, tone: 0.6, chroma: 0.3, saturation: 0.5, skinProtect: true },
-  relight: { style: 'realistic', strength: 0.7, celThreshold: 0.1, celSoftness: 0.05, rim: 0.5, specular: 0 },
+  colorMatch: { whiteBalance: 0.7, tone: 0.5, chroma: 0.3, saturation: 0.3, skinProtect: true },
+  relight: { style: 'realistic', strength: 0.6, celThreshold: 0.1, celSoftness: 0.05, rim: 0.6, specular: 0 },
   normals: { ...DEFAULT_NORMAL_WEIGHTS, inflateRadius: DEFAULT_INFLATE_RADIUS },
-  edge: { lightWrap: 0.3, wrapRadius: 0.02, feather: 0.5, noise: 1 },
+  edge: { lightWrap: 0.25, wrapRadius: 0.008, feather: 0.5, noise: 1 },
   depth: null,
 }

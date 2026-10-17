@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import type { Engine } from '@/engine/Engine'
 import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
+import { currentFusionParams, currentNormals } from '@/fusion/service'
 import { t } from '@/i18n'
 import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
@@ -65,25 +66,39 @@ export function Viewport() {
           const show = step === 'light' && useLighting.getState().showBall
           e.setBallPreview(show ? computeBallPreview(doc, getAnalysis(doc.background?.id), getDepthResult(doc.background?.id), characterBBox(doc.character?.id)) : null)
         }
+        const syncFusion = () => {
+          const { doc } = useApp.getState()
+          const f = useFusion.getState()
+          e.setCharacterNormals(currentNormals(doc))
+          e.setFusion(currentFusionParams(doc))
+          e.setFusionDisplay({ compare: f.compare, showNormals: f.showNormals })
+        }
         syncDepth()
         syncBall()
+        syncFusion()
         const offApp = useApp.subscribe((next, prev) => {
           if (next.doc !== prev.doc) {
             e.setDocument(next.doc)
             syncDepth()
           }
           if (next.doc !== prev.doc || next.step !== prev.step) syncBall()
+          if (next.doc !== prev.doc) syncFusion()
           if (next.view !== prev.view || next.viewport !== prev.viewport) e.setView(next.view, next.viewport)
         })
         const offDepth = useDepth.subscribe((next, prev) => {
           if (next.resultsVersion !== prev.resultsVersion || next.view !== prev.view || next.overlay !== prev.overlay || next.edgeAlign !== prev.edgeAlign) syncDepth()
-          if (next.resultsVersion !== prev.resultsVersion) syncBall()
+          if (next.resultsVersion !== prev.resultsVersion) {
+            syncBall()
+            syncFusion()
+          }
         })
         const offLighting = useLighting.subscribe((next, prev) => {
           if (next.analyses !== prev.analyses || next.showBall !== prev.showBall) syncBall()
+          if (next.analyses !== prev.analyses) syncFusion()
         })
         const offFusion = useFusion.subscribe((next, prev) => {
           if (next.character !== prev.character) syncBall()
+          syncFusion()
         })
         unsubscribe = () => {
           offApp()

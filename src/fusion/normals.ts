@@ -9,7 +9,7 @@
  */
 import { distanceTransform } from '@/algo/edt'
 import { guidedFilter } from '@/algo/guidedFilter'
-import { boxMean, maskedGaussianBlur } from '@/algo/raster'
+import { boxMean, gaussianBlur, maskedGaussianBlur } from '@/algo/raster'
 
 export interface NormalWeights {
   depth: number
@@ -20,6 +20,8 @@ export interface NormalWeights {
 export const DEFAULT_NORMAL_WEIGHTS: NormalWeights = { depth: 0.5, inflate: 0.4, detail: 0.1 }
 /** 膨胀半径相对立绘长边的默认比例 */
 export const DEFAULT_INFLATE_RADIUS = 0.05
+/** 距离场的平滑尺度（像素） */
+const INFLATE_SMOOTH = 1.2
 
 export interface CharacterPixels {
   width: number
@@ -48,9 +50,12 @@ function heightToNormals(height: Float32Array, w: number, h: number, scale: numb
 
 /** 枕形膨胀的高度场：到透明区域的距离 d，h = √(d·(2R − d))（d ≥ R 时为 R）。 */
 export function inflateHeight(alpha: Float32Array, w: number, h: number, radius: number): Float32Array {
-  const dist = distanceTransform(Uint8Array.from(alpha, (a) => (a > 0.5 ? 1 : 0)), w, h)
+  const raw = distanceTransform(Uint8Array.from(alpha, (a) => (a > 0.5 ? 1 : 0)), w, h)
   const r = Math.max(1, radius)
-  return Float32Array.from(dist, (d) => {
+  // 二值化后的斜边是台阶状的，距离有半像素的起伏，经过陡峭的剖面会变成条纹，先轻微平滑
+  const dist = gaussianBlur(Float32Array.from(raw, (d) => Math.min(d, 2 * r)), w, h, INFLATE_SMOOTH)
+  return Float32Array.from(dist, (d, i) => {
+    if (raw[i] === 0) return 0
     // 像素中心到边界约有半个像素
     const t = Math.min(r, Math.max(0, d - 0.5))
     return Math.sqrt(t * (2 * r - t))

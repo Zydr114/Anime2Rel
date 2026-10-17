@@ -39,6 +39,11 @@ function pixel(img: { width: number; data: number[] }, x: number, y: number) {
   return img.data.slice(i, i + 4)
 }
 
+/** 立绘像素经过融合（颜色匹配、重光照）后不再是纯红，只检查仍以红色为主 */
+function expectRed(px: number[]) {
+  expect(px[0] - Math.max(px[1], px[2])).toBeGreaterThan(60)
+}
+
 test.beforeEach(async ({ page }, info) => {
   const renderer = info.project.metadata.renderer as string
   await page.goto(renderer === 'webgl' ? '/?renderer=webgl' : '/')
@@ -64,20 +69,20 @@ test('import, place, flip, undo and export', async ({ page }, info) => {
   let img = await exportPixels(page)
   expect([img.width, img.height]).toEqual([400, 300])
   expect(pixel(img, 50, 50)).toEqual([128, 128, 128, 255])
-  expect(pixel(img, 100, CHAR_Y)).toEqual([255, 0, 0, 255])
+  expectRed(pixel(img, 100, CHAR_Y))
   expect(pixel(img, 300, CHAR_Y)).toEqual([0, 0, 255, 255])
 
   // H 水平翻转：红色移到右侧
   await page.getByTestId('step-character').click()
   await page.keyboard.press('h')
   img = await exportPixels(page)
-  expect(pixel(img, 300, CHAR_Y)).toEqual([255, 0, 0, 255])
+  expectRed(pixel(img, 300, CHAR_Y))
   expect(pixel(img, 100, CHAR_Y)).toEqual([128, 128, 128, 255])
 
   // 撤销翻转
   await page.keyboard.press('Control+z')
   img = await exportPixels(page)
-  expect(pixel(img, 100, CHAR_Y)).toEqual([255, 0, 0, 255])
+  expectRed(pixel(img, 100, CHAR_Y))
 })
 
 test('dragging the character is a single undo step', async ({ page }) => {
