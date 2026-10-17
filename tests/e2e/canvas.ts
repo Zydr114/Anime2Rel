@@ -29,3 +29,18 @@ export async function docPixels(page: Page, points: readonly DocPoint[]): Promis
     { data: shot, points },
   )
 }
+
+/** 截取页面并读取若干页面坐标处的像素（RGB）。 */
+export async function pagePixels(page: Page, points: readonly { x: number; y: number }[]): Promise<number[][]> {
+  const shot = (await page.screenshot()).toString('base64')
+  return page.evaluate(
+    async ({ data, points }) => {
+      const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob())
+      const c = new OffscreenCanvas(bmp.width, bmp.height)
+      const ctx = c.getContext('2d')!
+      ctx.drawImage(bmp, 0, 0)
+      return points.map((p) => Array.from(ctx.getImageData(Math.round(p.x), Math.round(p.y), 1, 1).data.slice(0, 3)))
+    },
+    { data: shot, points },
+  )
+}

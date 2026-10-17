@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
+import { exportPixels, pixel } from './export'
 import { makeImage } from './png'
 
 // 背景 400×300：左半 sRGB 灰 128，右半纯蓝。
@@ -16,27 +16,6 @@ async function choose(page: Page, testId: string, name: string, buffer: Buffer) 
   const chooser = page.waitForEvent('filechooser')
   await page.getByTestId(testId).click()
   await (await chooser).setFiles({ name, mimeType: 'image/png', buffer })
-}
-
-async function exportPixels(page: Page) {
-  await page.getByTestId('step-export').click()
-  const download = page.waitForEvent('download')
-  await page.getByTestId('export-png').click()
-  const file = await (await download).path()
-  const b64 = (await readFile(file)).toString('base64')
-  return page.evaluate(async (data) => {
-    const blob = await (await fetch(`data:image/png;base64,${data}`)).blob()
-    const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
-    const c = new OffscreenCanvas(bmp.width, bmp.height)
-    const ctx = c.getContext('2d')!
-    ctx.drawImage(bmp, 0, 0)
-    return { width: bmp.width, height: bmp.height, data: Array.from(ctx.getImageData(0, 0, bmp.width, bmp.height).data) }
-  }, b64)
-}
-
-function pixel(img: { width: number; data: number[] }, x: number, y: number) {
-  const i = (y * img.width + x) * 4
-  return img.data.slice(i, i + 4)
 }
 
 /** 立绘像素经过融合（颜色匹配、重光照）后不再是纯红，只检查仍以红色为主 */
