@@ -6,6 +6,8 @@ const port = 4173
 
 export default defineConfig({
   testDir: 'tests/e2e',
+  // 测试会导入 src 中的合成场景生成器，需要 @/ 路径别名
+  tsconfig: './tsconfig.node.json',
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,

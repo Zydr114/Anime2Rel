@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { docPixels } from './canvas'
 import { makeImage, type Rgba } from './png'
 
 // 需要 dist 中带有自托管模型（pnpm test:e2e 会先下载）。
@@ -58,34 +59,6 @@ async function start(page: Page, renderer: string) {
 
 async function waitDone(page: Page) {
   await expect(page.getByTestId('depth-job-background')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-}
-
-/** 截取页面，按文档归一化坐标读取画布像素。文档区域通过与视口底色 #1a1a1a 的差异定位。 */
-async function docPixels(page: Page, points: readonly (readonly [number, number])[]) {
-  const shot = (await page.screenshot()).toString('base64')
-  return page.evaluate(
-    async ({ data, points }) => {
-      const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob())
-      const c = new OffscreenCanvas(bmp.width, bmp.height)
-      const ctx = c.getContext('2d')!
-      ctx.drawImage(bmp, 0, 0)
-      const px = (x: number, y: number) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3))
-      const isDoc = (x: number, y: number) => px(x, y).some((v) => Math.abs(v - 26) > 3)
-      // 画布可见区域在左侧导航与右侧检查器之间
-      const midY = Math.round(bmp.height / 2)
-      let left = 130
-      while (!isDoc(left, midY)) left++
-      let right = 1080
-      while (!isDoc(right, midY)) right--
-      const midX = Math.round((left + right) / 2)
-      let top = 0
-      while (!isDoc(midX, top)) top++
-      let bottom = bmp.height - 100
-      while (!isDoc(midX, bottom)) bottom--
-      return points.map(([u, v]) => px(Math.round(left + u * (right - left)), Math.round(top + v * (bottom - top))))
-    },
-    { data: shot, points },
-  )
 }
 
 test('depth, normal and sky debug views', async ({ page }, info) => {
