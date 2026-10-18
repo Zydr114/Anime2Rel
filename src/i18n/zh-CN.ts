@@ -57,7 +57,12 @@ export const zhCN = {
   fusion: {
     depthSection: '前后位置',
     depth: '深度',
-    depthAuto: '自动（取脚下地面的深度）',
+    depthAuto: '自动（取接地点处的背景深度）',
+    ground: '接地点',
+    groundAuto: '自动：不透明区域的底边中点',
+    groundManual: '手动',
+    groundReset: '恢复自动',
+    groundHint: '在画布上拖动立绘脚下的三角标记，把它放到脚底；双击标记恢复自动。站在水中时放在水线处。',
     depthHint: '数值越大越靠近镜头。点光源的方向和衰减、立绘周围的颜色统计都按这个深度计算。',
     colorMatch: '颜色匹配',
     whiteBalance: '白平衡',

@@ -44,8 +44,10 @@ export interface FusionDoc {
     /** 噪声匹配：1 为与背景噪声等量 */
     noise: number
   }
-  /** 立绘所在深度（归一化逆深度）；null 为自动，取立绘脚下的背景深度 */
+  /** 立绘所在深度（归一化逆深度）；null 为自动，取接地点处的背景深度 */
   depth: number | null
+  /** 接地点（立绘 UV，左上角为原点）；null 为自动，取不透明区域包围盒底边的中点 */
+  ground: { u: number; v: number } | null
 }
 
 export type FusionSection = 'colorMatch' | 'relight' | 'normals' | 'edge'
@@ -56,4 +58,5 @@ export const DEFAULT_FUSION: FusionDoc = {
   normals: { ...DEFAULT_NORMAL_WEIGHTS, inflateRadius: DEFAULT_INFLATE_RADIUS },
   edge: { lightWrap: 0.15, wrapRadius: 0.008, feather: 0.5, noise: 1 },
   depth: null,
+  ground: null,
 }

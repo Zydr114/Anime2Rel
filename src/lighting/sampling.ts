@@ -15,6 +15,19 @@ export function sampleDepth(result: DepthResult | undefined, p: Point, doc: Size
   return { depth: result.depth[i], sky: result.sky?.[i] ?? 0 }
 }
 
+/** 文档坐标 p 附近 (2r+1)² 个引导分辨率像素的深度中位数；没有深度结果时返回中间值。 */
+export function sampleDepthMedian(result: DepthResult | undefined, p: Point, doc: Size, r = 2): number {
+  if (!result) return 0.5
+  const { width: gw, height: gh } = result.guideSize
+  const cx = Math.floor((p.x / doc.width) * gw)
+  const cy = Math.floor((p.y / doc.height) * gh)
+  const values: number[] = []
+  for (let y = cy - r; y <= cy + r; y++)
+    for (let x = cx - r; x <= cx + r; x++) values.push(result.depth[Math.min(gh - 1, Math.max(0, y)) * gw + Math.min(gw - 1, Math.max(0, x))])
+  values.sort((a, b) => a - b)
+  return values[values.length >> 1]
+}
+
 const PICK_MAX_EDGE = 1024
 const pickCache = new Map<string, { data: Uint8ClampedArray; width: number; height: number }>()
 

@@ -3,9 +3,12 @@ import { kelvinToRgb, nearestKelvin } from '@/algo/kelvin'
 import { oklabImage } from '@/algo/oklab'
 import type { Vec3 } from '@/algo/sh'
 import { DEFAULT_LIGHTING, newDirectionalLight, type Light } from '@/lighting/model'
+import type { DepthResult } from '@/depth/protocol'
+import { initialDoc, type DocState } from '@/state/store'
 import { DEFAULT_FUSION } from './model'
 import { characterNormals, inflateNormals, lineArtMask } from './normals'
 import { fusionParams, toneCurve } from './params'
+import { characterDepth, characterGround } from './placement'
 import { labStats, noiseSigma, whitePoint, type LabStats } from './stats'
 
 /** 可复现的伪随机数（xorshift）与近似正态分布 */
@@ -121,5 +124,26 @@ describe('fusion parameters', () => {
     const unlit = fusionParams({ ...base, lighting: DEFAULT_LIGHTING })
     expect(unlit.relight).toBe(0)
     expect(unlit.rim).toBe(0)
+  })
+})
+
+describe('placement', () => {
+  it('stands the character on the ground point and reads the median background depth around it', () => {
+    const doc: DocState = {
+      ...initialDoc,
+      background: { id: 'bg', name: 'bg', width: 100, height: 100, sourceWidth: 100, sourceHeight: 100, hasTransparency: false },
+      character: { id: 'ch', name: 'ch', width: 20, height: 40, sourceWidth: 20, sourceHeight: 40, hasTransparency: true },
+      charTransform: { x: 50, y: 50, scale: 1, rotation: 0, flipX: false },
+    }
+    const bbox = { x0: 0.25, y0: 0, x1: 0.75, y1: 0.9 }
+    // 自动：包围盒底边中点；手动：用户设置的立绘 UV
+    expect(characterGround(doc, doc.background!, bbox)).toEqual({ x: 50, y: 66 })
+    const manual = { ...doc, fusion: { ...doc.fusion, ground: { u: 0.5, v: 0.5 } } }
+    expect(characterGround(manual, doc.background!, bbox)).toEqual({ x: 50, y: 50 })
+
+    // 背景深度为 0.6，接地点处有一个噪点，中位数不受影响
+    const depth = Float32Array.from({ length: 100 }, (_, i) => (i === 6 * 10 + 5 ? 0 : 0.6))
+    const result = { guideSize: { width: 10, height: 10 }, depth } as DepthResult
+    expect(characterDepth(doc, result, bbox)).toBeCloseTo(0.6)
   })
 })

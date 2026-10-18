@@ -12,6 +12,7 @@ import { characterBBox, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { FocusGizmo } from './FocusGizmo'
+import { GroundGizmo } from './GroundGizmo'
 import { LightGizmo } from './LightGizmo'
 import { TransformGizmo } from './TransformGizmo'
 import { useSpaceHeld } from './useSpaceHeld'
@@ -211,6 +212,7 @@ export function Viewport() {
         <TransformGizmo passThrough={spaceHeld || panning} />
         <LightGizmo passThrough={spaceHeld || panning} />
         <FocusGizmo passThrough={spaceHeld || panning} />
+        <GroundGizmo passThrough={spaceHeld || panning} />
       </div>
       {dragOver && (
         <div className="pointer-events-none absolute inset-4 flex items-center justify-center rounded-3xl border-2 border-dashed border-primary/70 bg-primary/10 text-lg">

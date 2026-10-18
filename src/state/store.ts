@@ -68,6 +68,8 @@ interface AppState {
   updateFusion: <K extends FusionSection>(section: K, update: Partial<FusionDoc[K]>) => void
   /** 立绘所在深度；null 为自动 */
   setCharDepth: (depth: number | null) => void
+  /** 接地点（立绘 UV）；null 为自动 */
+  setCharGround: (ground: FusionDoc['ground']) => void
   resetFusion: () => void
 
   updateFocus: <K extends FocusSection>(section: K, update: Partial<FocusDoc[K]>) => void
@@ -151,12 +153,13 @@ export const useApp = create<AppState>()((set, get) => ({
 
   setCharacter: (asset) => {
     get().setDoc((d) => {
-      // 立绘上的焦点只对原来的立绘有意义
+      // 立绘上的焦点和接地点只对原来的立绘有意义
       const focus = d.focus.target?.kind === 'character' ? { ...d.focus, target: null } : d.focus
-      if (!asset) return { ...d, character: null, focus }
+      const fusion = d.fusion.ground ? { ...d.fusion, ground: null } : d.fusion
+      if (!asset) return { ...d, character: null, focus, fusion }
       const keep = d.character && d.character.width === asset.width && d.character.height === asset.height
       const charTransform = keep || !d.background ? d.charTransform : defaultLayerTransform(d.background, asset)
-      return { ...d, character: asset, charTransform, focus }
+      return { ...d, character: asset, charTransform, focus, fusion }
     })
   },
 
@@ -208,8 +211,12 @@ export const useApp = create<AppState>()((set, get) => ({
     get().setDoc((d) => ({ ...d, fusion: { ...d.fusion, depth } }))
   },
 
+  setCharGround: (ground) => {
+    get().setDoc((d) => ({ ...d, fusion: { ...d.fusion, ground } }))
+  },
+
   resetFusion: () => {
-    get().setDoc((d) => ({ ...d, fusion: { ...DEFAULT_FUSION, depth: d.fusion.depth } }))
+    get().setDoc((d) => ({ ...d, fusion: { ...DEFAULT_FUSION, depth: d.fusion.depth, ground: d.fusion.ground } }))
   },
 
   updateFocus: (section, update) => {

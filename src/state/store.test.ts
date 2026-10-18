@@ -155,14 +155,18 @@ describe('lights', () => {
 })
 
 describe('fusion', () => {
-  it('merges section updates and keeps the character depth on reset', () => {
+  it('merges section updates and keeps the character depth and ground point on reset', () => {
     const s = useApp.getState()
     s.updateFusion('relight', { style: 'cel' })
     useApp.getState().setCharDepth(0.4)
+    useApp.getState().setCharGround({ u: 0.4, v: 0.9 })
     useApp.getState().resetFusion()
-    expect(useApp.getState().doc.fusion).toEqual({ ...DEFAULT_FUSION, depth: 0.4 })
+    expect(useApp.getState().doc.fusion).toEqual({ ...DEFAULT_FUSION, depth: 0.4, ground: { u: 0.4, v: 0.9 } })
     useApp.getState().undo()
     expect(useApp.getState().doc.fusion.relight).toEqual({ ...DEFAULT_FUSION.relight, style: 'cel' })
+    // 接地点只对原来的立绘有意义
+    useApp.getState().setCharacter(asset('ch2', 100, 200))
+    expect(useApp.getState().doc.fusion.ground).toBeNull()
   })
 })
 

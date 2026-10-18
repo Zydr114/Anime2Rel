@@ -104,6 +104,20 @@ export function DepthSection({ children }: { children?: ReactNode }) {
       <SliderField label={t.fusion.depth} value={value * 100} min={0} max={100} step={0.5} format={formatPercent} onChange={onDepth} testId="fusion-depth" />
       <ToggleRow label={t.fusion.depthAuto} checked={manual === null} onChange={onAuto} testId="fusion-depth-auto" />
       <Hint>{t.fusion.depthHint}</Hint>
+      <div className="flex items-center justify-between">
+        <span>
+          {t.fusion.ground}
+          <span className="ml-2 text-on-surface-variant" data-testid="fusion-ground-state">
+            {doc.fusion.ground ? t.fusion.groundManual : t.fusion.groundAuto}
+          </span>
+        </span>
+        {doc.fusion.ground && (
+          <mdui-button variant="text" onClick={() => useApp.getState().setCharGround(null)} data-testid="fusion-ground-reset">
+            {t.fusion.groundReset}
+          </mdui-button>
+        )}
+      </div>
+      <Hint>{t.fusion.groundHint}</Hint>
       {children}
     </Section>
   )
