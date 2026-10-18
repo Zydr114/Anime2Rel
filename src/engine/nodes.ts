@@ -1,5 +1,5 @@
 // 各个 TSL 材质共用的节点函数。
-import type * as THREE from 'three/webgpu'
+import * as THREE from 'three/webgpu'
 import { float, mix, pow, step, vec3 } from 'three/tsl'
 
 export type Vec3Node = THREE.Node<'vec3'>
@@ -32,3 +32,11 @@ export function evalSh(sh: THREE.UniformNode<'vec3', THREE.Vector3>[], n: Vec3No
   return basis.reduce<Vec3Node>((acc, y, k) => acc.add(sh[k].mul(y)), vec3(0))
 }
 
+/** 全屏 pass 的材质：只有片元输出，不做深度测试 */
+export function material(node: Vec4Node): THREE.NodeMaterial {
+  const m = new THREE.NodeMaterial()
+  m.fragmentNode = node
+  m.depthTest = false
+  m.depthWrite = false
+  return m
+}

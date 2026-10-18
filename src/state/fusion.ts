@@ -11,6 +11,8 @@ interface FusionState {
   compare: boolean
   /** 在画布上显示立绘的融合法线 */
   showNormals: boolean
+  /** 在画布上用红色显示深度遮挡的遮罩 */
+  showMask: boolean
 
   setBackground: (v: FusionState['background']) => void
   setCharacter: (v: FusionState['character']) => void
@@ -18,6 +20,7 @@ interface FusionState {
   setStats: (v: FusionStats | null) => void
   setCompare: (on: boolean) => void
   setShowNormals: (on: boolean) => void
+  setShowMask: (on: boolean) => void
 }
 
 export const useFusion = create<FusionState>()((set) => ({
@@ -27,6 +30,7 @@ export const useFusion = create<FusionState>()((set) => ({
   stats: null,
   compare: false,
   showNormals: false,
+  showMask: false,
 
   setBackground: (background) => set({ background }),
   setCharacter: (character) => set({ character }),
@@ -34,6 +38,7 @@ export const useFusion = create<FusionState>()((set) => ({
   setStats: (stats) => set({ stats }),
   setCompare: (compare) => set({ compare }),
   setShowNormals: (showNormals) => set({ showNormals }),
+  setShowMask: (showMask) => set({ showMask }),
 }))
 
 /** 当前立绘不透明区域的包围盒；融合 Worker 尚未处理该立绘时为 undefined。 */

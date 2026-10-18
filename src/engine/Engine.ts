@@ -1,10 +1,35 @@
 import * as THREE from 'three/webgpu'
+import { screenUV, texture } from 'three/tsl'
 import { detectCapabilities, type GpuCapabilities } from './capabilities'
+import {
+  applyFocusParams,
+  createBackgroundDofPass,
+  createCharacterDepthPass,
+  createCharacterDofPass,
+  createDofUniforms,
+  createOcclusionPass,
+  createPrepPass,
+  createTilePass,
+  TILE,
+} from './dof'
 import { applyFusionParams } from './fusion'
-import { createCharPrepPass, createCompositePass, createEncodePass, createPresentPass, DEBUG_VIEW_INDEX, PREVIEW_LIGHTS, type DepthTextures } from './passes'
+import {
+  createCharacterPass,
+  createCharPrepPass,
+  createCompositePass,
+  createDepthNodes,
+  createEncodePass,
+  createPlacement,
+  createPresentPass,
+  DEBUG_VIEW_INDEX,
+  PREVIEW_LIGHTS,
+  type DepthTextures,
+  type LayerTextures,
+} from './passes'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
+import type { FocusParams } from '@/focus/params'
 import type { FusionParams } from '@/fusion/params'
 import type { NormalMap } from '@/fusion/protocol'
 import type { BallPreview } from '@/lighting/preview'
@@ -89,10 +114,12 @@ function depthTextures(result: DepthResult): DepthTextures {
 export type DepthLayer = 'background' | 'character'
 
 export interface FusionDisplay {
-  /** 前后对比：预览中显示未融合的立绘（导出不受影响） */
+  /** 前后对比：预览中显示直接贴上去的立绘，不做融合、景深和遮挡（导出不受影响） */
   compare: boolean
   /** 预览中显示立绘的融合法线 */
   showNormals: boolean
+  /** 预览中用红色叠加显示深度遮挡的遮罩 */
+  showMask: boolean
 }
 
 export interface DebugSettings {
@@ -113,19 +140,38 @@ function bitmapTexture(bitmap: ImageBitmap): THREE.Texture {
   return t
 }
 
-function linearTarget(width: number, height: number, mipmaps = false): THREE.RenderTarget {
+function linearTarget(width: number, height: number, mipmaps = false, filter: THREE.MagnificationTextureFilter = THREE.LinearFilter): THREE.RenderTarget {
   return new THREE.RenderTarget(width, height, {
     type: THREE.HalfFloatType,
     depthBuffer: false,
     generateMipmaps: mipmaps,
-    minFilter: mipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter,
-    magFilter: THREE.LinearFilter,
+    minFilter: mipmaps ? THREE.LinearMipmapLinearFilter : filter,
+    magFilter: filter,
   })
+}
+
+/** 合成用的中间图层，尺寸与输出相同（弥散圆统计块为 1/16） */
+type LayerTargets = Record<keyof LayerTextures | 'tiles', THREE.RenderTarget>
+
+const tileCount = (n: number) => Math.max(1, Math.ceil(n / TILE))
+
+/** 创建中间图层；skip 中的图层在这次渲染中用不到，只分配 1×1 */
+function layerTargets(width: number, height: number, skip: Partial<Record<keyof LayerTextures, boolean>> = {}): LayerTargets {
+  const target = (key: keyof LayerTextures, mipmaps = false) => (skip[key] ? linearTarget(1, 1) : linearTarget(width, height, mipmaps))
+  return {
+    prep: target('prep', true),
+    tiles: linearTarget(tileCount(width), tileCount(height), false, THREE.NearestFilter),
+    backgroundDof: target('backgroundDof'),
+    character: target('character', true),
+    characterDepth: target('characterDepth', true),
+    characterDof: target('characterDof'),
+    occlusion: target('occlusion'),
+  }
 }
 
 /**
  * 渲染引擎：持有 WebGPURenderer（必要时回退 WebGL2）和所有 GPU 资源。
- * 管线：立绘预处理 → 文档空间合成（预览分辨率）→ 视口显示；导出时以原分辨率合成后编码。
+ * 管线：立绘预处理 → 文档空间的分层合成（预览分辨率，见 renderDocument）→ 视口显示；导出时以原分辨率合成后编码。
  */
 export class Engine {
   readonly renderer: THREE.WebGPURenderer
@@ -139,16 +185,27 @@ export class Engine {
   private readonly normalPlaceholder = dataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1, THREE.UnsignedByteType)
   private charNormal: { map: NormalMap; texture: THREE.DataTexture } | null = null
   private fusionReady = false
-  private fusionDisplay: FusionDisplay = { compare: false, showNormals: false }
+  private display: FusionDisplay = { compare: false, showNormals: false, showMask: false }
+  private focus: FocusParams | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
   private readonly docRT = linearTarget(1, 1, true)
+  private readonly layers = layerTargets(1, 1)
 
+  private readonly placement = createPlacement()
+  private readonly backgroundNode
+  private readonly layerNodes: Record<keyof LayerTargets, THREE.TextureNode>
+  private readonly depthNodes
+  private readonly dof = createDofUniforms()
   private readonly charPrep
+  private readonly character
   private readonly composite
   private readonly present
   private readonly encode
-  private readonly quads: { charPrep: THREE.QuadMesh; composite: THREE.QuadMesh; present: THREE.QuadMesh; encode: THREE.QuadMesh }
+  private readonly quads: Record<
+    'charPrep' | 'prep' | 'tiles' | 'backgroundDof' | 'character' | 'characterDepth' | 'characterDof' | 'occlusion' | 'composite' | 'present' | 'encode',
+    THREE.QuadMesh
+  >
 
   private bgAssetId: string | null = null
   private charAssetId: string | null = null
@@ -158,6 +215,8 @@ export class Engine {
   private docSize: Size | null = null
 
   private docDirty = false
+  /** 背景预处理、弥散圆统计和背景景深需要重算（背景、深度、焦点或光圈变化） */
+  private backgroundDirty = true
   private viewDirty = false
   private frame = 0
   private disposed = false
@@ -168,14 +227,46 @@ export class Engine {
     this.previewMaxEdge = Math.min(options.previewMaxEdge ?? 2048, capabilities.maxTextureSize)
 
     this.charPrep = createCharPrepPass(this.placeholder)
-    this.composite = createCompositePass(this.placeholder, this.charRT.texture, this.depthPlaceholder, this.colormap, this.normalPlaceholder)
+    const placement = this.placement
+    this.backgroundNode = texture(this.placeholder, screenUV)
+    const characterNode = texture(this.charRT.texture, placement.charUV)
+    this.depthNodes = createDepthNodes(placement, this.backgroundNode, characterNode, this.depthPlaceholder)
+    const layer = (key: keyof LayerTargets) => texture(this.layers[key].texture)
+    const nodes = (this.layerNodes = {
+      prep: layer('prep'),
+      tiles: layer('tiles'),
+      backgroundDof: layer('backgroundDof'),
+      character: layer('character'),
+      characterDepth: layer('characterDepth'),
+      characterDof: layer('characterDof'),
+      occlusion: layer('occlusion'),
+    })
+    const dof = this.dof
+    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder)
+    this.composite = createCompositePass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder)
+    const quad = (m: THREE.NodeMaterial) => new THREE.QuadMesh(m)
     this.quads = {
-      charPrep: new THREE.QuadMesh(this.charPrep.material),
-      composite: new THREE.QuadMesh(this.composite.material),
-      present: new THREE.QuadMesh(this.present.material),
-      encode: new THREE.QuadMesh(this.encode.material),
+      charPrep: quad(this.charPrep.material),
+      prep: quad(createPrepPass(dof, this.backgroundNode, this.depthNodes.background.depth)),
+      tiles: quad(createTilePass(dof, nodes.prep)),
+      backgroundDof: quad(createBackgroundDofPass(dof, nodes.prep, nodes.tiles)),
+      character: quad(this.character.material),
+      characterDepth: quad(
+        createCharacterDepthPass(dof, {
+          alpha: characterNode.a.mul(placement.inside),
+          inside: placement.inside,
+          relief: this.depthNodes.character.depth,
+          hasRelief: this.depthNodes.uniforms.hasCharDepth,
+          background: this.depthNodes.background.depth,
+        }),
+      ),
+      characterDof: quad(createCharacterDofPass(dof, nodes.character, nodes.characterDepth)),
+      occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
+      composite: quad(this.composite.material),
+      present: quad(this.present.material),
+      encode: quad(this.encode.material),
     }
   }
 
@@ -198,7 +289,7 @@ export class Engine {
     this.syncCharacter(doc)
 
     const t = doc.charTransform
-    const u = this.composite.uniforms
+    const u = this.placement.uniforms
     u.charCenter.value.set(t.x, t.y)
     u.charRotation.value = t.rotation
     u.charScale.value = Math.max(t.scale, 1e-6)
@@ -228,14 +319,16 @@ export class Engine {
     if (current) for (const t of Object.values(current.textures)) t.dispose()
     const textures = result ? depthTextures(result) : null
     this.depth[layer] = result && textures ? { result, textures } : null
-    const nodes = this.composite.depth[layer]
+    const nodes = this.depthNodes.textures[layer]
     const src = textures ?? this.depthPlaceholder[layer]
     nodes.coef.value = src.coef
     nodes.aux.value = src.aux
     nodes.normal.value = src.normal
-    const u = this.composite.uniforms
-    if (layer === 'background') u.hasBgDepth.value = textures ? 1 : 0
-    else u.hasCharDepth.value = textures ? 1 : 0
+    const u = this.depthNodes.uniforms
+    if (layer === 'background') {
+      u.hasBgDepth.value = textures ? 1 : 0
+      this.backgroundDirty = true
+    } else u.hasCharDepth.value = textures ? 1 : 0
     this.docDirty = true
     this.schedule()
   }
@@ -244,7 +337,9 @@ export class Engine {
     const u = this.composite.uniforms
     u.view.value = DEBUG_VIEW_INDEX[settings.view]
     u.overlay.value = settings.overlay
-    u.edgeAlign.value = settings.edgeAlign ? 1 : 0
+    const edgeAlign = settings.edgeAlign ? 1 : 0
+    if (this.depthNodes.uniforms.edgeAlign.value !== edgeAlign) this.backgroundDirty = true
+    this.depthNodes.uniforms.edgeAlign.value = edgeAlign
     this.docDirty = true
     this.schedule()
   }
@@ -272,19 +367,38 @@ export class Engine {
   /** 设置融合参数；null 表示数据未就绪，立绘按原样显示。 */
   setFusion(params: FusionParams | null): void {
     this.fusionReady = !!params
-    if (params) applyFusionParams(this.composite.fusion, params)
-    this.syncFusionDisplay()
+    if (params) applyFusionParams(this.character.fusion, params)
+    this.syncDisplay()
   }
 
-  setFusionDisplay(display: FusionDisplay): void {
-    this.fusionDisplay = display
-    this.syncFusionDisplay()
+  /** 设置景深与遮挡参数；null 表示关闭。 */
+  setFocus(params: FocusParams | null): void {
+    this.focus = params
+    if (params && applyFocusParams(this.dof, params)) this.backgroundDirty = true
+    this.syncDisplay()
   }
 
-  private syncFusionDisplay(): void {
-    const u = this.composite.fusion
-    u.enabled.value = this.fusionReady && !this.fusionDisplay.compare ? 1 : 0
-    u.showNormals.value = this.fusionDisplay.showNormals ? 1 : 0
+  setDisplay(display: FusionDisplay): void {
+    // 退出对比或法线视图时，背景景深需要按最新参数重算
+    if (display.compare !== this.display.compare || display.showNormals !== this.display.showNormals) this.backgroundDirty = true
+    this.display = display
+    this.syncDisplay()
+  }
+
+  /** 景深和遮挡是否生效：前后对比和法线视图显示未经处理的图层 */
+  private effects(display: FusionDisplay): { dof: boolean; occlusion: boolean } {
+    const raw = display.compare || display.showNormals
+    return { dof: !raw && !!this.focus?.dof, occlusion: !raw && !!this.focus?.occlusion.enabled }
+  }
+
+  private syncDisplay(display = this.display): void {
+    const fusion = this.character.fusion
+    fusion.enabled.value = this.fusionReady && !display.compare ? 1 : 0
+    fusion.showNormals.value = display.showNormals ? 1 : 0
+    const effects = this.effects(display)
+    this.dof.bypass.value = effects.dof ? 0 : 1
+    this.dof.occlusion.value = effects.occlusion ? 1 : 0
+    this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
     this.docDirty = true
     this.schedule()
   }
@@ -294,7 +408,7 @@ export class Engine {
     if ((this.charNormal?.map ?? null) === map) return
     this.charNormal?.texture.dispose()
     this.charNormal = map ? { map, texture: dataTexture(map.data, map.width, map.height, THREE.UnsignedByteType) } : null
-    this.composite.characterNormal.value = this.charNormal?.texture ?? this.normalPlaceholder
+    this.character.characterNormal.value = this.charNormal?.texture ?? this.normalPlaceholder
     this.docDirty = true
     this.schedule()
   }
@@ -311,12 +425,16 @@ export class Engine {
       this.docSize = { width: asset.width, height: asset.height }
       const preview = fitWithin(this.docSize, this.previewMaxEdge)
       this.docRT.setSize(preview.width, preview.height)
-      this.composite.uniforms.docSize.value.set(asset.width, asset.height)
+      for (const [key, rt] of Object.entries(this.layers))
+        if (key === 'tiles') rt.setSize(tileCount(preview.width), tileCount(preview.height))
+        else rt.setSize(preview.width, preview.height)
+      this.placement.uniforms.docSize.value.set(asset.width, asset.height)
       this.present.uniforms.docSize.value.set(asset.width, asset.height)
     } else {
       this.docSize = null
     }
-    this.composite.background.value = this.bgTexture ?? this.placeholder
+    this.backgroundNode.value = this.bgTexture ?? this.placeholder
+    this.backgroundDirty = true
   }
 
   private syncCharacter(doc: DocState): void {
@@ -332,7 +450,7 @@ export class Engine {
     this.charSource.minFilter = THREE.NearestFilter
     this.charSource.magFilter = THREE.NearestFilter
     this.charRT.setSize(asset.width, asset.height)
-    this.composite.uniforms.charSize.value.set(asset.width, asset.height)
+    this.placement.uniforms.charSize.value.set(asset.width, asset.height)
     this.charPrep.source.value = this.charSource
     this.renderer.setRenderTarget(this.charRT)
     this.quads.charPrep.render(this.renderer)
@@ -347,13 +465,46 @@ export class Engine {
     })
   }
 
+  /** 把各图层的纹理节点指向一组渲染目标 */
+  private bindLayers(targets: LayerTargets): void {
+    for (const key of Object.keys(targets) as (keyof LayerTargets)[]) this.layerNodes[key].value = targets[key].texture
+  }
+
+  /**
+   * 渲染文档：背景预处理与景深（需要时）→ 立绘层、立绘深度 → 立绘景深 → 遮挡层 → 合成到 out。
+   * 尺寸由 out 决定，弥散圆和噪声按 out 相对文档的比例换算。
+   */
+  private renderDocument(targets: LayerTargets, out: THREE.RenderTarget, background: boolean, effects: { dof: boolean; occlusion: boolean }): void {
+    if (!this.docSize) return
+    const r = this.renderer
+    const { width, height } = out
+    const u = this.dof
+    u.targetSize.value.set(width, height)
+    u.targetLong.value = Math.max(width, height)
+    u.tileSize.value.set(targets.tiles.width, targets.tiles.height)
+    this.character.fusion.targetScale.value = width / this.docSize.width
+    const pass = (quad: THREE.QuadMesh, target: THREE.RenderTarget) => {
+      r.setRenderTarget(target)
+      quad.render(r)
+    }
+    if (background) {
+      pass(this.quads.prep, targets.prep)
+      pass(this.quads.tiles, targets.tiles)
+      if (effects.dof) pass(this.quads.backgroundDof, targets.backgroundDof)
+    }
+    pass(this.quads.character, targets.character)
+    pass(this.quads.characterDepth, targets.characterDepth)
+    if (effects.dof) pass(this.quads.characterDof, targets.characterDof)
+    if (effects.occlusion) pass(this.quads.occlusion, targets.occlusion)
+    pass(this.quads.composite, out)
+  }
+
   private renderFrame(): void {
     if (this.disposed) return
     const r = this.renderer
     if (this.docDirty && this.docSize) {
-      this.composite.fusion.targetScale.value = this.docRT.width / this.docSize.width
-      r.setRenderTarget(this.docRT)
-      this.quads.composite.render(r)
+      this.renderDocument(this.layers, this.docRT, this.backgroundDirty, this.effects(this.display))
+      this.backgroundDirty = false
       this.docDirty = false
       this.viewDirty = true
     }
@@ -370,20 +521,20 @@ export class Engine {
     if (!this.docSize || !this.doc) throw new Error('没有可导出的文档')
     const { width, height } = this.docSize
     const r = this.renderer
+    // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
+    const display: FusionDisplay = { compare: false, showNormals: false, showMask: false }
+    const effects = this.effects(display)
+    const targets = layerTargets(width, height, { backgroundDof: !effects.dof, characterDof: !effects.dof, occlusion: !effects.occlusion })
     const linear = linearTarget(width, height)
     const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
-    // 导出始终是融合后的合成结果，不带调试视图、灰球和对比
     const view = this.composite.uniforms.view.value
     const ball = this.composite.ball.showBall.value
-    const fusion = this.composite.fusion
     this.composite.uniforms.view.value = 0
     this.composite.ball.showBall.value = 0
-    fusion.enabled.value = this.fusionReady ? 1 : 0
-    fusion.showNormals.value = 0
-    fusion.targetScale.value = 1
+    this.syncDisplay(display)
     try {
-      r.setRenderTarget(linear)
-      this.quads.composite.render(r)
+      this.bindLayers(targets)
+      this.renderDocument(targets, linear, true, effects)
       this.encode.source.value = linear.texture
       r.setRenderTarget(out)
       this.quads.encode.render(r)
@@ -396,12 +547,12 @@ export class Engine {
     } finally {
       this.composite.uniforms.view.value = view
       this.composite.ball.showBall.value = ball
-      this.syncFusionDisplay()
+      this.bindLayers(this.layers)
+      this.syncDisplay()
       this.encode.source.value = this.placeholder
+      for (const rt of Object.values(targets)) rt.dispose()
       linear.dispose()
       out.dispose()
-      this.docDirty = true
-      this.schedule()
     }
   }
 
@@ -412,6 +563,7 @@ export class Engine {
     this.charSource?.dispose()
     this.charRT.dispose()
     this.docRT.dispose()
+    for (const rt of Object.values(this.layers)) rt.dispose()
     this.placeholder.dispose()
     this.colormap.dispose()
     this.normalPlaceholder.dispose()

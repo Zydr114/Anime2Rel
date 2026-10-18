@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import type { Engine } from '@/engine/Engine'
 import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
+import { currentFocusParams } from '@/focus/service'
 import { currentFusionParams, currentNormals } from '@/fusion/service'
 import { t } from '@/i18n'
 import { computeBallPreview } from '@/lighting/preview'
@@ -71,7 +72,8 @@ export function Viewport() {
           const f = useFusion.getState()
           e.setCharacterNormals(currentNormals(doc))
           e.setFusion(currentFusionParams(doc))
-          e.setFusionDisplay({ compare: f.compare, showNormals: f.showNormals })
+          e.setFocus(currentFocusParams(doc))
+          e.setDisplay({ compare: f.compare, showNormals: f.showNormals, showMask: f.showMask })
         }
         syncDepth()
         syncBall()
