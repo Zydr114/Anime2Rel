@@ -13,7 +13,19 @@ import {
   TILE,
 } from './dof'
 import { applyFusionParams } from './fusion'
-import { applyAdjustParams, createAdjustUniforms, createBackgroundAdjustPass, createCharacterAdjustPass, createGlobalAdjustPass, type AdjustUniforms } from './grade'
+import {
+  applyAdjustParams,
+  createAdjustUniforms,
+  createBackgroundAdjustPass,
+  createCharacterAdjustPass,
+  createGlobalAdjustPass,
+  createLocalUniforms,
+  createToneCoefPass,
+  createTonePass,
+  unpremultiply,
+  type AdjustUniforms,
+  type LocalTone,
+} from './grade'
 import {
   createCharacterPass,
   createCharPrepPass,
@@ -137,6 +149,8 @@ interface Effects {
   shadow: boolean
   /** 三级调整与全局调色 */
   grade: boolean
+  /** 各级是否有局部调整 */
+  local: Record<GradeLevel, boolean>
 }
 
 export interface DebugSettings {
@@ -167,14 +181,16 @@ function linearTarget(width: number, height: number, mipmaps = false, filter: TH
   })
 }
 
-/** 合成用的中间图层，尺寸与输出相同（弥散圆统计块为 1/16） */
-type LayerTargets = Record<keyof LayerTextures | 'tiles', THREE.RenderTarget>
+/** 合成用的中间图层，尺寸与输出相同（弥散圆统计块为 1/16，局部调整的引导滤波系数为 1/4） */
+type LayerKey = keyof LayerTextures | 'tone'
+type LayerTargets = Record<LayerKey | 'tiles' | 'toneCoef', THREE.RenderTarget>
 
 const tileCount = (n: number) => Math.max(1, Math.ceil(n / TILE))
+const coefSize = (n: number) => Math.max(1, Math.ceil(n / 4))
 
 /** 创建中间图层；skip 中的图层在这次渲染中用不到，只分配 1×1 */
-function layerTargets(width: number, height: number, skip: Partial<Record<keyof LayerTextures, boolean>> = {}): LayerTargets {
-  const target = (key: keyof LayerTextures, mipmaps = false) => (skip[key] ? linearTarget(1, 1) : linearTarget(width, height, mipmaps))
+function layerTargets(width: number, height: number, skip: Partial<Record<LayerKey, boolean>> = {}): LayerTargets {
+  const target = (key: LayerKey, mipmaps = false) => (skip[key] ? linearTarget(1, 1) : linearTarget(width, height, mipmaps))
   return {
     background: target('background'),
     prep: target('prep', true),
@@ -188,6 +204,8 @@ function layerTargets(width: number, height: number, skip: Partial<Record<keyof 
     shadow: target('shadow', true),
     composited: target('composited'),
     graded: target('graded'),
+    tone: target('tone', true),
+    toneCoef: skip.tone ? linearTarget(1, 1) : linearTarget(coefSize(width), coefSize(height), true),
   }
 }
 
@@ -225,6 +243,7 @@ export class Engine {
   private readonly emptyRegions = this.dof.regions.value
   private readonly shadow = createShadowUniforms()
   private readonly adjust = Object.fromEntries(GRADE_LEVELS.map((level) => [level, createAdjustUniforms()])) as Record<GradeLevel, AdjustUniforms>
+  private readonly local = createLocalUniforms()
   private readonly charPrep
   private readonly character
   /** 预览时叠加在合成结果上的调试视图和灰球 */
@@ -247,9 +266,12 @@ export class Engine {
     | 'globalAdjust'
     | 'display'
     | 'present'
-    | 'encode',
+    | 'encode'
+    | 'toneCoef',
     THREE.QuadMesh
   >
+  /** 各级局部调整的 log2 亮度 */
+  private readonly toneQuads: Record<GradeLevel, THREE.QuadMesh>
 
   private bgAssetId: string | null = null
   private charAssetId: string | null = null
@@ -289,8 +311,11 @@ export class Engine {
       shadow: layer('shadow'),
       composited: layer('composited'),
       graded: layer('graded'),
+      tone: layer('tone'),
+      toneCoef: layer('toneCoef'),
     })
     const dof = this.dof
+    const lt: LocalTone = { ...this.local, tone: nodes.tone, coef: nodes.toneCoef }
     this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder)
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
@@ -299,12 +324,12 @@ export class Engine {
     this.quads = {
       charPrep: quad(this.charPrep.material),
       // 背景层调整只改背景本身：立绘的融合和深度仍按原图计算
-      backgroundAdjust: quad(createBackgroundAdjustPass(this.adjust.background, this.backgroundNode)),
+      backgroundAdjust: quad(createBackgroundAdjustPass(this.adjust.background, lt, this.backgroundNode)),
       prep: quad(createPrepPass(dof, nodes.background, this.depthNodes.background.depth)),
       tiles: quad(createTilePass(dof, nodes.prep)),
       backgroundDof: quad(createBackgroundDofPass(dof, nodes.prep, nodes.tiles)),
       character: quad(this.character.material),
-      characterAdjust: quad(createCharacterAdjustPass(this.adjust.character, nodes.character)),
+      characterAdjust: quad(createCharacterAdjustPass(this.adjust.character, lt, nodes.character)),
       characterDepth: quad(
         createCharacterDepthPass(dof, {
           p: placement.p,
@@ -319,10 +344,16 @@ export class Engine {
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
       shadow: quad(createShadowPass(this.shadow, placement, texture(this.charRT.texture), this.depthNodes.background)),
       composite: quad(createCompositePass({ placement, background: nodes.background, layers: nodes, dof, shadow: this.shadow })),
-      globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, nodes.composited)),
+      globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt, nodes.composited)),
       display: quad(this.debugView.material),
       present: quad(this.present.material),
       encode: quad(this.encode.material),
+      toneCoef: quad(createToneCoefPass(lt)),
+    }
+    this.toneQuads = {
+      background: quad(createTonePass(this.adjust.background, this.backgroundNode.rgb)),
+      character: quad(createTonePass(this.adjust.character, unpremultiply(nodes.character), nodes.character.a)),
+      global: quad(createTonePass(this.adjust.global, nodes.composited.rgb)),
     }
   }
 
@@ -469,11 +500,13 @@ export class Engine {
   /** 景深、遮挡和阴影是否生效：前后对比和法线视图显示未经处理的图层 */
   private effects(display: FusionDisplay): Effects {
     const raw = display.compare === 'raw' || display.showNormals
+    const grade = !raw && display.compare !== 'grade' && !!this.grade
     return {
       dof: !raw && !!this.focus?.dof,
       occlusion: !raw && !!this.focus?.occlusion.enabled,
       shadow: !raw && !!this.shadowParams,
-      grade: !raw && display.compare !== 'grade' && !!this.grade,
+      grade,
+      local: Object.fromEntries(GRADE_LEVELS.map((level) => [level, grade && !!this.grade?.[level].local])) as Record<GradeLevel, boolean>,
     }
   }
 
@@ -519,6 +552,7 @@ export class Engine {
       this.docRT.setSize(preview.width, preview.height)
       for (const [key, rt] of Object.entries(this.layers))
         if (key === 'tiles') rt.setSize(tileCount(preview.width), tileCount(preview.height))
+        else if (key === 'toneCoef') rt.setSize(coefSize(preview.width), coefSize(preview.height))
         else rt.setSize(preview.width, preview.height)
       this.placement.uniforms.docSize.value.set(asset.width, asset.height)
       this.present.uniforms.docSize.value.set(asset.width, asset.height)
@@ -564,6 +598,7 @@ export class Engine {
 
   /**
    * 渲染文档：背景层调整、背景预处理与景深（需要时）→ 立绘层、立绘层调整、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成 → 全局调整到 out。
+   * 每一级有局部调整时，先在它的调整 pass 之前算出 log2 亮度和引导滤波系数。
    * 预览（preview 为 true）时先合成到中间图层，再叠加调试视图和灰球。
    * 尺寸由 out 决定，弥散圆和噪声按 out 相对文档的比例换算。
    */
@@ -576,23 +611,33 @@ export class Engine {
     u.targetLong.value = Math.max(width, height)
     u.tileSize.value.set(targets.tiles.width, targets.tiles.height)
     this.character.fusion.targetScale.value = width / this.docSize.width
+    this.local.size.value.set(width, height)
+    this.local.long.value = Math.max(width, height)
     const pass = (quad: THREE.QuadMesh, target: THREE.RenderTarget) => {
       r.setRenderTarget(target)
       quad.render(r)
     }
+    const tone = (level: GradeLevel) => {
+      if (!effects.local[level]) return
+      pass(this.toneQuads[level], targets.tone)
+      pass(this.quads.toneCoef, targets.toneCoef)
+    }
     if (background) {
+      tone('background')
       pass(this.quads.backgroundAdjust, targets.background)
       pass(this.quads.prep, targets.prep)
       pass(this.quads.tiles, targets.tiles)
       if (effects.dof) pass(this.quads.backgroundDof, targets.backgroundDof)
     }
     pass(this.quads.character, targets.character)
+    tone('character')
     pass(this.quads.characterAdjust, targets.characterAdjusted)
     pass(this.quads.characterDepth, targets.characterDepth)
     if (effects.dof) pass(this.quads.characterDof, targets.characterDof)
     if (effects.occlusion) pass(this.quads.occlusion, targets.occlusion)
     if (effects.shadow) pass(this.quads.shadow, targets.shadow)
     pass(this.quads.composite, targets.composited)
+    tone('global')
     if (!preview) return pass(this.quads.globalAdjust, out)
     pass(this.quads.globalAdjust, targets.graded)
     pass(this.quads.display, out)
@@ -623,7 +668,14 @@ export class Engine {
     // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
     const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false }
     const effects = this.effects(display)
-    const targets = layerTargets(width, height, { backgroundDof: !effects.dof, characterDof: !effects.dof, occlusion: !effects.occlusion, shadow: !effects.shadow, graded: true })
+    const targets = layerTargets(width, height, {
+      backgroundDof: !effects.dof,
+      characterDof: !effects.dof,
+      occlusion: !effects.occlusion,
+      shadow: !effects.shadow,
+      graded: true,
+      tone: !GRADE_LEVELS.some((level) => effects.local[level]),
+    })
     const linear = linearTarget(width, height)
     const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
     this.syncDisplay(display)
@@ -665,7 +717,7 @@ export class Engine {
     for (const u of Object.values(this.adjust)) u.curveMap.dispose()
     for (const set of Object.values(this.depthPlaceholder)) for (const t of Object.values(set)) t.dispose()
     for (const layer of Object.values(this.depth)) if (layer) for (const t of Object.values(layer.textures)) t.dispose()
-    for (const q of Object.values(this.quads)) (q.material as THREE.Material).dispose()
+    for (const q of [...Object.values(this.quads), ...Object.values(this.toneQuads)]) (q.material as THREE.Material).dispose()
     this.renderer.dispose()
   }
 }

@@ -1,15 +1,13 @@
 /** 基础调整的着色器参数（src/engine/grade.ts），由文档参数换算。 */
 import { mat3Mul, type Mat3 } from '@/algo/cat'
-import { curveLut, whiteBalanceMatrix, type CurveLut, type PointAdjust } from './color'
+import { curveLut, whiteBalanceMatrix, type CurveLut, type LocalAdjust, type PointAdjust } from './color'
 import { CURVE_CHANNELS, GRADE_LEVELS, isIdentityCurve, isNeutralAdjust, type BasicAdjust, type CurveChannel, type CurvePoints, type GradeDoc, type GradeLevel } from './model'
 
-export interface AdjustParams extends PointAdjust {
+export interface AdjustParams extends PointAdjust, LocalAdjust {
   /** 有任何调整；否则着色器直接输出原色 */
   active: boolean
-  highlights: number
-  shadows: number
-  clarity: number
-  sharpen: number
+  /** 有局部调整，需要先计算 log2 亮度的金字塔和引导滤波系数 */
+  local: boolean
 }
 
 export type GradeParams = Record<GradeLevel, AdjustParams>
@@ -34,6 +32,7 @@ export function adjustParams(a: BasicAdjust): AdjustParams {
   const exposure: Mat3 = [gain, 0, 0, 0, gain, 0, 0, 0, gain]
   const params: AdjustParams = {
     active: !isNeutralAdjust(a),
+    local: a.highlights !== 0 || a.shadows !== 0 || a.clarity !== 0 || a.sharpen !== 0,
     wb: mat3Mul(exposure, whiteBalanceMatrix(a.temperature, a.tint)),
     contrast: a.contrast,
     whites: a.whites,

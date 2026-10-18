@@ -40,6 +40,8 @@ export function AdjustPanel() {
       <Section title={t.adjust.light} testId="adjust-light">
         <AdjustSlider field="exposure" label={t.adjust.exposure} min={-5} max={5} step={0.05} scale={1} format={formatEv} />
         <AdjustSlider field="contrast" label={t.adjust.contrast} />
+        <AdjustSlider field="highlights" label={t.adjust.highlights} />
+        <AdjustSlider field="shadows" label={t.adjust.shadows} />
         <AdjustSlider field="whites" label={t.adjust.whites} />
         <AdjustSlider field="blacks" label={t.adjust.blacks} />
       </Section>
@@ -51,6 +53,10 @@ export function AdjustPanel() {
       </Section>
       <HslSection />
       <CurveSection />
+      <Section title={t.adjust.detail} testId="adjust-detail">
+        <AdjustSlider field="clarity" label={t.adjust.clarity} />
+        <AdjustSlider field="sharpen" label={t.adjust.sharpen} min={0} />
+      </Section>
       <ResetButton />
     </div>
   )

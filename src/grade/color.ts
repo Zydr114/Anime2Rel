@@ -227,6 +227,49 @@ export function sampleCurve(lut: CurveLut, e: number, channel: number): number {
   return lut.data[i * 4 + channel] * (1 - t) + lut.data[(i + 1) * 4 + channel] * t
 }
 
+// ── 局部调整：高光、阴影、清晰度、锐化，在 log2 亮度上计算一个亮度偏移，加在白平衡与曝光之后 ──
+
+/** 亮度系数（Rec.709） */
+export const LUMA: Vec3 = [0.2126, 0.7152, 0.0722]
+/** log2 亮度的下限，避免纯黑取对数 */
+export const LOG_FLOOR = 1e-5
+/** 高光、阴影的基底：快速引导滤波的半径（相对图像长边）与正则项（log2 亮度的方差）。方差远大于正则项的边缘会保留在基底中，不产生光晕。 */
+export const TONE_RADIUS = 1 / 24
+export const TONE_EPS = 0.25
+/** 清晰度的基底：半径更小，只平滑纹理 */
+export const CLARITY_RADIUS = 1 / 96
+export const CLARITY_EPS = 0.12
+/** 阴影、高光满格时基底的偏移（档），以及作用范围（基底相对中灰的档数） */
+export const SHADOWS_STOPS = 2
+export const HIGHLIGHTS_STOPS = 1
+export const SHADOWS_RANGE: [number, number] = [-4, 0]
+export const HIGHLIGHTS_RANGE: [number, number] = [-1, 2]
+/** 清晰度满格时细节的放大倍数；中间调全强度，离中灰超过范围后逐渐减弱 */
+export const CLARITY_GAIN = 1
+export const CLARITY_MIDTONES: [number, number] = [1.5, 4]
+/** 锐化半径（相对长边，至少 1 像素）与满格时细节的放大倍数 */
+export const SHARPEN_RADIUS = 1 / 2000
+export const SHARPEN_GAIN = 1.5
+
+export interface LocalAdjust {
+  highlights: number
+  shadows: number
+  clarity: number
+  sharpen: number
+}
+
+/** 基底（相对中灰的档数）→ 高光、阴影带来的偏移（档）。两者叠加时基底映射的斜率仍不小于 0.25，保持单调。 */
+export function toneShift(b: number, shadows: number, highlights: number): number {
+  return shadows * SHADOWS_STOPS * (1 - smoothstep(SHADOWS_RANGE[0], SHADOWS_RANGE[1], b)) + highlights * HIGHLIGHTS_STOPS * smoothstep(HIGHLIGHTS_RANGE[0], HIGHLIGHTS_RANGE[1], b)
+}
+
+/** 局部调整的亮度偏移（档）。y 为像素的 log2 亮度，toneBase、clarityBase 为两个尺度的基底，blur 为小半径模糊后的 log2 亮度。 */
+export function localShift(y: number, toneBase: number, clarityBase: number, blur: number, p: LocalAdjust): number {
+  const mid = Math.log2(MID_GRAY)
+  const midtones = 1 - smoothstep(CLARITY_MIDTONES[0], CLARITY_MIDTONES[1], Math.abs(clarityBase - mid))
+  return toneShift(toneBase - mid, p.shadows, p.highlights) + p.clarity * CLARITY_GAIN * midtones * (y - clarityBase) + p.sharpen * SHARPEN_GAIN * (y - blur)
+}
+
 // ── 逐像素参考实现（不含局部调整）──
 
 export interface PointAdjust {

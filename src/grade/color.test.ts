@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mat3Vec } from '@/algo/cat'
-import { adjustPixel, applyContrast, applyWhitesBlacks, CURVE_SIZE, curveLut, HSL_CENTERS, hslWeights, MID_GRAY, sampleCurve, whiteBalanceMatrix } from './color'
+import { adjustPixel, applyContrast, applyWhitesBlacks, CURVE_SIZE, curveLut, HIGHLIGHTS_STOPS, HSL_CENTERS, hslWeights, MID_GRAY, sampleCurve, toneShift, whiteBalanceMatrix } from './color'
 import { DEFAULT_ADJUST, IDENTITY_CURVE } from './model'
 import { adjustParams } from './params'
 
@@ -39,6 +39,23 @@ describe('applyContrast', () => {
       const v = applyWhitesBlacks(i / 100, -1, 1)
       expect(v).toBeGreaterThan(prev)
       prev = v
+    }
+  })
+})
+
+describe('toneShift', () => {
+  it('lifts shadows and pulls highlights while keeping the base mapping monotone', () => {
+    expect(toneShift(-3, 1, 0)).toBeGreaterThan(1)
+    expect(toneShift(1, 1, 0)).toBe(0)
+    expect(toneShift(2, 0, -1)).toBeCloseTo(-HIGHLIGHTS_STOPS, 6)
+    expect(toneShift(-2, 0, -1)).toBe(0)
+    for (const [shadows, highlights] of [[1, -1], [-1, 1], [1, 1], [-1, -1]]) {
+      let prev = -Infinity
+      for (let b = -10; b <= 4; b += 0.01) {
+        const v = b + toneShift(b, shadows, highlights)
+        expect(v).toBeGreaterThan(prev)
+        prev = v
+      }
     }
   })
 })
