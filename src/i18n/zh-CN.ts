@@ -1,7 +1,8 @@
 // 界面文案。M6 增加英文时按相同结构新增语言文件。
 import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
-import type { CurveChannel, GradeLevel, HslBand } from '@/grade/model'
+import type { CurveChannel, GradeLevel, HslBand, ToneKey, WheelKey } from '@/grade/model'
+import type { GradeTab } from '@/state/grade'
 import type { BrushTool } from '@/state/regions'
 
 export const zhCN = {
@@ -291,6 +292,7 @@ export const zhCN = {
     failed: '导出失败',
   },
   adjust: {
+    tabs: { basic: '基础调整', style: '色彩风格' } as Record<GradeTab, string>,
     noBackground: '请先在“素材”步骤中导入背景照片。',
     noCharacter: '还没有立绘，请先在“素材”步骤中添加。',
     levels: { global: '全局', background: '背景', character: '立绘' } as Record<GradeLevel, string>,
@@ -324,6 +326,19 @@ export const zhCN = {
     clarity: '清晰度',
     sharpen: '锐化',
     reset: (level: string) => `重置${level}调整`,
+  },
+  style: {
+    hint: '作用于整个画面，在全局基础调整之后进行。',
+    wheels: '色轮',
+    wheelKeys: { lift: '暗部', gamma: '中间调', gain: '亮部' } as Record<WheelKey, string>,
+    luma: '亮度',
+    wheelHint: '在圆盘上拖动选择偏色的方向和强度，双击圆盘复位。',
+    split: '分离色调',
+    tones: { shadow: '暗部', highlight: '亮部' } as Record<ToneKey, string>,
+    balance: '平衡',
+    tint: (hue: number, amount: number) => `色相 ${hue}° · 强度 ${amount}`,
+    noTint: '不偏色',
+    reset: '重置色彩风格',
   },
   toolbar: {
     fit: '适应窗口 (F)',

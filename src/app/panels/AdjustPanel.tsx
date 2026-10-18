@@ -1,13 +1,14 @@
 import { useCallback } from 'react'
 import { CURVE_CHANNELS, GRADE_LEVELS, HSL_BANDS, isIdentityCurve, type BasicAdjust, type CurveChannel, type CurvePoints } from '@/grade/model'
 import { t } from '@/i18n'
-import { useGradeUi } from '@/state/grade'
+import { GRADE_TABS, useGradeUi } from '@/state/grade'
 import { useApp } from '@/state/store'
 import { CurveEditor } from '@/ui/CurveEditor'
 import { Segmented } from '@/ui/Segmented'
 import { SliderField } from '@/ui/SliderField'
 import { useGestureChange } from '../useGestureChange'
 import { Hint, Section } from './FusionSections'
+import { StyleSections } from './StyleSections'
 
 type ScalarField = { [K in keyof BasicAdjust]: BasicAdjust[K] extends number ? K : never }[keyof BasicAdjust]
 
@@ -33,9 +34,19 @@ function AdjustSlider({ field, label, min = -100, max = 100, step = 1, scale = 1
 
 export function AdjustPanel() {
   const hasBackground = useApp((s) => s.doc.background !== null)
+  const tab = useGradeUi((s) => s.tab)
   if (!hasBackground) return <p className="px-1 text-sm text-on-surface-variant">{t.adjust.noBackground}</p>
   return (
     <div className="flex flex-col gap-4">
+      <Segmented value={tab} options={GRADE_TABS} label={(v) => t.adjust.tabs[v]} onChange={useGradeUi.getState().setTab} testId="grade-tab" />
+      {tab === 'basic' ? <BasicSections /> : <StyleSections />}
+    </div>
+  )
+}
+
+function BasicSections() {
+  return (
+    <>
       <LevelSection />
       <Section title={t.adjust.light} testId="adjust-light">
         <AdjustSlider field="exposure" label={t.adjust.exposure} min={-5} max={5} step={0.05} scale={1} format={formatEv} />
@@ -58,7 +69,7 @@ export function AdjustPanel() {
         <AdjustSlider field="sharpen" label={t.adjust.sharpen} min={0} />
       </Section>
       <ResetButton />
-    </div>
+    </>
   )
 }
 

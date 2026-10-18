@@ -3,7 +3,7 @@ import type { AssetRef } from './assets'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
 import { DEFAULT_FOCUS, DEFAULT_STYLE, MAX_REGIONS, newRegionId, type BrushStroke, type FocusDoc, type FocusSection, type OcclusionRegion, type OcclusionStyle } from '@/focus/model'
 import { DEFAULT_FUSION, type FusionDoc, type FusionSection } from '@/fusion/model'
-import { DEFAULT_ADJUST, DEFAULT_GRADE, type BasicAdjust, type GradeDoc, type GradeLevel } from '@/grade/model'
+import { DEFAULT_ADJUST, DEFAULT_CREATIVE, DEFAULT_GRADE, type BasicAdjust, type ColorWheel, type CreativeGrade, type GradeDoc, type GradeLevel, type SplitToning, type WheelKey } from '@/grade/model'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
 export type StepId = 'assets' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
@@ -87,6 +87,9 @@ interface AppState {
 
   updateAdjust: (level: GradeLevel, update: Partial<BasicAdjust>) => void
   resetAdjust: (level: GradeLevel) => void
+  updateWheel: (key: WheelKey, update: Partial<ColorWheel>) => void
+  updateSplit: (update: Partial<SplitToning>) => void
+  resetCreative: () => void
 
   setView: (view: ViewTransform) => void
   setViewport: (size: Size) => void
@@ -96,6 +99,10 @@ interface AppState {
 }
 
 const pushPast = (past: DocState[], doc: DocState) => [...past.slice(-(HISTORY_LIMIT - 1)), doc]
+
+function setCreative(get: () => AppState, update: (c: CreativeGrade) => CreativeGrade): void {
+  get().setDoc((d) => ({ ...d, grade: { ...d.grade, creative: update(d.grade.creative) } }))
+}
 
 function setRegions(get: () => AppState, update: (regions: OcclusionRegion[]) => OcclusionRegion[]): void {
   get().setDoc((d) => ({ ...d, focus: { ...d.focus, occlusion: { ...d.focus.occlusion, regions: update(d.focus.occlusion.regions) } } }))
@@ -279,6 +286,18 @@ export const useApp = create<AppState>()((set, get) => ({
 
   resetAdjust: (level) => {
     get().setDoc((d) => ({ ...d, grade: { ...d.grade, levels: { ...d.grade.levels, [level]: DEFAULT_ADJUST } } }))
+  },
+
+  updateWheel: (key, update) => {
+    setCreative(get, (c) => ({ ...c, wheels: { ...c.wheels, [key]: { ...c.wheels[key], ...update } } }))
+  },
+
+  updateSplit: (update) => {
+    setCreative(get, (c) => ({ ...c, split: { ...c.split, ...update } }))
+  },
+
+  resetCreative: () => {
+    setCreative(get, () => DEFAULT_CREATIVE)
   },
 
   setView: (view) => set({ view }),

@@ -12,6 +12,7 @@ import {
   createTilePass,
   TILE,
 } from './dof'
+import { applyFinishParams, createFinishPass, createFinishUniforms } from './finish'
 import { applyFusionParams } from './fusion'
 import {
   applyAdjustParams,
@@ -182,7 +183,7 @@ function linearTarget(width: number, height: number, mipmaps = false, filter: TH
 }
 
 /** 合成用的中间图层，尺寸与输出相同（弥散圆统计块为 1/16，局部调整的引导滤波系数为 1/4） */
-type LayerKey = keyof LayerTextures | 'tone'
+type LayerKey = keyof LayerTextures | 'tone' | 'adjusted'
 type LayerTargets = Record<LayerKey | 'tiles' | 'toneCoef', THREE.RenderTarget>
 
 const tileCount = (n: number) => Math.max(1, Math.ceil(n / TILE))
@@ -203,6 +204,7 @@ function layerTargets(width: number, height: number, skip: Partial<Record<LayerK
     occlusion: target('occlusion'),
     shadow: target('shadow', true),
     composited: target('composited'),
+    adjusted: target('adjusted'),
     graded: target('graded'),
     tone: target('tone', true),
     toneCoef: skip.tone ? linearTarget(1, 1) : linearTarget(coefSize(width), coefSize(height), true),
@@ -244,6 +246,7 @@ export class Engine {
   private readonly shadow = createShadowUniforms()
   private readonly adjust = Object.fromEntries(GRADE_LEVELS.map((level) => [level, createAdjustUniforms()])) as Record<GradeLevel, AdjustUniforms>
   private readonly local = createLocalUniforms()
+  private readonly finish = createFinishUniforms()
   private readonly charPrep
   private readonly character
   /** 预览时叠加在合成结果上的调试视图和灰球 */
@@ -264,6 +267,7 @@ export class Engine {
     | 'shadow'
     | 'composite'
     | 'globalAdjust'
+    | 'finish'
     | 'display'
     | 'present'
     | 'encode'
@@ -310,6 +314,7 @@ export class Engine {
       occlusion: layer('occlusion'),
       shadow: layer('shadow'),
       composited: layer('composited'),
+      adjusted: layer('adjusted'),
       graded: layer('graded'),
       tone: layer('tone'),
       toneCoef: layer('toneCoef'),
@@ -345,6 +350,7 @@ export class Engine {
       shadow: quad(createShadowPass(this.shadow, placement, texture(this.charRT.texture), this.depthNodes.background)),
       composite: quad(createCompositePass({ placement, background: nodes.background, layers: nodes, dof, shadow: this.shadow })),
       globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt, nodes.composited)),
+      finish: quad(createFinishPass(this.finish, nodes.adjusted)),
       display: quad(this.debugView.material),
       present: quad(this.present.material),
       encode: quad(this.encode.material),
@@ -485,7 +491,7 @@ export class Engine {
   /** 三级调整的参数；null 为不调整 */
   setGrade(params: GradeParams | null): void {
     // 背景层调整变化时，背景预处理和背景景深需要重算
-    if (params?.background !== this.grade?.background) this.backgroundDirty = true
+    if (params?.levels.background !== this.grade?.levels.background) this.backgroundDirty = true
     this.grade = params
     this.syncDisplay()
   }
@@ -506,7 +512,7 @@ export class Engine {
       occlusion: !raw && !!this.focus?.occlusion.enabled,
       shadow: !raw && !!this.shadowParams,
       grade,
-      local: Object.fromEntries(GRADE_LEVELS.map((level) => [level, grade && !!this.grade?.[level].local])) as Record<GradeLevel, boolean>,
+      local: Object.fromEntries(GRADE_LEVELS.map((level) => [level, grade && !!this.grade?.levels[level].local])) as Record<GradeLevel, boolean>,
     }
   }
 
@@ -520,10 +526,11 @@ export class Engine {
     this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
     this.shadow.enabled.value = effects.shadow ? 1 : 0
     for (const level of GRADE_LEVELS) {
-      const params = this.grade?.[level]
+      const params = this.grade?.levels[level]
       if (params) applyAdjustParams(this.adjust[level], params, effects.grade)
       else this.adjust[level].enabled.value = 0
     }
+    applyFinishParams(this.finish, this.grade?.creative ?? null, effects.grade)
     this.docDirty = true
     this.schedule()
   }
@@ -597,7 +604,7 @@ export class Engine {
   }
 
   /**
-   * 渲染文档：背景层调整、背景预处理与景深（需要时）→ 立绘层、立绘层调整、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成 → 全局调整到 out。
+   * 渲染文档：背景层调整、背景预处理与景深（需要时）→ 立绘层、立绘层调整、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成 → 全局调整 → 终处理到 out。
    * 每一级有局部调整时，先在它的调整 pass 之前算出 log2 亮度和引导滤波系数。
    * 预览（preview 为 true）时先合成到中间图层，再叠加调试视图和灰球。
    * 尺寸由 out 决定，弥散圆和噪声按 out 相对文档的比例换算。
@@ -638,8 +645,9 @@ export class Engine {
     if (effects.shadow) pass(this.quads.shadow, targets.shadow)
     pass(this.quads.composite, targets.composited)
     tone('global')
-    if (!preview) return pass(this.quads.globalAdjust, out)
-    pass(this.quads.globalAdjust, targets.graded)
+    pass(this.quads.globalAdjust, targets.adjusted)
+    if (!preview) return pass(this.quads.finish, out)
+    pass(this.quads.finish, targets.graded)
     pass(this.quads.display, out)
   }
 

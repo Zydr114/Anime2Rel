@@ -37,8 +37,40 @@ export interface BasicAdjust {
   sharpen: number
 }
 
+/** 色轮：暗部（lift）、中间调（gamma）、亮部（gain） */
+export type WheelKey = 'lift' | 'gamma' | 'gain'
+export const WHEEL_KEYS: readonly WheelKey[] = ['lift', 'gamma', 'gain']
+
+/** 偏色：方向为 Oklch 色相（度），强度 [0,1] */
+export interface Tint {
+  hue: number
+  amount: number
+}
+
+export interface ColorWheel extends Tint {
+  /** 亮度 [-1,1] */
+  luma: number
+}
+
+export type ToneKey = 'shadow' | 'highlight'
+export const TONE_KEYS: readonly ToneKey[] = ['shadow', 'highlight']
+
+export interface SplitToning {
+  shadow: Tint
+  highlight: Tint
+  /** 平衡 [-1,1]：正值让亮部的色调覆盖更多中间调 */
+  balance: number
+}
+
+/** 全局调色（色彩风格）：在全局基础调整之后、显示空间中进行 */
+export interface CreativeGrade {
+  wheels: Record<WheelKey, ColorWheel>
+  split: SplitToning
+}
+
 export interface GradeDoc {
   levels: Record<GradeLevel, BasicAdjust>
+  creative: CreativeGrade
 }
 
 export const IDENTITY_CURVE: CurvePoints = [
@@ -65,8 +97,17 @@ export const DEFAULT_ADJUST: BasicAdjust = {
   sharpen: 0,
 }
 
+const NO_WHEEL: ColorWheel = { hue: 0, amount: 0, luma: 0 }
+
+export const DEFAULT_CREATIVE: CreativeGrade = {
+  wheels: { lift: NO_WHEEL, gamma: NO_WHEEL, gain: NO_WHEEL },
+  // 色相取常见的冷暗部、暖亮部，强度为 0 时不起作用
+  split: { shadow: { hue: 230, amount: 0 }, highlight: { hue: 70, amount: 0 }, balance: 0 },
+}
+
 export const DEFAULT_GRADE: GradeDoc = {
   levels: { global: DEFAULT_ADJUST, background: DEFAULT_ADJUST, character: DEFAULT_ADJUST },
+  creative: DEFAULT_CREATIVE,
 }
 
 /** 曲线是否为恒等（只有两个端点且在对角线上） */
@@ -83,4 +124,9 @@ export function isNeutralAdjust(a: BasicAdjust): boolean {
     [a.hsl.hue, a.hsl.saturation, a.hsl.luminance].every((band) => band.every((v) => v === 0)) &&
     CURVE_CHANNELS.every((c) => isIdentityCurve(a.curves[c]))
   )
+}
+
+/** 全局调色是否不做任何修改 */
+export function isNeutralCreative(c: CreativeGrade): boolean {
+  return WHEEL_KEYS.every((k) => c.wheels[k].amount === 0 && c.wheels[k].luma === 0) && TONE_KEYS.every((k) => c.split[k].amount === 0)
 }

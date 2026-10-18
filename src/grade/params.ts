@@ -1,5 +1,6 @@
 /** 基础调整的着色器参数（src/engine/grade.ts），由文档参数换算。 */
 import { mat3Mul, type Mat3 } from '@/algo/cat'
+import { creativeParams, type CreativeParams } from './creative'
 import { curveLut, whiteBalanceMatrix, type CurveLut, type LocalAdjust, type PointAdjust } from './color'
 import { CURVE_CHANNELS, GRADE_LEVELS, isIdentityCurve, isNeutralAdjust, type BasicAdjust, type CurveChannel, type CurvePoints, type GradeDoc, type GradeLevel } from './model'
 
@@ -10,7 +11,10 @@ export interface AdjustParams extends PointAdjust, LocalAdjust {
   local: boolean
 }
 
-export type GradeParams = Record<GradeLevel, AdjustParams>
+export interface GradeParams {
+  levels: Record<GradeLevel, AdjustParams>
+  creative: CreativeParams
+}
 
 const curveCache = new WeakMap<Record<CurveChannel, CurvePoints>, CurveLut | null>()
 const paramsCache = new WeakMap<BasicAdjust, AdjustParams>()
@@ -51,5 +55,8 @@ export function adjustParams(a: BasicAdjust): AdjustParams {
 }
 
 export function gradeParams(grade: GradeDoc): GradeParams {
-  return Object.fromEntries(GRADE_LEVELS.map((level) => [level, adjustParams(grade.levels[level])])) as GradeParams
+  return {
+    levels: Object.fromEntries(GRADE_LEVELS.map((level) => [level, adjustParams(grade.levels[level])])) as Record<GradeLevel, AdjustParams>,
+    creative: creativeParams(grade.creative),
+  }
 }
