@@ -3,7 +3,7 @@ import type { Engine } from '@/engine/Engine'
 import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
 import { currentFocusParams } from '@/focus/service'
-import { currentFusionParams, currentNormals } from '@/fusion/service'
+import { currentFusionParams, currentNormals, currentShadowParams } from '@/fusion/service'
 import { t } from '@/i18n'
 import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
@@ -76,6 +76,7 @@ export function Viewport() {
           e.setCharacterNormals(currentNormals(doc))
           e.setFusion(currentFusionParams(doc))
           e.setFocus(currentFocusParams(doc))
+          e.setShadow(currentShadowParams(doc))
           e.setDisplay({ compare: f.compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus' })
         }
         syncDepth()

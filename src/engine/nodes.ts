@@ -2,6 +2,7 @@
 import * as THREE from 'three/webgpu'
 import { float, mix, pow, step, vec3 } from 'three/tsl'
 
+export type Vec2Node = THREE.Node<'vec2'>
 export type Vec3Node = THREE.Node<'vec3'>
 export type FloatNode = THREE.Node<'float'>
 export type Vec4Node = THREE.Node<'vec4'>

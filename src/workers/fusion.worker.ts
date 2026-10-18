@@ -10,7 +10,7 @@ import { oklabImage } from '@/algo/oklab'
 import { quantiles, resizeBilinear } from '@/algo/raster'
 import type { Vec3 } from '@/algo/sh'
 import { characterNormals } from '@/fusion/normals'
-import type { BackgroundInfo, BackgroundInput, CharacterInfo, CharacterInput, FusionStats, FusionWorkerApi, NormalMap, NormalRequest, StatsRequest } from '@/fusion/protocol'
+import { ROW_BINS, type BackgroundInfo, type BackgroundInput, type CharacterInfo, type CharacterInput, type FusionStats, type FusionWorkerApi, type NormalMap, type NormalRequest, type StatsRequest } from '@/fusion/protocol'
 import { labStats, noiseSigma, whitePoint } from '@/fusion/stats'
 
 /** 统计用的分辨率（长边） */
@@ -140,18 +140,29 @@ const api: FusionWorkerApi = {
     let y0 = height
     let x1 = -1
     let y1 = -1
-    for (let y = 0; y < height; y++)
+    const rows = new Float32Array(ROW_BINS * 2).fill(-1)
+    for (let y = 0; y < height; y++) {
+      const bin = Math.min(ROW_BINS - 1, Math.floor((y / height) * ROW_BINS))
       for (let x = 0; x < width; x++) {
         if (alpha[y * width + x] <= 0.5) continue
         x0 = Math.min(x0, x)
         x1 = Math.max(x1, x)
         y0 = Math.min(y0, y)
         y1 = Math.max(y1, y)
+        const left = x / width
+        const right = (x + 1) / width
+        if (rows[bin * 2] < 0 || left < rows[bin * 2]) rows[bin * 2] = left
+        rows[bin * 2 + 1] = Math.max(rows[bin * 2 + 1], right)
       }
+    }
     const opaque = Uint8Array.from(alpha, (a) => (a > 0.5 ? 1 : 0))
     const reliefMedian = (input.depth?.length === n ? quantiles(input.depth, [0.5], opaque)?.[0] : undefined) ?? 0.5
-    if (x1 < 0) return { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 }, reliefMedian }
-    return { bbox: { x0: x0 / width, y0: y0 / height, x1: (x1 + 1) / width, y1: (y1 + 1) / height }, reliefMedian }
+    if (x1 < 0) return { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 }, reliefMedian, rows, bottomCoverage: 0 }
+    const bottom = Math.max(1, Math.round((y1 - y0 + 1) * 0.01))
+    let covered = 0
+    for (let y = y1 - bottom + 1; y <= y1; y++) for (let x = x0; x <= x1; x++) if (alpha[y * width + x] > 0.5) covered++
+    const bottomCoverage = covered / (bottom * (x1 - x0 + 1))
+    return { bbox: { x0: x0 / width, y0: y0 / height, x1: (x1 + 1) / width, y1: (y1 + 1) / height }, reliefMedian, rows, bottomCoverage }
   },
 
   async normals(request: NormalRequest): Promise<NormalMap> {

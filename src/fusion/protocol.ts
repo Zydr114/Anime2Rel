@@ -38,7 +38,14 @@ export interface CharacterInfo {
   bbox: { x0: number; y0: number; x1: number; y1: number }
   /** 不透明区域内立绘自身深度的中位数，作为起伏的基准；深度未就绪时为 0.5 */
   reliefMedian: number
+  /** 包围盒最下方 1% 的行中不透明像素占包围盒宽度的比例：被裁切的半身像接近 1，双脚通常较小 */
+  bottomCoverage: number
+  /** 按高度分成 ROW_BINS 行，每行不透明区域的左右边界（立绘 UV，交错存放）；没有不透明像素的行为 -1 */
+  rows: Float32Array
 }
+
+/** CharacterInfo.rows 的行数 */
+export const ROW_BINS = 256
 
 export interface NormalRequest {
   id: string

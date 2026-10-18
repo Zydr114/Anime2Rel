@@ -9,6 +9,8 @@ import { DEFAULT_FUSION } from './model'
 import { characterNormals, inflateNormals, lineArtMask } from './normals'
 import { fusionParams, toneCurve } from './params'
 import { characterDepth, characterGround } from './placement'
+import { ROW_BINS } from './protocol'
+import { shadowParams } from './shadow'
 import { labStats, noiseSigma, whitePoint, type LabStats } from './stats'
 
 /** 可复现的伪随机数（xorshift）与近似正态分布 */
@@ -145,5 +147,44 @@ describe('placement', () => {
     const depth = Float32Array.from({ length: 100 }, (_, i) => (i === 6 * 10 + 5 ? 0 : 0.6))
     const result = { guideSize: { width: 10, height: 10 }, depth } as DepthResult
     expect(characterDepth(doc, result, bbox)).toBeCloseTo(0.6)
+  })
+})
+
+describe('standing shadow', () => {
+  const doc: DocState = {
+    ...initialDoc,
+    background: { id: 'bg', name: 'bg', width: 100, height: 100, sourceWidth: 100, sourceHeight: 100, hasTransparency: false },
+    character: { id: 'ch', name: 'ch', width: 20, height: 40, sourceWidth: 20, sourceHeight: 40, hasTransparency: true },
+    charTransform: { x: 50, y: 50, scale: 1, rotation: 0, flipX: false },
+  }
+  const background = { guideSize: { width: 10, height: 10 }, depth: new Float32Array(100).fill(0.6) } as DepthResult
+  // 不透明区域：脚部（底部几行）横跨 u = 0.4–0.6
+  const rows = new Float32Array(ROW_BINS * 2).fill(-1)
+  for (let b = 0; b < ROW_BINS * 0.9; b++) rows.set([0.4, 0.6], b * 2)
+  const info = { bbox: { x0: 0.25, y0: 0, x1: 0.75, y1: 0.9 }, reliefMedian: 0.5, rows, bottomCoverage: 0.2 }
+  const sun = { ...newDirectionalLight(1), direction: [-0.5, 0.7, 0.5] as Vec3, softness: 0 }
+  const lighting = { ...DEFAULT_LIGHTING, lights: [sun] }
+  const ambient = new Array(27).fill(0)
+  for (let c = 0; c < 3; c++) ambient[c] = 0.3 / 0.282095 / 0.886227
+
+  it('casts away from the light, sized from the feet and tinted by the remaining light', () => {
+    const p = shadowParams({ doc: { ...doc, lighting }, background, info, ambient })!
+    // 光从左前上方来：影子朝右、朝画面深处
+    expect(p.cast.along[0]).toBeGreaterThan(0.5)
+    expect(p.cast.along[2]).toBeLessThan(-0.5)
+    expect(p.cast.lateral[0]).toBeGreaterThan(0)
+    expect(p.cast.tanElevation).toBeCloseTo(0.7 / Math.hypot(0.5, 0.5), 1)
+    // 接触阴影宽度来自脚部跨度（4 px 的一半 × 1.15）
+    expect(p.contact.axes[0]).toBeCloseTo(2 * 1.15)
+    for (const c of p.cast.tint) {
+      expect(c).toBeGreaterThan(0.2)
+      expect(c).toBeLessThan(0.9)
+    }
+  })
+
+  it('does not draw shadows for a cut-off half-body character unless the ground point is set', () => {
+    const cut = { ...info, bbox: { ...info.bbox, y1: 1 }, bottomCoverage: 0.9 }
+    expect(shadowParams({ doc, background, info: cut, ambient })).toBeNull()
+    expect(shadowParams({ doc: { ...doc, fusion: { ...doc.fusion, ground: { u: 0.5, v: 0.9 } } }, background, info: cut, ambient })).not.toBeNull()
   })
 })

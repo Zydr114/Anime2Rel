@@ -1,9 +1,10 @@
 // 渲染各阶段使用的 TSL 材质。所有中间结果都是线性 sRGB；立绘使用预乘 alpha。
 import * as THREE from 'three/webgpu'
-import { abs, cos, dot, float, fwidth, length, max, mix, saturate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, cos, dot, float, fwidth, length, log2, max, mix, saturate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { sampleLevel, type DofUniforms } from './dof'
 import { createFusionNode } from './fusion'
-import { evalSh, material, srgbDecode, srgbEncode, type FloatNode, type Vec3Node, type Vec4Node } from './nodes'
+import type { ShadowUniforms } from './shadow'
+import { evalSh, material, srgbDecode, srgbEncode, type FloatNode, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
 
 /** 立绘预处理：sRGB 直通 alpha → 线性预乘 alpha，写入带 mipmap 的半精度纹理。 */
 export function createCharPrepPass(placeholder: THREE.Texture) {
@@ -84,14 +85,18 @@ export function createPlacement() {
     hasChar: uniform(0),
   }
   const p = screenUV.mul(u.docSize)
-  const d = p.sub(u.charCenter)
-  const c = cos(u.charRotation)
-  const s = sin(u.charRotation)
-  const lx = c.mul(d.x).add(s.mul(d.y)).div(u.charScale).mul(u.charFlip)
-  const ly = s.negate().mul(d.x).add(c.mul(d.y)).div(u.charScale)
-  const charUV = vec2(lx, ly).div(u.charSize).add(0.5)
+  /** 文档像素坐标 → 立绘 UV，与 src/algo/geometry.ts 的 docToLayerUV 一致 */
+  const toCharUV = (q: Vec2Node) => {
+    const d = q.sub(u.charCenter)
+    const c = cos(u.charRotation)
+    const s = sin(u.charRotation)
+    const lx = c.mul(d.x).add(s.mul(d.y)).div(u.charScale).mul(u.charFlip)
+    const ly = s.negate().mul(d.x).add(c.mul(d.y)).div(u.charScale)
+    return vec2(lx, ly).div(u.charSize).add(0.5)
+  }
+  const charUV = toCharUV(p)
   const inside = step(0, charUV.x).mul(step(charUV.x, 1)).mul(step(0, charUV.y)).mul(step(charUV.y, 1)).mul(u.hasChar)
-  return { uniforms: u, p, charUV, inside }
+  return { uniforms: u, p, charUV, inside, toCharUV }
 }
 
 export type Placement = ReturnType<typeof createPlacement>
@@ -152,10 +157,12 @@ export interface LayerTextures {
   characterDepth: TextureNode
   characterDof: TextureNode
   occlusion: TextureNode
+  /** 站立阴影：背景的颜色倍率 */
+  shadow: TextureNode
 }
 
 /**
- * 最终合成：模糊背景 → 模糊立绘 → 遮挡层（按遮挡方式混合）→ 遮罩预览 → 调试视图 → 灰球。
+ * 最终合成：模糊背景（乘以站立阴影） → 模糊立绘 → 遮挡层（按遮挡方式混合）→ 遮罩预览 → 调试视图 → 灰球。
  * view 不为 0 时按调试视图着色，再按 overlay 与合成结果混合。
  */
 export function createCompositePass(input: {
@@ -165,11 +172,15 @@ export function createCompositePass(input: {
   colormap: THREE.Texture
   layers: LayerTextures
   dof: DofUniforms
+  shadow: ShadowUniforms
 }) {
   const { placement, depth, background, layers, dof } = input
   const u = { view: uniform(0), overlay: uniform(1) }
 
-  const bg = mix(sampleLevel(layers.backgroundDof, screenUV).rgb, background.rgb, dof.bypass)
+  // 阴影随地面一起离焦：按背景的弥散圆选用 mip
+  const shadowLod = log2(max(abs(sampleLevel(layers.prep, screenUV).a), 1))
+  const shadow = mix(vec3(1), sampleLevel(layers.shadow, screenUV, shadowLod).rgb, input.shadow.enabled)
+  const bg = mix(sampleLevel(layers.backgroundDof, screenUV).rgb, background.rgb, dof.bypass).mul(shadow)
   const ch = mix(sampleLevel(layers.characterDof, screenUV), sampleLevel(layers.character, screenUV), dof.bypass)
   const charDepth = sampleLevel(layers.characterDepth, screenUV)
 

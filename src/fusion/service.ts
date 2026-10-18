@@ -13,6 +13,7 @@ import { useApp, type DocState } from '@/state/store'
 import { fusionParams, whiteAdaptation, type FusionParams } from './params'
 import { characterBox, characterDepth } from './placement'
 import type { FusionWorkerApi, NormalMap } from './protocol'
+import { shadowParams, type ShadowParams } from './shadow'
 
 /** 法线参数变化后的防抖时间 */
 const NORMALS_DEBOUNCE = 150
@@ -192,6 +193,14 @@ export function currentFusionParams(doc: DocState): FusionParams | null {
     center: { x: box.reduce((s, p) => s + p.x, 0) / 4, y: box.reduce((s, p) => s + p.y, 0) / 4 },
     depth: characterDepth(doc, getDepthResult(bg.id), bbox),
   })
+}
+
+/** 当前的站立阴影参数；立绘信息未就绪时不画阴影 */
+export function currentShadowParams(doc: DocState): ShadowParams | null {
+  const bg = doc.background
+  const character = useFusion.getState().character
+  if (!bg || !character || character.id !== doc.character?.id) return null
+  return shadowParams({ doc, background: getDepthResult(bg.id), info: character.info, ambient: getAnalysis(bg.id)?.ambient })
 }
 
 /** 当前立绘的融合法线 */

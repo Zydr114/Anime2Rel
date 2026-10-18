@@ -26,12 +26,14 @@ import {
   type DepthTextures,
   type LayerTextures,
 } from './passes'
+import { applyShadowParams, createShadowPass, createShadowUniforms } from './shadow'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
 import type { FocusParams } from '@/focus/params'
 import type { FusionParams } from '@/fusion/params'
 import type { NormalMap } from '@/fusion/protocol'
+import type { ShadowParams } from '@/fusion/shadow'
 import type { BallPreview } from '@/lighting/preview'
 import { getAsset } from '@/state/assets'
 import type { DebugView } from '@/state/depth'
@@ -122,6 +124,12 @@ export interface FusionDisplay {
   showMask: boolean
 }
 
+interface Effects {
+  dof: boolean
+  occlusion: boolean
+  shadow: boolean
+}
+
 export interface DebugSettings {
   view: DebugView
   overlay: number
@@ -166,6 +174,7 @@ function layerTargets(width: number, height: number, skip: Partial<Record<keyof 
     characterDepth: target('characterDepth', true),
     characterDof: target('characterDof'),
     occlusion: target('occlusion'),
+    shadow: target('shadow', true),
   }
 }
 
@@ -187,6 +196,7 @@ export class Engine {
   private fusionReady = false
   private display: FusionDisplay = { compare: false, showNormals: false, showMask: false }
   private focus: FocusParams | null = null
+  private shadowParams: ShadowParams | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
   private readonly docRT = linearTarget(1, 1, true)
@@ -197,13 +207,14 @@ export class Engine {
   private readonly layerNodes: Record<keyof LayerTargets, THREE.TextureNode>
   private readonly depthNodes
   private readonly dof = createDofUniforms()
+  private readonly shadow = createShadowUniforms()
   private readonly charPrep
   private readonly character
   private readonly composite
   private readonly present
   private readonly encode
   private readonly quads: Record<
-    'charPrep' | 'prep' | 'tiles' | 'backgroundDof' | 'character' | 'characterDepth' | 'characterDof' | 'occlusion' | 'composite' | 'present' | 'encode',
+    'charPrep' | 'prep' | 'tiles' | 'backgroundDof' | 'character' | 'characterDepth' | 'characterDof' | 'occlusion' | 'shadow' | 'composite' | 'present' | 'encode',
     THREE.QuadMesh
   >
 
@@ -240,10 +251,11 @@ export class Engine {
       characterDepth: layer('characterDepth'),
       characterDof: layer('characterDof'),
       occlusion: layer('occlusion'),
+      shadow: layer('shadow'),
     })
     const dof = this.dof
     this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder)
-    this.composite = createCompositePass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
+    this.composite = createCompositePass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof, shadow: this.shadow })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder)
     const quad = (m: THREE.NodeMaterial) => new THREE.QuadMesh(m)
@@ -264,6 +276,7 @@ export class Engine {
       ),
       characterDof: quad(createCharacterDofPass(dof, nodes.character, nodes.characterDepth)),
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
+      shadow: quad(createShadowPass(this.shadow, placement, texture(this.charRT.texture), this.depthNodes.background)),
       composite: quad(this.composite.material),
       present: quad(this.present.material),
       encode: quad(this.encode.material),
@@ -378,6 +391,13 @@ export class Engine {
     this.syncDisplay()
   }
 
+  /** 站立阴影；null 为不画阴影 */
+  setShadow(params: ShadowParams | null): void {
+    this.shadowParams = params
+    if (params) applyShadowParams(this.shadow, params)
+    this.syncDisplay()
+  }
+
   setDisplay(display: FusionDisplay): void {
     // 退出对比或法线视图时，背景景深需要按最新参数重算
     if (display.compare !== this.display.compare || display.showNormals !== this.display.showNormals) this.backgroundDirty = true
@@ -385,10 +405,10 @@ export class Engine {
     this.syncDisplay()
   }
 
-  /** 景深和遮挡是否生效：前后对比和法线视图显示未经处理的图层 */
-  private effects(display: FusionDisplay): { dof: boolean; occlusion: boolean } {
+  /** 景深、遮挡和阴影是否生效：前后对比和法线视图显示未经处理的图层 */
+  private effects(display: FusionDisplay): Effects {
     const raw = display.compare || display.showNormals
-    return { dof: !raw && !!this.focus?.dof, occlusion: !raw && !!this.focus?.occlusion.enabled }
+    return { dof: !raw && !!this.focus?.dof, occlusion: !raw && !!this.focus?.occlusion.enabled, shadow: !raw && !!this.shadowParams }
   }
 
   private syncDisplay(display = this.display): void {
@@ -399,6 +419,7 @@ export class Engine {
     this.dof.bypass.value = effects.dof ? 0 : 1
     this.dof.occlusion.value = effects.occlusion ? 1 : 0
     this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
+    this.shadow.enabled.value = effects.shadow ? 1 : 0
     this.docDirty = true
     this.schedule()
   }
@@ -471,10 +492,10 @@ export class Engine {
   }
 
   /**
-   * 渲染文档：背景预处理与景深（需要时）→ 立绘层、立绘深度 → 立绘景深 → 遮挡层 → 合成到 out。
+   * 渲染文档：背景预处理与景深（需要时）→ 立绘层、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成到 out。
    * 尺寸由 out 决定，弥散圆和噪声按 out 相对文档的比例换算。
    */
-  private renderDocument(targets: LayerTargets, out: THREE.RenderTarget, background: boolean, effects: { dof: boolean; occlusion: boolean }): void {
+  private renderDocument(targets: LayerTargets, out: THREE.RenderTarget, background: boolean, effects: Effects): void {
     if (!this.docSize) return
     const r = this.renderer
     const { width, height } = out
@@ -496,6 +517,7 @@ export class Engine {
     pass(this.quads.characterDepth, targets.characterDepth)
     if (effects.dof) pass(this.quads.characterDof, targets.characterDof)
     if (effects.occlusion) pass(this.quads.occlusion, targets.occlusion)
+    if (effects.shadow) pass(this.quads.shadow, targets.shadow)
     pass(this.quads.composite, out)
   }
 
@@ -524,7 +546,7 @@ export class Engine {
     // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
     const display: FusionDisplay = { compare: false, showNormals: false, showMask: false }
     const effects = this.effects(display)
-    const targets = layerTargets(width, height, { backgroundDof: !effects.dof, characterDof: !effects.dof, occlusion: !effects.occlusion })
+    const targets = layerTargets(width, height, { backgroundDof: !effects.dof, characterDof: !effects.dof, occlusion: !effects.occlusion, shadow: !effects.shadow })
     const linear = linearTarget(width, height)
     const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
     const view = this.composite.uniforms.view.value

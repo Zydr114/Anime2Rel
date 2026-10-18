@@ -3,6 +3,7 @@ import type { SegmentedButtonGroup } from 'mdui/components/segmented-button-grou
 import type { Switch } from 'mdui/components/switch.js'
 import { RELIGHT_STYLES, type FusionDoc, type FusionSection, type RelightStyle } from '@/fusion/model'
 import { characterDepth } from '@/fusion/placement'
+import { cutOff } from '@/fusion/shadow'
 import { t } from '@/i18n'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useFusion } from '@/state/fusion'
@@ -76,6 +77,7 @@ export function FusionSections() {
   return (
     <>
       <DepthSection />
+      <ShadowSection />
       <ColorSection />
       <RelightSection />
       <EdgeSection />
@@ -119,6 +121,21 @@ export function DepthSection({ children }: { children?: ReactNode }) {
       </div>
       <Hint>{t.fusion.groundHint}</Hint>
       {children}
+    </Section>
+  )
+}
+
+function ShadowSection() {
+  const doc = useApp((s) => s.doc)
+  const info = useFusion((s) => (s.character?.id === doc.character?.id ? s.character?.info : undefined))
+  return (
+    <Section title={t.fusion.shadow} testId="fusion-shadow">
+      <FusionSlider section="shadow" field="contact" label={t.fusion.contact} min={0} max={100} />
+      <FusionSlider section="shadow" field="contactSize" label={t.fusion.contactSize} min={30} max={300} />
+      <FusionSlider section="shadow" field="contactSoftness" label={t.fusion.contactSoftness} min={0} max={100} />
+      <FusionSlider section="shadow" field="cast" label={t.fusion.cast} min={0} max={100} />
+      <FusionSlider section="shadow" field="castSoftness" label={t.fusion.castSoftness} min={0} max={100} />
+      <Hint>{cutOff(doc, info) ? t.fusion.shadowCut : t.fusion.shadowHint}</Hint>
     </Section>
   )
 }
