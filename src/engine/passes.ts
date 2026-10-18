@@ -151,16 +151,22 @@ export function createCharacterPass(placement: Placement, character: TextureNode
 
 /** 合成使用的各图层纹理（均与渲染目标同尺寸） */
 export interface LayerTextures {
+  /** 背景层调整后的背景 */
+  background: TextureNode
   prep: TextureNode
   backgroundDof: TextureNode
   character: TextureNode
+  /** 立绘层调整后的立绘，景深与合成使用 */
+  characterAdjusted: TextureNode
   characterDepth: TextureNode
   characterDof: TextureNode
   occlusion: TextureNode
   /** 站立阴影：背景的颜色倍率 */
   shadow: TextureNode
-  /** 合成结果（预览时再叠加调试视图和灰球） */
+  /** 合成结果 */
   composited: TextureNode
+  /** 全局调整后的结果（预览时再叠加调试视图和灰球） */
+  graded: TextureNode
 }
 
 /**
@@ -200,7 +206,7 @@ export function createCompositePass(input: { placement: Placement; background: T
   const h = waterDepth(dof, p, waterWave(dof, p), ripple)
   const below = smoothstep(waterEdge(dof).negate(), waterEdge(dof), h).mul(water)
   const chUV = screenUV.add(refraction(dof, p, ripple).mul(below).div(placement.uniforms.docSize))
-  const ch = mix(sampleLevel(layers.characterDof, chUV), sampleLevel(layers.character, chUV), dof.bypass)
+  const ch = mix(sampleLevel(layers.characterDof, chUV), sampleLevel(layers.characterAdjusted, chUV), dof.bypass)
 
   // 遮挡：不透明、透明介质、水体为普通覆盖；变暗与正片叠底只改变立绘自身的像素（遮挡层在立绘外就是背景本身）
   const occColor = occ.rgb.div(max(occ.a, 1e-4))
@@ -233,13 +239,13 @@ export function createCompositePass(input: { placement: Placement; background: T
 }
 
 /**
- * 预览显示：合成结果 → 调试视图 → 灰球。
+ * 预览显示：调色后的结果 → 调试视图 → 灰球。
  * view 不为 0 时按调试视图着色，再按 overlay 与合成结果混合。
  */
 export function createDisplayPass(input: { placement: Placement; depth: DepthNodes; background: TextureNode; colormap: THREE.Texture; layers: LayerTextures; dof: DofUniforms }) {
   const { placement, depth, background, layers, dof } = input
   const u = { view: uniform(0), overlay: uniform(1) }
-  const rgb = sampleLevel(layers.composited, screenUV).rgb
+  const rgb = sampleLevel(layers.graded, screenUV).rgb
   const charDepth = sampleLevel(layers.characterDepth, screenUV)
   const alpha = charDepth.a
 

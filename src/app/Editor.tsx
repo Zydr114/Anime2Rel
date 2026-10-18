@@ -8,6 +8,7 @@ import { useApp, type StepId } from '@/state/store'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { AboutDialog } from './AboutDialog'
 import { LegalLinks } from './LegalLinks'
+import { AdjustPanel } from './panels/AdjustPanel'
 import { AssetsPanel } from './panels/AssetsPanel'
 import { CharacterPanel } from './panels/CharacterPanel'
 import { DepthPanel } from './panels/DepthPanel'
@@ -25,6 +26,7 @@ function StepPanel({ step }: { step: StepId }) {
   if (step === 'light') return <LightPanel />
   if (step === 'character') return <CharacterPanel />
   if (step === 'focus') return <FocusPanel />
+  if (step === 'adjust') return <AdjustPanel />
   if (step === 'export') return <ExportPanel />
   const def = steps.find((s) => s.id === step)
   return <PlaceholderPanel milestone={def?.milestone ?? ''} />

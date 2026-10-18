@@ -1,5 +1,4 @@
-import { useCallback, useRef } from 'react'
-import type { SegmentedButtonGroup } from 'mdui/components/segmented-button-group.js'
+import { useCallback } from 'react'
 import { BOKEH_BLADES, DEPTH_MODES, MAX_REGIONS, MEDIUM_MODES, OCCLUSION_MODES, type FocusDoc, type FocusSection, type OcclusionStyle } from '@/focus/model'
 import { focusDepth } from '@/focus/params'
 import { focusInputs } from '@/focus/service'
@@ -9,8 +8,8 @@ import { useFusion } from '@/state/fusion'
 import { regionColor, useRegionTool, type BrushTool } from '@/state/regions'
 import { useApp } from '@/state/store'
 import { SelectField } from '@/ui/SelectField'
+import { Segmented } from '@/ui/Segmented'
 import { SliderField } from '@/ui/SliderField'
-import { useDomEvent } from '@/ui/useDomEvent'
 import { useGestureChange } from '../useGestureChange'
 import { DepthSection, Hint, Section, ToggleRow } from './FusionSections'
 
@@ -47,25 +46,6 @@ function FocusSlider<K extends FocusSection>(props: {
       onChange={onChange}
       testId={`focus-${section}-${field}`}
     />
-  )
-}
-
-/** 单选分段按钮；再次点击已选项会取消选中，此时恢复原值 */
-function Segmented<T extends string>({ value, options, label, onChange, testId }: { value: T; options: readonly T[]; label: (v: T) => string; onChange: (v: T) => void; testId: string }) {
-  const ref = useRef<SegmentedButtonGroup>(null)
-  useDomEvent(ref, 'change', (e, el) => {
-    if (e.target !== el) return
-    if (el.value) onChange(el.value as T)
-    else el.value = value
-  })
-  return (
-    <mdui-segmented-button-group ref={ref} selects="single" value={value} full-width data-testid={testId}>
-      {options.map((v) => (
-        <mdui-segmented-button key={v} value={v}>
-          {label(v)}
-        </mdui-segmented-button>
-      ))}
-    </mdui-segmented-button-group>
   )
 }
 

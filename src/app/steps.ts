@@ -15,7 +15,10 @@ export const steps: StepDef[] = [
   { id: 'light', label: t.steps.light, icon: 'light-mode--outlined' },
   { id: 'character', label: t.steps.character, icon: 'face--outlined' },
   { id: 'focus', label: t.steps.focus, icon: 'center-focus-strong--outlined' },
-  { id: 'adjust', label: t.steps.adjust, icon: 'tune--outlined', milestone: 'M5' },
+  { id: 'adjust', label: t.steps.adjust, icon: 'tune--outlined' },
   { id: 'effects', label: t.steps.effects, icon: 'auto-awesome--outlined', milestone: 'M5' },
   { id: 'export', label: t.steps.export, icon: 'download--outlined' },
 ]
+
+/** 调色、后期步骤：前后对比显示调色前的结果，没有立绘时也可以对比 */
+export const isGradeStep = (step: StepId) => step === 'adjust' || step === 'effects'

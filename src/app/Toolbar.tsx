@@ -8,6 +8,7 @@ import { useApp } from '@/state/store'
 import { Dock, DockIcon } from '@/ui/magicui/dock'
 import { IconButton } from '@/ui/IconButton'
 import { useDomEvent } from '@/ui/useDomEvent'
+import { isGradeStep } from './steps'
 import { zoomBy } from './viewActions'
 
 /** 开关类按钮按下时的样式 */
@@ -22,6 +23,7 @@ export function Toolbar({ onExport }: { onExport: () => void }) {
   const redo = useApp((s) => s.redo)
   const fitToView = useApp((s) => s.fitToView)
   const hasCharacter = useApp((s) => !!s.doc.character)
+  const gradeStep = useApp((s) => isGradeStep(s.step))
   const compare = useFusion((s) => s.compare)
 
   return (
@@ -58,9 +60,9 @@ export function Toolbar({ onExport }: { onExport: () => void }) {
       <div className="mx-1 h-6 w-px bg-white/15" />
       <DockIcon>
         <IconButton
-          label={t.toolbar.compare}
+          label={gradeStep ? t.toolbar.compareGrade : t.toolbar.compare}
           onClick={() => useFusion.getState().setCompare(!compare)}
-          disabled={!hasCharacter}
+          disabled={!hasCharacter && !gradeStep}
           pressed={compare}
           className={compare ? ACTIVE : undefined}
           testId="compare"

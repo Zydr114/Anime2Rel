@@ -13,6 +13,7 @@ import {
   TILE,
 } from './dof'
 import { applyFusionParams } from './fusion'
+import { applyAdjustParams, createAdjustUniforms, createBackgroundAdjustPass, createCharacterAdjustPass, createGlobalAdjustPass, type AdjustUniforms } from './grade'
 import {
   createCharacterPass,
   createCharPrepPass,
@@ -33,6 +34,8 @@ import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
 import type { FocusParams } from '@/focus/params'
 import type { FusionParams } from '@/fusion/params'
+import { GRADE_LEVELS, type GradeLevel } from '@/grade/model'
+import type { GradeParams } from '@/grade/params'
 import type { NormalMap } from '@/fusion/protocol'
 import type { ShadowParams } from '@/fusion/shadow'
 import type { RegionMask } from '@/focus/regions'
@@ -117,9 +120,11 @@ function depthTextures(result: DepthResult): DepthTextures {
 
 export type DepthLayer = 'background' | 'character'
 
+/** 前后对比（只影响预览）：raw 为直接贴上去，不做融合、景深、遮挡和调色；grade 为调色前的结果 */
+export type CompareMode = 'off' | 'raw' | 'grade'
+
 export interface FusionDisplay {
-  /** 前后对比：预览中显示直接贴上去的立绘，不做融合、景深和遮挡（导出不受影响） */
-  compare: boolean
+  compare: CompareMode
   /** 预览中显示立绘的融合法线 */
   showNormals: boolean
   /** 预览中用红色叠加显示深度遮挡的遮罩 */
@@ -130,6 +135,8 @@ interface Effects {
   dof: boolean
   occlusion: boolean
   shadow: boolean
+  /** 三级调整与全局调色 */
+  grade: boolean
 }
 
 export interface DebugSettings {
@@ -169,15 +176,18 @@ const tileCount = (n: number) => Math.max(1, Math.ceil(n / TILE))
 function layerTargets(width: number, height: number, skip: Partial<Record<keyof LayerTextures, boolean>> = {}): LayerTargets {
   const target = (key: keyof LayerTextures, mipmaps = false) => (skip[key] ? linearTarget(1, 1) : linearTarget(width, height, mipmaps))
   return {
+    background: target('background'),
     prep: target('prep', true),
     tiles: linearTarget(tileCount(width), tileCount(height), false, THREE.NearestFilter),
     backgroundDof: target('backgroundDof'),
     character: target('character', true),
+    characterAdjusted: target('characterAdjusted', true),
     characterDepth: target('characterDepth', true),
     characterDof: target('characterDof'),
     occlusion: target('occlusion'),
     shadow: target('shadow', true),
     composited: target('composited'),
+    graded: target('graded'),
   }
 }
 
@@ -197,10 +207,11 @@ export class Engine {
   private readonly normalPlaceholder = dataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1, THREE.UnsignedByteType)
   private charNormal: { map: NormalMap; texture: THREE.DataTexture } | null = null
   private fusionReady = false
-  private display: FusionDisplay = { compare: false, showNormals: false, showMask: false }
+  private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
+  private grade: GradeParams | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
   private readonly docRT = linearTarget(1, 1, true)
@@ -213,6 +224,7 @@ export class Engine {
   private readonly dof = createDofUniforms()
   private readonly emptyRegions = this.dof.regions.value
   private readonly shadow = createShadowUniforms()
+  private readonly adjust = Object.fromEntries(GRADE_LEVELS.map((level) => [level, createAdjustUniforms()])) as Record<GradeLevel, AdjustUniforms>
   private readonly charPrep
   private readonly character
   /** 预览时叠加在合成结果上的调试视图和灰球 */
@@ -220,7 +232,22 @@ export class Engine {
   private readonly present
   private readonly encode
   private readonly quads: Record<
-    'charPrep' | 'prep' | 'tiles' | 'backgroundDof' | 'character' | 'characterDepth' | 'characterDof' | 'occlusion' | 'shadow' | 'composite' | 'display' | 'present' | 'encode',
+    | 'charPrep'
+    | 'backgroundAdjust'
+    | 'prep'
+    | 'tiles'
+    | 'backgroundDof'
+    | 'character'
+    | 'characterAdjust'
+    | 'characterDepth'
+    | 'characterDof'
+    | 'occlusion'
+    | 'shadow'
+    | 'composite'
+    | 'globalAdjust'
+    | 'display'
+    | 'present'
+    | 'encode',
     THREE.QuadMesh
   >
 
@@ -250,15 +277,18 @@ export class Engine {
     this.depthNodes = createDepthNodes(placement, this.backgroundNode, characterNode, this.depthPlaceholder)
     const layer = (key: keyof LayerTargets) => texture(this.layers[key].texture)
     const nodes = (this.layerNodes = {
+      background: layer('background'),
       prep: layer('prep'),
       tiles: layer('tiles'),
       backgroundDof: layer('backgroundDof'),
       character: layer('character'),
+      characterAdjusted: layer('characterAdjusted'),
       characterDepth: layer('characterDepth'),
       characterDof: layer('characterDof'),
       occlusion: layer('occlusion'),
       shadow: layer('shadow'),
       composited: layer('composited'),
+      graded: layer('graded'),
     })
     const dof = this.dof
     this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder)
@@ -268,10 +298,13 @@ export class Engine {
     const quad = (m: THREE.NodeMaterial) => new THREE.QuadMesh(m)
     this.quads = {
       charPrep: quad(this.charPrep.material),
-      prep: quad(createPrepPass(dof, this.backgroundNode, this.depthNodes.background.depth)),
+      // 背景层调整只改背景本身：立绘的融合和深度仍按原图计算
+      backgroundAdjust: quad(createBackgroundAdjustPass(this.adjust.background, this.backgroundNode)),
+      prep: quad(createPrepPass(dof, nodes.background, this.depthNodes.background.depth)),
       tiles: quad(createTilePass(dof, nodes.prep)),
       backgroundDof: quad(createBackgroundDofPass(dof, nodes.prep, nodes.tiles)),
       character: quad(this.character.material),
+      characterAdjust: quad(createCharacterAdjustPass(this.adjust.character, nodes.character)),
       characterDepth: quad(
         createCharacterDepthPass(dof, {
           p: placement.p,
@@ -282,10 +315,11 @@ export class Engine {
           background: this.depthNodes.background.depth,
         }),
       ),
-      characterDof: quad(createCharacterDofPass(dof, nodes.character, nodes.characterDepth)),
+      characterDof: quad(createCharacterDofPass(dof, nodes.characterAdjusted, nodes.characterDepth)),
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
       shadow: quad(createShadowPass(this.shadow, placement, texture(this.charRT.texture), this.depthNodes.background)),
-      composite: quad(createCompositePass({ placement, background: this.backgroundNode, layers: nodes, dof, shadow: this.shadow })),
+      composite: quad(createCompositePass({ placement, background: nodes.background, layers: nodes, dof, shadow: this.shadow })),
+      globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, nodes.composited)),
       display: quad(this.debugView.material),
       present: quad(this.present.material),
       encode: quad(this.encode.material),
@@ -417,6 +451,14 @@ export class Engine {
     this.syncDisplay()
   }
 
+  /** 三级调整的参数；null 为不调整 */
+  setGrade(params: GradeParams | null): void {
+    // 背景层调整变化时，背景预处理和背景景深需要重算
+    if (params?.background !== this.grade?.background) this.backgroundDirty = true
+    this.grade = params
+    this.syncDisplay()
+  }
+
   setDisplay(display: FusionDisplay): void {
     // 退出对比或法线视图时，背景景深需要按最新参数重算
     if (display.compare !== this.display.compare || display.showNormals !== this.display.showNormals) this.backgroundDirty = true
@@ -426,19 +468,29 @@ export class Engine {
 
   /** 景深、遮挡和阴影是否生效：前后对比和法线视图显示未经处理的图层 */
   private effects(display: FusionDisplay): Effects {
-    const raw = display.compare || display.showNormals
-    return { dof: !raw && !!this.focus?.dof, occlusion: !raw && !!this.focus?.occlusion.enabled, shadow: !raw && !!this.shadowParams }
+    const raw = display.compare === 'raw' || display.showNormals
+    return {
+      dof: !raw && !!this.focus?.dof,
+      occlusion: !raw && !!this.focus?.occlusion.enabled,
+      shadow: !raw && !!this.shadowParams,
+      grade: !raw && display.compare !== 'grade' && !!this.grade,
+    }
   }
 
   private syncDisplay(display = this.display): void {
     const fusion = this.character.fusion
-    fusion.enabled.value = this.fusionReady && !display.compare ? 1 : 0
+    fusion.enabled.value = this.fusionReady && display.compare !== 'raw' ? 1 : 0
     fusion.showNormals.value = display.showNormals ? 1 : 0
     const effects = this.effects(display)
     this.dof.bypass.value = effects.dof ? 0 : 1
     this.dof.occlusion.value = effects.occlusion ? 1 : 0
     this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
     this.shadow.enabled.value = effects.shadow ? 1 : 0
+    for (const level of GRADE_LEVELS) {
+      const params = this.grade?.[level]
+      if (params) applyAdjustParams(this.adjust[level], params, effects.grade)
+      else this.adjust[level].enabled.value = 0
+    }
     this.docDirty = true
     this.schedule()
   }
@@ -511,7 +563,7 @@ export class Engine {
   }
 
   /**
-   * 渲染文档：背景预处理与景深（需要时）→ 立绘层、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成到 out。
+   * 渲染文档：背景层调整、背景预处理与景深（需要时）→ 立绘层、立绘层调整、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成 → 全局调整到 out。
    * 预览（preview 为 true）时先合成到中间图层，再叠加调试视图和灰球。
    * 尺寸由 out 决定，弥散圆和噪声按 out 相对文档的比例换算。
    */
@@ -529,17 +581,20 @@ export class Engine {
       quad.render(r)
     }
     if (background) {
+      pass(this.quads.backgroundAdjust, targets.background)
       pass(this.quads.prep, targets.prep)
       pass(this.quads.tiles, targets.tiles)
       if (effects.dof) pass(this.quads.backgroundDof, targets.backgroundDof)
     }
     pass(this.quads.character, targets.character)
+    pass(this.quads.characterAdjust, targets.characterAdjusted)
     pass(this.quads.characterDepth, targets.characterDepth)
     if (effects.dof) pass(this.quads.characterDof, targets.characterDof)
     if (effects.occlusion) pass(this.quads.occlusion, targets.occlusion)
     if (effects.shadow) pass(this.quads.shadow, targets.shadow)
-    if (!preview) return pass(this.quads.composite, out)
     pass(this.quads.composite, targets.composited)
+    if (!preview) return pass(this.quads.globalAdjust, out)
+    pass(this.quads.globalAdjust, targets.graded)
     pass(this.quads.display, out)
   }
 
@@ -566,9 +621,9 @@ export class Engine {
     const { width, height } = this.docSize
     const r = this.renderer
     // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
-    const display: FusionDisplay = { compare: false, showNormals: false, showMask: false }
+    const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false }
     const effects = this.effects(display)
-    const targets = layerTargets(width, height, { backgroundDof: !effects.dof, characterDof: !effects.dof, occlusion: !effects.occlusion, shadow: !effects.shadow, composited: true })
+    const targets = layerTargets(width, height, { backgroundDof: !effects.dof, characterDof: !effects.dof, occlusion: !effects.occlusion, shadow: !effects.shadow, graded: true })
     const linear = linearTarget(width, height)
     const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
     this.syncDisplay(display)
@@ -607,6 +662,7 @@ export class Engine {
     this.normalPlaceholder.dispose()
     this.charNormal?.texture.dispose()
     this.regions?.texture.dispose()
+    for (const u of Object.values(this.adjust)) u.curveMap.dispose()
     for (const set of Object.values(this.depthPlaceholder)) for (const t of Object.values(set)) t.dispose()
     for (const layer of Object.values(this.depth)) if (layer) for (const t of Object.values(layer.textures)) t.dispose()
     for (const q of Object.values(this.quads)) (q.material as THREE.Material).dispose()

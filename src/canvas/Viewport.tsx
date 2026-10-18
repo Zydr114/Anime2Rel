@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import type { Engine } from '@/engine/Engine'
 import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
+import { isGradeStep } from '@/app/steps'
 import { currentFocusParams, currentRegionMask } from '@/focus/service'
 import { currentFusionParams, currentNormals, currentShadowParams } from '@/fusion/service'
+import { gradeParams } from '@/grade/params'
 import { t } from '@/i18n'
 import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
@@ -79,7 +81,10 @@ export function Viewport() {
           e.setOcclusionRegions(currentRegionMask(doc))
           e.setFocus(currentFocusParams(doc))
           e.setShadow(currentShadowParams(doc))
-          e.setDisplay({ compare: f.compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus' })
+          e.setGrade(gradeParams(doc.grade))
+          // 调色、后期步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果
+          const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
+          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus' })
         }
         syncDepth()
         syncBall()

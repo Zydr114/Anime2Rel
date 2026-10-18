@@ -1,6 +1,7 @@
 // 界面文案。M6 增加英文时按相同结构新增语言文件。
 import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
+import type { CurveChannel, GradeLevel, HslBand } from '@/grade/model'
 import type { BrushTool } from '@/state/regions'
 
 export const zhCN = {
@@ -289,6 +290,41 @@ export const zhCN = {
     done: '已导出',
     failed: '导出失败',
   },
+  adjust: {
+    noBackground: '请先在“素材”步骤中导入背景照片。',
+    noCharacter: '还没有立绘，请先在“素材”步骤中添加。',
+    levels: { global: '全局', background: '背景', character: '立绘' } as Record<GradeLevel, string>,
+    levelHints: {
+      global: '作用于合成后的整个画面。',
+      background: '只调整背景，立绘的颜色匹配仍按原始照片计算：压暗背景可以突出人物，想让两者一起变化请用全局调整。',
+      character: '在融合结果之上单独调整立绘。',
+    } as Record<GradeLevel, string>,
+    light: '光线',
+    exposure: '曝光',
+    contrast: '对比度',
+    highlights: '高光',
+    shadows: '阴影',
+    whites: '白色',
+    blacks: '黑色',
+    color: '颜色',
+    temperature: '色温',
+    tint: '色调',
+    vibrance: '自然饱和度',
+    saturation: '饱和度',
+    hsl: 'HSL',
+    bands: { red: '红', orange: '橙', yellow: '黄', green: '绿', aqua: '青', blue: '蓝', purple: '紫', magenta: '品红' } as Record<HslBand, string>,
+    hslHue: '色相',
+    hslSaturation: '饱和度',
+    hslLuminance: '明度',
+    curves: '曲线',
+    channels: { master: 'RGB', r: 'R', g: 'G', b: 'B' } as Record<CurveChannel, string>,
+    curveHint: '点击添加控制点并拖动；双击控制点或把它拖出方框即删除。',
+    curveReset: '重置该通道',
+    detail: '细节',
+    clarity: '清晰度',
+    sharpen: '锐化',
+    reset: (level: string) => `重置${level}调整`,
+  },
   toolbar: {
     fit: '适应窗口 (F)',
     actual: '100% (1)',
@@ -299,6 +335,7 @@ export const zhCN = {
     export: '导出',
     debugView: '调试视图 (V)',
     compare: '前后对比：直接贴上去 (\\)',
+    compareGrade: '前后对比：调色前 (\\)',
     about: '关于',
   },
   import: {

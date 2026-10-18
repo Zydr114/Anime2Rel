@@ -3,6 +3,7 @@ import type { AssetRef } from './assets'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
 import { DEFAULT_FOCUS, DEFAULT_STYLE, MAX_REGIONS, newRegionId, type BrushStroke, type FocusDoc, type FocusSection, type OcclusionRegion, type OcclusionStyle } from '@/focus/model'
 import { DEFAULT_FUSION, type FusionDoc, type FusionSection } from '@/fusion/model'
+import { DEFAULT_ADJUST, DEFAULT_GRADE, type BasicAdjust, type GradeDoc, type GradeLevel } from '@/grade/model'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
 export type StepId = 'assets' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
@@ -15,6 +16,7 @@ export interface DocState {
   lighting: LightingDoc
   fusion: FusionDoc
   focus: FocusDoc
+  grade: GradeDoc
 }
 
 const HISTORY_LIMIT = 100
@@ -28,6 +30,7 @@ export const initialDoc: DocState = {
   lighting: DEFAULT_LIGHTING,
   fusion: DEFAULT_FUSION,
   focus: DEFAULT_FOCUS,
+  grade: DEFAULT_GRADE,
 }
 
 interface AppState {
@@ -81,6 +84,9 @@ interface AppState {
   updateRegion: (id: string, update: Partial<OcclusionStyle>) => void
   removeRegion: (id: string) => void
   addRegionStroke: (id: string, stroke: BrushStroke) => void
+
+  updateAdjust: (level: GradeLevel, update: Partial<BasicAdjust>) => void
+  resetAdjust: (level: GradeLevel) => void
 
   setView: (view: ViewTransform) => void
   setViewport: (size: Size) => void
@@ -265,6 +271,14 @@ export const useApp = create<AppState>()((set, get) => ({
 
   addRegionStroke: (id, stroke) => {
     setRegions(get, (regions) => regions.map((r) => (r.id === id ? { ...r, strokes: [...r.strokes, stroke] } : r)))
+  },
+
+  updateAdjust: (level, update) => {
+    get().setDoc((d) => ({ ...d, grade: { ...d.grade, levels: { ...d.grade.levels, [level]: { ...d.grade.levels[level], ...update } } } }))
+  },
+
+  resetAdjust: (level) => {
+    get().setDoc((d) => ({ ...d, grade: { ...d.grade, levels: { ...d.grade.levels, [level]: DEFAULT_ADJUST } } }))
   },
 
   setView: (view) => set({ view }),

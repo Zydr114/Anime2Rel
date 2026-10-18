@@ -4,6 +4,7 @@ import { useFusion } from '@/state/fusion'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { isTypingTarget } from './keyboard'
+import { isGradeStep } from './steps'
 import { zoomBy, zoomToActual } from './viewActions'
 
 /** 编辑器快捷键。输入框内不响应。 */
@@ -47,7 +48,7 @@ export function useShortcuts(): void {
       else if (key === 'v') {
         const d = useDepth.getState()
         d.setView(DEBUG_VIEWS[(DEBUG_VIEWS.indexOf(d.view) + 1) % DEBUG_VIEWS.length])
-      } else if (key === '\\' && s.doc.character) {
+      } else if (key === '\\' && (s.doc.character || isGradeStep(s.step))) {
         const f = useFusion.getState()
         f.setCompare(!f.compare)
       } else if (key === 'h' && s.doc.character) s.setCharTransform({ flipX: !s.doc.charTransform.flipX })

@@ -4,37 +4,14 @@
  * 输入输出都是线性预乘 alpha。
  */
 import * as THREE from 'three/webgpu'
-import { abs, atan, cos, dot, float, hash, length, log2, max, min, mix, normalize, pow, saturate, screenCoordinate, select, sign, sin, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
-import { OKLAB_M1, OKLAB_M1_INV, OKLAB_M2, OKLAB_M2_INV } from '@/algo/oklab'
+import { atan, cos, dot, float, hash, length, log2, max, min, mix, normalize, pow, saturate, screenCoordinate, select, sin, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { FUSION_LIGHTS, type FusionParams } from '@/fusion/params'
-import { evalSh, srgbDecode, srgbEncode, type FloatNode, type Vec3Node, type Vec4Node } from './nodes'
+import { evalSh, fromOklab, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type Vec3Node, type Vec4Node } from './nodes'
 
 type Vec2Node = THREE.Node<'vec2'>
 
 /** 轮廓光边缘带的宽度，相对立绘长边 */
 const RIM_WIDTH = 0.02
-type TextureNode = ReturnType<typeof texture>
-
-/** 在其他坐标（和 mip 层级）上采样同一张纹理 */
-function sampleAt(t: TextureNode, uv: Vec2Node, lod?: FloatNode): Vec4Node {
-  const node = t.sample(uv)
-  return (lod ? node.level(lod) : node) as unknown as Vec4Node
-}
-
-/** 3×3 行主序矩阵乘向量 */
-function rows(m: readonly number[], v: Vec3Node): Vec3Node {
-  return vec3(dot(vec3(m[0], m[1], m[2]), v), dot(vec3(m[3], m[4], m[5]), v), dot(vec3(m[6], m[7], m[8]), v))
-}
-
-function toOklab(c: Vec3Node): Vec3Node {
-  const lms = rows(OKLAB_M1, c)
-  return rows(OKLAB_M2, sign(lms).mul(pow(abs(lms), vec3(1 / 3))))
-}
-
-function fromOklab(lab: Vec3Node): Vec3Node {
-  const l = rows(OKLAB_M2_INV, lab)
-  return rows(OKLAB_M1_INV, l.mul(l).mul(l))
-}
 
 /** 三个控制点的单调 Hermite 曲线，控制点之外线性延伸（与 src/algo/curve.ts 一致） */
 function evalCurve(x: FloatNode, xs: Vec3Node, ys: Vec3Node, ms: Vec3Node): FloatNode {
