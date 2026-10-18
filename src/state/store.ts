@@ -3,7 +3,21 @@ import type { AssetRef } from './assets'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
 import { DEFAULT_FOCUS, DEFAULT_STYLE, MAX_REGIONS, newRegionId, type BrushStroke, type FocusDoc, type FocusSection, type OcclusionRegion, type OcclusionStyle } from '@/focus/model'
 import { DEFAULT_FUSION, type FusionDoc, type FusionSection } from '@/fusion/model'
-import { DEFAULT_ADJUST, DEFAULT_CREATIVE, DEFAULT_GRADE, type BasicAdjust, type ColorWheel, type CreativeGrade, type GradeDoc, type GradeLevel, type SplitToning, type WheelKey } from '@/grade/model'
+import {
+  DEFAULT_ADJUST,
+  DEFAULT_CREATIVE,
+  DEFAULT_GRADE,
+  MAX_BLEND_LAYERS,
+  newBlendLayer,
+  type BasicAdjust,
+  type BlendLayer,
+  type ColorWheel,
+  type CreativeGrade,
+  type GradeDoc,
+  type GradeLevel,
+  type SplitToning,
+  type WheelKey,
+} from '@/grade/model'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
 export type StepId = 'assets' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
@@ -90,6 +104,12 @@ interface AppState {
   updateWheel: (key: WheelKey, update: Partial<ColorWheel>) => void
   updateSplit: (update: Partial<SplitToning>) => void
   updateCreative: (update: Partial<Pick<CreativeGrade, 'lut' | 'lutIntensity'>>) => void
+  /** 在最上面添加混色层，返回其 id；达到上限时返回 null */
+  addBlendLayer: () => string | null
+  updateBlendLayer: (id: string, update: Partial<Omit<BlendLayer, 'id'>>) => void
+  removeBlendLayer: (id: string) => void
+  /** 把混色层上移（+1）或下移（−1）一层 */
+  moveBlendLayer: (id: string, delta: 1 | -1) => void
   resetCreative: () => void
 
   setView: (view: ViewTransform) => void
@@ -102,7 +122,10 @@ interface AppState {
 const pushPast = (past: DocState[], doc: DocState) => [...past.slice(-(HISTORY_LIMIT - 1)), doc]
 
 function setCreative(get: () => AppState, update: (c: CreativeGrade) => CreativeGrade): void {
-  get().setDoc((d) => ({ ...d, grade: { ...d.grade, creative: update(d.grade.creative) } }))
+  get().setDoc((d) => {
+    const creative = update(d.grade.creative)
+    return creative === d.grade.creative ? d : { ...d, grade: { ...d.grade, creative } }
+  })
 }
 
 function setRegions(get: () => AppState, update: (regions: OcclusionRegion[]) => OcclusionRegion[]): void {
@@ -299,6 +322,37 @@ export const useApp = create<AppState>()((set, get) => ({
 
   updateCreative: (update) => {
     setCreative(get, (c) => ({ ...c, ...update }))
+  },
+
+  addBlendLayer: () => {
+    if (get().doc.grade.creative.layers.length >= MAX_BLEND_LAYERS) return null
+    const layer = newBlendLayer()
+    setCreative(get, (c) => ({ ...c, layers: [...c.layers, layer] }))
+    return layer.id
+  },
+
+  updateBlendLayer: (id, update) => {
+    setCreative(get, (c) => {
+      const layer = c.layers.find((l) => l.id === id)
+      // 下拉框在撤销后被程序赋值时也会触发 change，值没有变化时不产生撤销记录
+      if (!layer || (Object.keys(update) as (keyof typeof update)[]).every((k) => layer[k] === update[k])) return c
+      return { ...c, layers: c.layers.map((l) => (l === layer ? { ...l, ...update } : l)) }
+    })
+  },
+
+  removeBlendLayer: (id) => {
+    setCreative(get, (c) => ({ ...c, layers: c.layers.filter((l) => l.id !== id) }))
+  },
+
+  moveBlendLayer: (id, delta) => {
+    setCreative(get, (c) => {
+      const i = c.layers.findIndex((l) => l.id === id)
+      const j = i + delta
+      if (i < 0 || j < 0 || j >= c.layers.length) return c
+      const layers = [...c.layers]
+      ;[layers[i], layers[j]] = [layers[j], layers[i]]
+      return { ...c, layers }
+    })
   },
 
   resetCreative: () => {

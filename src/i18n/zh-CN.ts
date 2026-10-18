@@ -1,7 +1,7 @@
 // 界面文案。M6 增加英文时按相同结构新增语言文件。
 import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
-import type { CurveChannel, GradeLevel, HslBand, ToneKey, WheelKey } from '@/grade/model'
+import type { BlendKind, BlendMode, CurveChannel, GradeLevel, HslBand, ToneKey, WheelKey } from '@/grade/model'
 import type { GradeTab } from '@/state/grade'
 import type { BrushTool } from '@/state/regions'
 
@@ -347,6 +347,41 @@ export const zhCN = {
     lutMissing: '这个 LUT 的数据没有载入，暂不生效，请重新导入。',
     lutError: (name: string, reason: string) => `无法读取 LUT“${name}”：${reason}`,
     lutUnreadable: '文件无法解析',
+    blend: '混色',
+    blendAdd: '添加混色层',
+    blendHint: '纯色或渐变映射按混合模式叠加在画面上；亮度蒙版限定作用的明暗范围。',
+    blendLimit: (n: number) => `最多 ${n} 个混色层。`,
+    blendLayer: (n: number) => `混色层 ${n}`,
+    blendUp: '上移',
+    blendDown: '下移',
+    blendRemove: '删除混色层',
+    kinds: { color: '纯色', gradient: '渐变映射' } as Record<BlendKind, string>,
+    blendColor: '颜色',
+    gradientStop: (k: number, n: number) => (k === 0 ? '暗部颜色' : k === n - 1 ? '亮部颜色' : '中间颜色'),
+    gradientAddMid: '添加中间色',
+    gradientRemoveMid: '移除中间色',
+    blendMode: '混合模式',
+    modes: {
+      normal: '正常',
+      multiply: '正片叠底',
+      screen: '滤色',
+      overlay: '叠加',
+      darken: '变暗',
+      lighten: '变亮',
+      'color-dodge': '颜色减淡',
+      'color-burn': '颜色加深',
+      'hard-light': '强光',
+      'soft-light': '柔光',
+      difference: '差值',
+      exclusion: '排除',
+      hue: '色相',
+      saturation: '饱和度',
+      color: '颜色',
+      luminosity: '明度',
+    } as Record<BlendMode, string>,
+    opacity: '不透明度',
+    maskLow: '亮度蒙版下限',
+    maskHigh: '亮度蒙版上限',
     reset: '重置色彩风格',
   },
   toolbar: {

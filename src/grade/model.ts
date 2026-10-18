@@ -69,6 +69,63 @@ export interface LutRef {
   name: string
 }
 
+/** W3C Compositing and Blending Level 1 的混合模式 */
+export const BLEND_MODES = [
+  'normal',
+  'multiply',
+  'screen',
+  'overlay',
+  'darken',
+  'lighten',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+  'soft-light',
+  'difference',
+  'exclusion',
+  'hue',
+  'saturation',
+  'color',
+  'luminosity',
+] as const
+export type BlendMode = (typeof BLEND_MODES)[number]
+
+export const MAX_BLEND_LAYERS = 4
+/** 渐变映射的颜色数 */
+export const MIN_GRADIENT_STOPS = 2
+export const MAX_GRADIENT_STOPS = 3
+
+export type BlendKind = 'color' | 'gradient'
+
+/** 混色层：纯色，或按底图亮度取色的渐变映射 */
+export interface BlendLayer {
+  id: string
+  kind: BlendKind
+  /** sRGB 十六进制颜色 */
+  color: string
+  /** 渐变映射：从暗到亮均匀分布的颜色 */
+  gradient: string[]
+  mode: BlendMode
+  /** 不透明度 [0,1] */
+  opacity: number
+  /** 亮度蒙版 [0,1]：只作用于底图亮度在 [maskLow, maskHigh] 之间的部分，边缘柔化 */
+  maskLow: number
+  maskHigh: number
+}
+
+export function newBlendLayer(): BlendLayer {
+  return {
+    id: `blend-${crypto.randomUUID()}`,
+    kind: 'color',
+    color: '#ff9d4d',
+    gradient: ['#1b2a4a', '#f2c48d'],
+    mode: 'soft-light',
+    opacity: 0.5,
+    maskLow: 0,
+    maskHigh: 1,
+  }
+}
+
 /** 全局调色（色彩风格）：在全局基础调整之后、显示空间中进行 */
 export interface CreativeGrade {
   wheels: Record<WheelKey, ColorWheel>
@@ -76,6 +133,8 @@ export interface CreativeGrade {
   lut: LutRef | null
   /** LUT 强度 [0,1] */
   lutIntensity: number
+  /** 混色层，按数组顺序从下往上叠加 */
+  layers: BlendLayer[]
 }
 
 export interface GradeDoc {
@@ -115,6 +174,7 @@ export const DEFAULT_CREATIVE: CreativeGrade = {
   split: { shadow: { hue: 230, amount: 0 }, highlight: { hue: 70, amount: 0 }, balance: 0 },
   lut: null,
   lutIntensity: 1,
+  layers: [],
 }
 
 export const DEFAULT_GRADE: GradeDoc = {
@@ -143,6 +203,7 @@ export function isNeutralCreative(c: CreativeGrade): boolean {
   return (
     WHEEL_KEYS.every((k) => c.wheels[k].amount === 0 && c.wheels[k].luma === 0) &&
     TONE_KEYS.every((k) => c.split[k].amount === 0) &&
-    (c.lut === null || c.lutIntensity === 0)
+    (c.lut === null || c.lutIntensity === 0) &&
+    c.layers.every((l) => l.opacity === 0)
   )
 }
