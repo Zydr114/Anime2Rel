@@ -11,6 +11,7 @@ import { useEngine } from '@/state/engine'
 import { characterBBox, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
+import { FocusGizmo } from './FocusGizmo'
 import { LightGizmo } from './LightGizmo'
 import { TransformGizmo } from './TransformGizmo'
 import { useSpaceHeld } from './useSpaceHeld'
@@ -67,13 +68,14 @@ export function Viewport() {
           const show = step === 'light' && useLighting.getState().showBall
           e.setBallPreview(show ? computeBallPreview(doc, getAnalysis(doc.background?.id), getDepthResult(doc.background?.id), characterBBox(doc.character?.id)) : null)
         }
+        // 遮罩只在景深步骤显示
         const syncFusion = () => {
-          const { doc } = useApp.getState()
+          const { doc, step } = useApp.getState()
           const f = useFusion.getState()
           e.setCharacterNormals(currentNormals(doc))
           e.setFusion(currentFusionParams(doc))
           e.setFocus(currentFocusParams(doc))
-          e.setDisplay({ compare: f.compare, showNormals: f.showNormals, showMask: f.showMask })
+          e.setDisplay({ compare: f.compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus' })
         }
         syncDepth()
         syncBall()
@@ -83,8 +85,10 @@ export function Viewport() {
             e.setDocument(next.doc)
             syncDepth()
           }
-          if (next.doc !== prev.doc || next.step !== prev.step) syncBall()
-          if (next.doc !== prev.doc) syncFusion()
+          if (next.doc !== prev.doc || next.step !== prev.step) {
+            syncBall()
+            syncFusion()
+          }
           if (next.view !== prev.view || next.viewport !== prev.viewport) e.setView(next.view, next.viewport)
         })
         const offDepth = useDepth.subscribe((next, prev) => {
@@ -206,6 +210,7 @@ export function Viewport() {
       >
         <TransformGizmo passThrough={spaceHeld || panning} />
         <LightGizmo passThrough={spaceHeld || panning} />
+        <FocusGizmo passThrough={spaceHeld || panning} />
       </div>
       {dragOver && (
         <div className="pointer-events-none absolute inset-4 flex items-center justify-center rounded-3xl border-2 border-dashed border-primary/70 bg-primary/10 text-lg">

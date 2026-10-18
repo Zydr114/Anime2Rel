@@ -88,7 +88,8 @@ test('depth, normal and sky debug views', async ({ page }, info) => {
   expect(skyS[2]).toBeGreaterThan(skyS[0] + 80)
   expect(nearS[2]).toBeLessThan(nearS[1])
 
-  // 回到合成视图后与之前一致
+  // 经过景深视图回到合成视图后与之前一致
+  await page.keyboard.press('v')
   await page.keyboard.press('v')
   expect(await docPixels(page, points)).toEqual(composite)
 

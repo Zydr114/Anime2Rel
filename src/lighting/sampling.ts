@@ -1,4 +1,4 @@
-/** 主线程上的取样：深度/天空（光源落点）、背景颜色（吸管）。 */
+/** 主线程上的取样：深度/天空（光源落点）、背景颜色（吸管）、立绘 alpha（对焦点）。 */
 import type { Point, Size } from '@/algo/geometry'
 import { normalizeColor, srgbToLinear } from '@/algo/color'
 import type { Vec3 } from '@/algo/sh'
@@ -48,4 +48,14 @@ export function pickColor(assetId: string, p: Point, doc: Size): Vec3 | null {
       for (let c = 0; c < 3; c++) sum[c] += srgbToLinear(img.data[i + c] / 255)
     }
   return normalizeColor(sum)
+}
+
+/** 立绘 UV 处的 alpha（[0,1]，最近邻）；UV 在立绘外时为 0。 */
+export function pickAlpha(assetId: string, uv: Point): number {
+  if (uv.x < 0 || uv.x >= 1 || uv.y < 0 || uv.y >= 1) return 0
+  const img = pickImage(assetId)
+  if (!img) return 0
+  const x = Math.floor(uv.x * img.width)
+  const y = Math.floor(uv.y * img.height)
+  return img.data[(y * img.width + x) * 4 + 3] / 255
 }

@@ -7,7 +7,7 @@ interface FusionState {
   character: { id: string; info: CharacterInfo } | null
   normals: { id: string; map: NormalMap } | null
   stats: FusionStats | null
-  /** 前后对比：显示未经融合处理的立绘 */
+  /** 前后对比：显示直接贴上去的立绘（不做融合、景深和遮挡） */
   compare: boolean
   /** 在画布上显示立绘的融合法线 */
   showNormals: boolean

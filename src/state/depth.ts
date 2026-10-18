@@ -2,8 +2,8 @@ import { create } from 'zustand'
 import { MODEL_SOURCES, PRECISIONS, type Attempt, type Device, type ModelSource, type Precision } from '@/depth/models'
 import type { AttemptFailure, DepthResult, EstimateTimings, LoadPhase, ModelInfo } from '@/depth/protocol'
 
-export type DebugView = 'composite' | 'depth' | 'normal' | 'sky'
-export const DEBUG_VIEWS: readonly DebugView[] = ['composite', 'depth', 'normal', 'sky']
+export type DebugView = 'composite' | 'depth' | 'normal' | 'sky' | 'focus'
+export const DEBUG_VIEWS: readonly DebugView[] = ['composite', 'depth', 'normal', 'sky', 'focus']
 
 export interface DepthSettings {
   source: ModelSource

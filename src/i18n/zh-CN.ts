@@ -1,4 +1,5 @@
 // 界面文案。M6 增加英文时按相同结构新增语言文件。
+import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
 
 export const zhCN = {
@@ -90,6 +91,40 @@ export const zhCN = {
     normalsHint: '三路法线按权重混合：深度模型的法线、按轮廓膨胀的法线，以及由明暗得到的细节凹凸（线稿不参与）。',
     reset: '重置融合参数',
   },
+  focus: {
+    noBackground: '请先在“素材”步骤中添加背景照片。',
+    dof: '景深',
+    dofEnabled: '开启景深',
+    aperture: '光圈（弥散圆相对图像长边）',
+    range: '合焦范围',
+    bokeh: '散景形状',
+    blades: { 0: '圆形', 5: '五边形', 6: '六边形', 8: '八边形' } as Record<number, string>,
+    rotation: '散景旋转',
+    dofHint: '离焦越远越模糊，合焦范围内的深度保持清晰。立绘、背景和遮挡物分层模糊后再合成，立绘边缘不会渗色。',
+    target: '对焦',
+    targetAuto: '自动：立绘',
+    targetCharacter: '立绘上的一点',
+    targetBackground: '背景上的一点',
+    focusDepth: '焦点深度',
+    focusOnCharacter: '对焦到立绘',
+    showFocusView: '显示合焦区域（近景蓝、远景橙）',
+    targetHint: '在画布上点击或拖动选择对焦点：点在立绘上时对焦到立绘的该处，否则对焦到背景该处的深度。按住空格可拖动画布。',
+    thickness: '立绘厚度（相对立绘高度）',
+    thicknessHint: '立绘自身前后起伏的幅度，按立绘的深度估计换算。厚度越大，对焦在脸上时手脚越容易离焦，遮挡也按起伏逐处判断。',
+    occlusion: '深度遮挡',
+    occlusionEnabled: '开启深度遮挡',
+    modes: { opaque: '不透明', darken: '变暗', multiply: '正片叠底' } as Record<OcclusionMode, string>,
+    modeHints: {
+      opaque: '比立绘近的背景直接盖在立绘上。',
+      darken: '只在背景比立绘暗的地方盖上去，适合树叶、栏杆等细碎的暗色遮挡物；立绘中比遮挡物更暗的部分（如线稿）会透出来。',
+      multiply: '比立绘近的背景与立绘相乘，遮挡处的立绘明暗仍然可见。',
+    } as Record<OcclusionMode, string>,
+    tolerance: '容差',
+    softness: '过渡',
+    showMask: '在画布上显示遮罩',
+    occlusionHint: '背景比立绘近、且深度差超过容差的地方会挡住立绘。遮挡关系取决于“前后位置”中的深度。',
+    reset: '重置景深与遮挡',
+  },
   depth: {
     model: '模型',
     idle: '等待加载',
@@ -121,6 +156,7 @@ export const zhCN = {
       depth: '深度',
       normal: '法线',
       sky: '天空',
+      focus: '景深',
     },
     overlay: '叠加强度',
     edgeAlign: '边缘对齐',
@@ -226,7 +262,7 @@ export const zhCN = {
     redo: '重做 (Ctrl+Shift+Z)',
     export: '导出',
     debugView: '调试视图 (V)',
-    compare: '前后对比 (\\)',
+    compare: '前后对比：直接贴上去 (\\)',
     about: '关于',
   },
   import: {

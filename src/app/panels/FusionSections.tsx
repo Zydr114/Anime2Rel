@@ -16,7 +16,7 @@ const formatFixed = (digits: number) => (v: number) => v.toFixed(digits)
 const formatRelative = (v: number) => `${v.toFixed(1)}%`
 const formatPx = (v: number) => `${v.toFixed(1)} px`
 
-function Section({ title, children, testId }: { title: string; children: ReactNode; testId?: string }) {
+export function Section({ title, children, testId }: { title: string; children: ReactNode; testId?: string }) {
   return (
     <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3 text-sm" data-testid={testId}>
       <h3 className="font-medium">{title}</h3>
@@ -25,11 +25,11 @@ function Section({ title, children, testId }: { title: string; children: ReactNo
   )
 }
 
-function Hint({ children }: { children: ReactNode }) {
+export function Hint({ children }: { children: ReactNode }) {
   return <p className="text-xs leading-5 text-on-surface-variant">{children}</p>
 }
 
-function ToggleRow({ label, checked, onChange, testId }: { label: string; checked: boolean; onChange: (v: boolean) => void; testId: string }) {
+export function ToggleRow({ label, checked, onChange, testId }: { label: string; checked: boolean; onChange: (v: boolean) => void; testId: string }) {
   const ref = useRef<Switch>(null)
   useDomEvent(ref, 'change', (e, el) => {
     if (e.target === el) onChange(el.checked)
@@ -88,7 +88,8 @@ export function FusionSections() {
   )
 }
 
-function DepthSection() {
+/** 立绘的前后位置；children 追加在同一分组中 */
+export function DepthSection({ children }: { children?: ReactNode }) {
   const manual = useApp((s) => s.doc.fusion.depth)
   const doc = useApp((s) => s.doc)
   const bbox = useFusion((s) => (s.character?.id === doc.character?.id ? s.character?.info.bbox : undefined))
@@ -103,6 +104,7 @@ function DepthSection() {
       <SliderField label={t.fusion.depth} value={value * 100} min={0} max={100} step={0.5} format={formatPercent} onChange={onDepth} testId="fusion-depth" />
       <ToggleRow label={t.fusion.depthAuto} checked={manual === null} onChange={onAuto} testId="fusion-depth-auto" />
       <Hint>{t.fusion.depthHint}</Hint>
+      {children}
     </Section>
   )
 }
