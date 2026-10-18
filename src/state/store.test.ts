@@ -165,3 +165,17 @@ describe('fusion', () => {
     expect(useApp.getState().doc.fusion.relight).toEqual({ ...DEFAULT_FUSION.relight, style: 'cel' })
   })
 })
+
+describe('focus', () => {
+  it('scales a background focus point with the background and drops a character focus point with the character', () => {
+    const s = useApp.getState()
+    s.setBackground(asset('bg', 1000, 800))
+    useApp.getState().setFocus({ target: { kind: 'background', x: 100, y: 80 } })
+    useApp.getState().setBackground(asset('bg2', 2000, 1600))
+    expect(useApp.getState().doc.focus.target).toEqual({ kind: 'background', x: 200, y: 160 })
+
+    useApp.getState().setFocus({ target: { kind: 'character', u: 0.5, v: 0.2 } })
+    useApp.getState().setCharacter(asset('ch', 100, 200))
+    expect(useApp.getState().doc.focus.target).toBeNull()
+  })
+})

@@ -74,7 +74,7 @@ async function syncCharacter(): Promise<void> {
   // 与立绘深度结果同一分辨率，深度法线可以逐像素混合
   const size = depth?.guideSize ?? guideSize(asset.bitmap.width, asset.bitmap.height)
   const bitmap = await createImageBitmap(asset.bitmap, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: 'high', premultiplyAlpha: 'none' })
-  const info = await remote().setCharacter(Comlink.transfer({ id: asset.id, bitmap, depthNormal: depth?.normal ?? null }, [bitmap]))
+  const info = await remote().setCharacter(Comlink.transfer({ id: asset.id, bitmap, depthNormal: depth?.normal ?? null, depth: depth?.depth ?? null }, [bitmap]))
   if (sentCharacter !== sent) return
   useFusion.getState().setCharacter({ id: asset.id, info })
   void runNormals()

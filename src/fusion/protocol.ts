@@ -28,13 +28,16 @@ export interface CharacterInput {
   id: string
   /** 引导分辨率的位图，与立绘深度结果的尺寸一致 */
   bitmap: ImageBitmap
-  /** 深度模型的法线 RGBA8；深度未就绪时为 null */
+  /** 深度模型的法线 RGBA8 与归一化逆深度；深度未就绪时为 null */
   depthNormal: Uint8Array | null
+  depth: Float32Array | null
 }
 
-/** 立绘不透明区域（alpha > 0.5）的包围盒，相对立绘尺寸 [0,1] */
 export interface CharacterInfo {
+  /** 不透明区域（alpha > 0.5）的包围盒，相对立绘尺寸 [0,1] */
   bbox: { x0: number; y0: number; x1: number; y1: number }
+  /** 不透明区域内立绘自身深度的中位数，作为起伏的基准；深度未就绪时为 0.5 */
+  reliefMedian: number
 }
 
 export interface NormalRequest {

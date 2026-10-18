@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { AssetRef } from './assets'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
+import { DEFAULT_FOCUS, type FocusDoc, type FocusSection } from '@/focus/model'
 import { DEFAULT_FUSION, type FusionDoc, type FusionSection } from '@/fusion/model'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
@@ -13,13 +14,21 @@ export interface DocState {
   charTransform: LayerTransform
   lighting: LightingDoc
   fusion: FusionDoc
+  focus: FocusDoc
 }
 
 const HISTORY_LIMIT = 100
 
 const emptyTransform: LayerTransform = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
 
-export const initialDoc: DocState = { background: null, character: null, charTransform: emptyTransform, lighting: DEFAULT_LIGHTING, fusion: DEFAULT_FUSION }
+export const initialDoc: DocState = {
+  background: null,
+  character: null,
+  charTransform: emptyTransform,
+  lighting: DEFAULT_LIGHTING,
+  fusion: DEFAULT_FUSION,
+  focus: DEFAULT_FOCUS,
+}
 
 interface AppState {
   doc: DocState
@@ -60,6 +69,11 @@ interface AppState {
   /** 立绘所在深度；null 为自动 */
   setCharDepth: (depth: number | null) => void
   resetFusion: () => void
+
+  updateFocus: <K extends FocusSection>(section: K, update: Partial<FocusDoc[K]>) => void
+  setFocus: (update: Partial<Pick<FocusDoc, 'target' | 'thickness'>>) => void
+  /** 恢复默认的景深与遮挡参数，保留焦点 */
+  resetFocus: () => void
 
   setView: (view: ViewTransform) => void
   setViewport: (size: Size) => void
@@ -121,12 +135,15 @@ export const useApp = create<AppState>()((set, get) => ({
       set({ doc: { ...doc, background: asset, charTransform }, past: [], future: [] })
     } else {
       get().setDoc((d) => {
-        // 更换尺寸不同的背景时，按比例保持立绘的相对位置和大小
-        if (!d.character || !d.background || !sizeChanged) return { ...d, background: asset }
+        // 更换尺寸不同的背景时，按比例保持立绘和背景焦点的相对位置
+        if (!d.background || !sizeChanged) return { ...d, background: asset }
         const k = asset.width / d.background.width
         const ky = asset.height / d.background.height
         const t = d.charTransform
-        return { ...d, background: asset, charTransform: { ...t, x: t.x * k, y: t.y * ky, scale: t.scale * Math.min(k, ky) } }
+        const target = d.focus.target
+        const focus = target?.kind === 'background' ? { ...d.focus, target: { ...target, x: target.x * k, y: target.y * ky } } : d.focus
+        const charTransform = d.character ? { ...t, x: t.x * k, y: t.y * ky, scale: t.scale * Math.min(k, ky) } : t
+        return { ...d, background: asset, charTransform, focus }
       })
     }
     if (sizeChanged) set({ view: fitView(asset, viewport, undefined, viewInsets) })
@@ -134,10 +151,12 @@ export const useApp = create<AppState>()((set, get) => ({
 
   setCharacter: (asset) => {
     get().setDoc((d) => {
-      if (!asset) return { ...d, character: null }
+      // 立绘上的焦点只对原来的立绘有意义
+      const focus = d.focus.target?.kind === 'character' ? { ...d.focus, target: null } : d.focus
+      if (!asset) return { ...d, character: null, focus }
       const keep = d.character && d.character.width === asset.width && d.character.height === asset.height
       const charTransform = keep || !d.background ? d.charTransform : defaultLayerTransform(d.background, asset)
-      return { ...d, character: asset, charTransform }
+      return { ...d, character: asset, charTransform, focus }
     })
   },
 
@@ -191,6 +210,18 @@ export const useApp = create<AppState>()((set, get) => ({
 
   resetFusion: () => {
     get().setDoc((d) => ({ ...d, fusion: { ...DEFAULT_FUSION, depth: d.fusion.depth } }))
+  },
+
+  updateFocus: (section, update) => {
+    get().setDoc((d) => ({ ...d, focus: { ...d.focus, [section]: { ...d.focus[section], ...update } } }))
+  },
+
+  setFocus: (update) => {
+    get().setDoc((d) => ({ ...d, focus: { ...d.focus, ...update } }))
+  },
+
+  resetFocus: () => {
+    get().setDoc((d) => ({ ...d, focus: { ...DEFAULT_FOCUS, target: d.focus.target } }))
   },
 
   setView: (view) => set({ view }),

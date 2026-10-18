@@ -7,7 +7,7 @@ import { mat3Vec } from '@/algo/cat'
 import { srgbToLinear } from '@/algo/color'
 import { fitWithin } from '@/algo/geometry'
 import { oklabImage } from '@/algo/oklab'
-import { resizeBilinear } from '@/algo/raster'
+import { quantiles, resizeBilinear } from '@/algo/raster'
 import type { Vec3 } from '@/algo/sh'
 import { characterNormals } from '@/fusion/normals'
 import type { BackgroundInfo, BackgroundInput, CharacterInfo, CharacterInput, FusionStats, FusionWorkerApi, NormalMap, NormalRequest, StatsRequest } from '@/fusion/protocol'
@@ -148,8 +148,10 @@ const api: FusionWorkerApi = {
         y0 = Math.min(y0, y)
         y1 = Math.max(y1, y)
       }
-    if (x1 < 0) return { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 } }
-    return { bbox: { x0: x0 / width, y0: y0 / height, x1: (x1 + 1) / width, y1: (y1 + 1) / height } }
+    const opaque = Uint8Array.from(alpha, (a) => (a > 0.5 ? 1 : 0))
+    const reliefMedian = (input.depth?.length === n ? quantiles(input.depth, [0.5], opaque)?.[0] : undefined) ?? 0.5
+    if (x1 < 0) return { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 }, reliefMedian }
+    return { bbox: { x0: x0 / width, y0: y0 / height, x1: (x1 + 1) / width, y1: (y1 + 1) / height }, reliefMedian }
   },
 
   async normals(request: NormalRequest): Promise<NormalMap> {
