@@ -1,6 +1,7 @@
 // 界面文案。M6 增加英文时按相同结构新增语言文件。
 import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
+import type { BrushTool } from '@/state/regions'
 
 export const zhCN = {
   app: {
@@ -128,12 +129,14 @@ export const zhCN = {
     occlusion: '遮挡',
     occlusionEnabled: '开启遮挡',
     occlusionMode: '遮挡方式',
-    modes: { opaque: '不透明', darken: '变暗', multiply: '正片叠底', medium: '透明介质', water: '水体' } as Record<OcclusionMode, string>,
+    outsideMode: '区域外的遮挡方式',
+    modes: { opaque: '不透明', darken: '变暗', multiply: '正片叠底', medium: '透明介质', water: '水体', none: '不遮挡' } as Record<OcclusionMode, string>,
     modeHints: {
       opaque: '比立绘近的背景直接盖在立绘上。',
       darken: '只在背景比立绘暗的地方盖上去，适合树叶、栏杆等细碎的暗色遮挡物；立绘中比遮挡物更暗的部分（如线稿）会透出来。',
       multiply: '比立绘近的背景与立绘相乘，遮挡处的立绘明暗仍然可见。',
       medium: '比立绘近的背景当作半透明的介质（雾、玻璃、纱帘、浅水）：立绘按清澈度透出来，越往介质深处越看不清，上面叠加介质表面的细节。',
+      none: '不遮挡立绘。用于区域时可以排除深度估计出错的地方；用于区域外时只在画出的区域内遮挡。',
       water: '接地点所在的水平线就是水线，水线以下的立绘被水面覆盖：越深越看不清，水下部分随波纹折射，水线处有一条高光。与深度无关，请把接地点拖到人物与水面相交处。',
     } as Record<OcclusionMode, string>,
     tolerance: '容差',
@@ -143,6 +146,17 @@ export const zhCN = {
     detail: '表面细节',
     highlight: '水线高光',
     ripple: '波纹',
+    regions: '遮挡区域',
+    regionName: (n: number) => `区域 ${n}`,
+    regionEmpty: '未绘制',
+    addRegion: '添加区域',
+    removeRegion: '删除区域',
+    regionDone: '完成',
+    regionMode: '区域内的遮挡方式',
+    tools: { brush: '画笔', eraser: '橡皮' } as Record<BrushTool, string>,
+    brushSize: '画笔大小',
+    snap: '边缘吸附',
+    regionHint: '在画布上涂抹出遮挡物所在的区域（如水面、玻璃、树丛），区域内按它自己的遮挡方式，后面的区域覆盖前面的。边缘吸附会让区域边缘贴合背景中的边缘。',
     showMask: '在画布上显示遮罩',
     occlusionHint: '除水体外，背景比立绘近、且深度差超过容差的地方会挡住立绘，遮挡关系取决于“前后位置”中的深度。',
     reset: '重置景深与遮挡',

@@ -17,6 +17,7 @@ import {
   createCharacterPass,
   createCharPrepPass,
   createCompositePass,
+  createDisplayPass,
   createDepthNodes,
   createEncodePass,
   createPlacement,
@@ -34,6 +35,7 @@ import type { FocusParams } from '@/focus/params'
 import type { FusionParams } from '@/fusion/params'
 import type { NormalMap } from '@/fusion/protocol'
 import type { ShadowParams } from '@/fusion/shadow'
+import type { RegionMask } from '@/focus/regions'
 import type { BallPreview } from '@/lighting/preview'
 import { getAsset } from '@/state/assets'
 import type { DebugView } from '@/state/depth'
@@ -175,6 +177,7 @@ function layerTargets(width: number, height: number, skip: Partial<Record<keyof 
     characterDof: target('characterDof'),
     occlusion: target('occlusion'),
     shadow: target('shadow', true),
+    composited: target('composited'),
   }
 }
 
@@ -197,6 +200,7 @@ export class Engine {
   private display: FusionDisplay = { compare: false, showNormals: false, showMask: false }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
+  private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
   private readonly docRT = linearTarget(1, 1, true)
@@ -207,14 +211,16 @@ export class Engine {
   private readonly layerNodes: Record<keyof LayerTargets, THREE.TextureNode>
   private readonly depthNodes
   private readonly dof = createDofUniforms()
+  private readonly emptyRegions = this.dof.regions.value
   private readonly shadow = createShadowUniforms()
   private readonly charPrep
   private readonly character
-  private readonly composite
+  /** 预览时叠加在合成结果上的调试视图和灰球 */
+  private readonly debugView
   private readonly present
   private readonly encode
   private readonly quads: Record<
-    'charPrep' | 'prep' | 'tiles' | 'backgroundDof' | 'character' | 'characterDepth' | 'characterDof' | 'occlusion' | 'shadow' | 'composite' | 'present' | 'encode',
+    'charPrep' | 'prep' | 'tiles' | 'backgroundDof' | 'character' | 'characterDepth' | 'characterDof' | 'occlusion' | 'shadow' | 'composite' | 'display' | 'present' | 'encode',
     THREE.QuadMesh
   >
 
@@ -252,10 +258,11 @@ export class Engine {
       characterDof: layer('characterDof'),
       occlusion: layer('occlusion'),
       shadow: layer('shadow'),
+      composited: layer('composited'),
     })
     const dof = this.dof
     this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder)
-    this.composite = createCompositePass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof, shadow: this.shadow })
+    this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder)
     const quad = (m: THREE.NodeMaterial) => new THREE.QuadMesh(m)
@@ -278,7 +285,8 @@ export class Engine {
       characterDof: quad(createCharacterDofPass(dof, nodes.character, nodes.characterDepth)),
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
       shadow: quad(createShadowPass(this.shadow, placement, texture(this.charRT.texture), this.depthNodes.background)),
-      composite: quad(this.composite.material),
+      composite: quad(createCompositePass({ placement, background: this.backgroundNode, layers: nodes, dof, shadow: this.shadow })),
+      display: quad(this.debugView.material),
       present: quad(this.present.material),
       encode: quad(this.encode.material),
     }
@@ -348,7 +356,7 @@ export class Engine {
   }
 
   setDebug(settings: DebugSettings): void {
-    const u = this.composite.uniforms
+    const u = this.debugView.uniforms
     u.view.value = DEBUG_VIEW_INDEX[settings.view]
     u.overlay.value = settings.overlay
     const edgeAlign = settings.edgeAlign ? 1 : 0
@@ -360,7 +368,7 @@ export class Engine {
 
   /** 显示或隐藏灰球预览。导出时始终隐藏。 */
   setBallPreview(preview: BallPreview | null): void {
-    const u = this.composite.ball
+    const u = this.debugView.ball
     u.showBall.value = preview ? 1 : 0
     if (preview) {
       u.ballCenter.value.set(preview.center.x, preview.center.y)
@@ -390,6 +398,16 @@ export class Engine {
     this.focus = params
     if (params && applyFocusParams(this.dof, params)) this.backgroundDirty = true
     this.syncDisplay()
+  }
+
+  /** 遮挡区域遮罩；同一个对象不会重复上传，null 为没有区域 */
+  setOcclusionRegions(mask: RegionMask | null): void {
+    if (this.regions?.mask === mask || (!this.regions && !mask)) return
+    this.regions?.texture.dispose()
+    this.regions = mask && { mask, texture: dataTexture(mask.data, mask.width, mask.height, THREE.UnsignedByteType) }
+    this.dof.regions.value = this.regions?.texture ?? this.emptyRegions
+    this.docDirty = true
+    this.schedule()
   }
 
   /** 站立阴影；null 为不画阴影 */
@@ -494,9 +512,10 @@ export class Engine {
 
   /**
    * 渲染文档：背景预处理与景深（需要时）→ 立绘层、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成到 out。
+   * 预览（preview 为 true）时先合成到中间图层，再叠加调试视图和灰球。
    * 尺寸由 out 决定，弥散圆和噪声按 out 相对文档的比例换算。
    */
-  private renderDocument(targets: LayerTargets, out: THREE.RenderTarget, background: boolean, effects: Effects): void {
+  private renderDocument(targets: LayerTargets, out: THREE.RenderTarget, background: boolean, effects: Effects, preview = false): void {
     if (!this.docSize) return
     const r = this.renderer
     const { width, height } = out
@@ -519,14 +538,16 @@ export class Engine {
     if (effects.dof) pass(this.quads.characterDof, targets.characterDof)
     if (effects.occlusion) pass(this.quads.occlusion, targets.occlusion)
     if (effects.shadow) pass(this.quads.shadow, targets.shadow)
-    pass(this.quads.composite, out)
+    if (!preview) return pass(this.quads.composite, out)
+    pass(this.quads.composite, targets.composited)
+    pass(this.quads.display, out)
   }
 
   private renderFrame(): void {
     if (this.disposed) return
     const r = this.renderer
     if (this.docDirty && this.docSize) {
-      this.renderDocument(this.layers, this.docRT, this.backgroundDirty, this.effects(this.display))
+      this.renderDocument(this.layers, this.docRT, this.backgroundDirty, this.effects(this.display), true)
       this.backgroundDirty = false
       this.docDirty = false
       this.viewDirty = true
@@ -547,13 +568,9 @@ export class Engine {
     // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
     const display: FusionDisplay = { compare: false, showNormals: false, showMask: false }
     const effects = this.effects(display)
-    const targets = layerTargets(width, height, { backgroundDof: !effects.dof, characterDof: !effects.dof, occlusion: !effects.occlusion, shadow: !effects.shadow })
+    const targets = layerTargets(width, height, { backgroundDof: !effects.dof, characterDof: !effects.dof, occlusion: !effects.occlusion, shadow: !effects.shadow, composited: true })
     const linear = linearTarget(width, height)
     const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
-    const view = this.composite.uniforms.view.value
-    const ball = this.composite.ball.showBall.value
-    this.composite.uniforms.view.value = 0
-    this.composite.ball.showBall.value = 0
     this.syncDisplay(display)
     try {
       this.bindLayers(targets)
@@ -568,8 +585,6 @@ export class Engine {
       const pixels = unpackRows(raw, width, height, 4, stride, webgl)
       return { width, height, pixels }
     } finally {
-      this.composite.uniforms.view.value = view
-      this.composite.ball.showBall.value = ball
       this.bindLayers(this.layers)
       this.syncDisplay()
       this.encode.source.value = this.placeholder
@@ -591,6 +606,7 @@ export class Engine {
     this.colormap.dispose()
     this.normalPlaceholder.dispose()
     this.charNormal?.texture.dispose()
+    this.regions?.texture.dispose()
     for (const set of Object.values(this.depthPlaceholder)) for (const t of Object.values(set)) t.dispose()
     for (const layer of Object.values(this.depth)) if (layer) for (const t of Object.values(layer.textures)) t.dispose()
     for (const q of Object.values(this.quads)) (q.material as THREE.Material).dispose()

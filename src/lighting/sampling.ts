@@ -31,7 +31,8 @@ export function sampleDepthMedian(result: DepthResult | undefined, p: Point, doc
 const PICK_MAX_EDGE = 1024
 const pickCache = new Map<string, { data: Uint8ClampedArray; width: number; height: number }>()
 
-function pickImage(assetId: string) {
+/** 资源的缩小图像素（长边不超过 1024，RGBA8 sRGB，首行在上），按资源缓存 */
+export function assetPixels(assetId: string) {
   let img = pickCache.get(assetId)
   if (img) return img
   const asset = getAsset(assetId)
@@ -50,7 +51,7 @@ function pickImage(assetId: string) {
 
 /** 吸管：背景在文档坐标 p 附近 5×5 像素的平均颜色（线性，最大分量为 1）。 */
 export function pickColor(assetId: string, p: Point, doc: Size): Vec3 | null {
-  const img = pickImage(assetId)
+  const img = assetPixels(assetId)
   if (!img) return null
   const cx = Math.floor((p.x / doc.width) * img.width)
   const cy = Math.floor((p.y / doc.height) * img.height)
@@ -66,7 +67,7 @@ export function pickColor(assetId: string, p: Point, doc: Size): Vec3 | null {
 /** 立绘 UV 处的 alpha（[0,1]，最近邻）；UV 在立绘外时为 0。 */
 export function pickAlpha(assetId: string, uv: Point): number {
   if (uv.x < 0 || uv.x >= 1 || uv.y < 0 || uv.y >= 1) return 0
-  const img = pickImage(assetId)
+  const img = assetPixels(assetId)
   if (!img) return 0
   const x = Math.floor(uv.x * img.width)
   const y = Math.floor(uv.y * img.height)

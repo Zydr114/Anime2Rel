@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { initialDoc, useApp } from './store'
 import type { AssetRef } from './assets'
 import type { LightCandidate } from '@/analysis/protocol'
+import { MAX_REGIONS } from '@/focus/model'
 import { DEFAULT_FUSION } from '@/fusion/model'
 import { lightsFromCandidates, MAX_LIGHTS, newDirectionalLight } from '@/lighting/model'
 
@@ -181,5 +182,21 @@ describe('focus', () => {
     useApp.getState().setFocus({ target: { kind: 'character', u: 0.5, v: 0.2 } })
     useApp.getState().setCharacter(asset('ch', 100, 200))
     expect(useApp.getState().doc.focus.target).toBeNull()
+  })
+
+  it('caps occlusion regions, records each stroke as one step, keeps regions on reset and scales them with the background', () => {
+    useApp.getState().setBackground(asset('bg', 1000, 800))
+    const ids = Array.from({ length: MAX_REGIONS + 1 }, () => useApp.getState().addRegion())
+    expect(ids.filter(Boolean)).toHaveLength(MAX_REGIONS)
+    expect(ids[MAX_REGIONS]).toBeNull()
+    const id = ids[0]!
+    useApp.getState().addRegionStroke(id, { erase: false, radius: 10, points: [100, 80, 200, 80] })
+    useApp.getState().addRegionStroke(id, { erase: true, radius: 5, points: [150, 80] })
+    useApp.getState().undo()
+    expect(useApp.getState().doc.focus.occlusion.regions[0].strokes).toHaveLength(1)
+    useApp.getState().resetFocus()
+    expect(useApp.getState().doc.focus.occlusion.regions).toHaveLength(MAX_REGIONS)
+    useApp.getState().setBackground(asset('bg2', 2000, 1600))
+    expect(useApp.getState().doc.focus.occlusion.regions[0].strokes[0]).toEqual({ erase: false, radius: 20, points: [200, 160, 400, 160] })
   })
 })

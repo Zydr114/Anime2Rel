@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import type { Engine } from '@/engine/Engine'
 import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
-import { currentFocusParams } from '@/focus/service'
+import { currentFocusParams, currentRegionMask } from '@/focus/service'
 import { currentFusionParams, currentNormals, currentShadowParams } from '@/fusion/service'
 import { t } from '@/i18n'
 import { computeBallPreview } from '@/lighting/preview'
@@ -14,6 +14,7 @@ import { useApp } from '@/state/store'
 import { FocusGizmo } from './FocusGizmo'
 import { GroundGizmo } from './GroundGizmo'
 import { LightGizmo } from './LightGizmo'
+import { RegionBrush } from './RegionBrush'
 import { TransformGizmo } from './TransformGizmo'
 import { useSpaceHeld } from './useSpaceHeld'
 
@@ -75,6 +76,7 @@ export function Viewport() {
           const f = useFusion.getState()
           e.setCharacterNormals(currentNormals(doc))
           e.setFusion(currentFusionParams(doc))
+          e.setOcclusionRegions(currentRegionMask(doc))
           e.setFocus(currentFocusParams(doc))
           e.setShadow(currentShadowParams(doc))
           e.setDisplay({ compare: f.compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus' })
@@ -213,6 +215,7 @@ export function Viewport() {
         <TransformGizmo passThrough={spaceHeld || panning} />
         <LightGizmo passThrough={spaceHeld || panning} />
         <FocusGizmo passThrough={spaceHeld || panning} />
+        <RegionBrush passThrough={spaceHeld || panning} />
         <GroundGizmo passThrough={spaceHeld || panning} />
       </div>
       {dragOver && (

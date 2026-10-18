@@ -1,7 +1,7 @@
 // 渲染各阶段使用的 TSL 材质。所有中间结果都是线性 sRGB；立绘使用预乘 alpha。
 import * as THREE from 'three/webgpu'
 import { abs, cos, dot, exp, float, fwidth, length, log2, max, mix, saturate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
-import { MODE, refraction, sampleLevel, waterDepth, waterEdge, type DofUniforms } from './dof'
+import { isMode, MODE, occlusionStyles, refraction, sampleLevel, waterDepth, waterEdge, waterWave, type DofUniforms } from './dof'
 import { createFusionNode } from './fusion'
 import type { ShadowUniforms } from './shadow'
 import { evalSh, material, srgbDecode, srgbEncode, type FloatNode, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
@@ -159,67 +159,89 @@ export interface LayerTextures {
   occlusion: TextureNode
   /** 站立阴影：背景的颜色倍率 */
   shadow: TextureNode
+  /** 合成结果（预览时再叠加调试视图和灰球） */
+  composited: TextureNode
 }
 
 /**
- * 最终合成：模糊背景（乘以站立阴影） → 模糊立绘 → 遮挡层（按遮挡方式混合）→ 遮罩预览 → 调试视图 → 灰球。
+ * 最终合成：模糊背景（乘以站立阴影） → 模糊立绘 → 遮挡层（按区域和遮挡方式混合）→ 遮罩预览。
  * 透明介质与水体按遮挡强度（介质的不透明度）普通覆盖，再在透出的立绘上叠加背景的高频细节；
  * 水体另外在水下部分做折射偏移、在水线处加高光。
- * view 不为 0 时按调试视图着色，再按 overlay 与合成结果混合。
+ * 调试视图和灰球在 createDisplayPass 中叠加，这里的纹理数要留在 WebGPU / WebGL2 每阶段 16 个的下限以内。
  */
-export function createCompositePass(input: {
-  placement: Placement
-  depth: DepthNodes
-  background: TextureNode
-  colormap: THREE.Texture
-  layers: LayerTextures
-  dof: DofUniforms
-  shadow: ShadowUniforms
-}) {
-  const { placement, depth, background, layers, dof } = input
-  const u = { view: uniform(0), overlay: uniform(1) }
+export function createCompositePass(input: { placement: Placement; background: TextureNode; layers: LayerTextures; dof: DofUniforms; shadow: ShadowUniforms }) {
+  const { placement, background, layers, dof } = input
 
   // 阴影随地面一起离焦：按背景的弥散圆选用 mip
   const shadowLod = log2(max(abs(sampleLevel(layers.prep, screenUV).a), 1))
   const shadow = mix(vec3(1), sampleLevel(layers.shadow, screenUV, shadowLod).rgb, input.shadow.enabled)
   const bg = mix(sampleLevel(layers.backgroundDof, screenUV).rgb, background.rgb, dof.bypass).mul(shadow)
   const charDepth = sampleLevel(layers.characterDepth, screenUV)
-  const mode = dof.occlusionMode
-  const water = dof.occlusion.mul(select(mode.equal(MODE.water), 1, 0))
-  const mediumLike = dof.occlusion.mul(select(mode.greaterThanEqual(MODE.medium), 1, 0))
+  const occ = sampleLevel(layers.occlusion, screenUV).mul(dof.occlusion)
+
+  // 按区域把各遮挡方式的权重和参数累加起来；水体的波纹取水体区域的加权平均
+  const styles = occlusionStyles(dof)
+  const sum = (f: (s: (typeof styles)[number]) => FloatNode) => styles.reduce<FloatNode>((acc, s) => acc.add(f(s).mul(s.weight)), float(0))
+  const water = sum((s) => isMode(s.mode, MODE.water)).mul(dof.occlusion)
+  const ripple = sum((s) => isMode(s.mode, MODE.water).mul(s.ripple)).div(max(water, 1e-4))
+  const highlightAmount = sum((s) => isMode(s.mode, MODE.water).mul(s.highlight)).mul(dof.occlusion)
+  // 介质的范围：交界处的不透明度至少为 1 − 清澈度，按它把遮挡强度换算回“在介质中”的程度
+  const detailAmount = sum((s) =>
+    isMode(s.mode, MODE.medium)
+      .add(isMode(s.mode, MODE.water))
+      .mul(s.detail)
+      .mul(saturate(occ.a.div(max(float(1).sub(s.clarity), 0.05)))),
+  ).mul(dof.occlusion)
+  const darkenWeight = sum((s) => isMode(s.mode, MODE.darken))
+  const multiplyWeight = sum((s) => isMode(s.mode, MODE.multiply))
 
   // 水下部分的立绘按折射偏移采样
   const p = placement.p
-  const h = waterDepth(dof, p)
+  const h = waterDepth(dof, p, waterWave(dof, p), ripple)
   const below = smoothstep(waterEdge(dof).negate(), waterEdge(dof), h).mul(water)
-  const chUV = screenUV.add(refraction(dof, p).mul(below).div(placement.uniforms.docSize))
+  const chUV = screenUV.add(refraction(dof, p, ripple).mul(below).div(placement.uniforms.docSize))
   const ch = mix(sampleLevel(layers.characterDof, chUV), sampleLevel(layers.character, chUV), dof.bypass)
 
-  // 遮挡：不透明为普通覆盖；变暗与正片叠底只改变立绘自身的像素（遮挡层在立绘外就是背景本身）
-  const occ = sampleLevel(layers.occlusion, screenUV).mul(dof.occlusion)
+  // 遮挡：不透明、透明介质、水体为普通覆盖；变暗与正片叠底只改变立绘自身的像素（遮挡层在立绘外就是背景本身）
   const occColor = occ.rgb.div(max(occ.a, 1e-4))
   const straight = ch.rgb.div(max(ch.a, 1e-4))
   const darker = smoothstep(-0.02, 0.02, luma(straight).sub(luma(occColor)))
   const darken = mix(straight, occColor, darker.mul(occ.a)).mul(ch.a)
   const multiply = ch.rgb.mul(mix(vec3(1), occColor, occ.a))
-  const chRgb = select(mode.equal(MODE.darken), darken, select(mode.equal(MODE.multiply), multiply, ch.rgb))
-  const layered = chRgb.add(bg.mul(float(1).sub(ch.a)))
-  const covered = occ.rgb.add(layered.mul(float(1).sub(occ.a)))
+  const behindCh = bg.mul(float(1).sub(ch.a))
+  const covered = occ.rgb.add(ch.rgb.add(behindCh).mul(float(1).sub(occ.a)))
 
   // 介质的表面细节：背景的高频部分，叠加在透出的立绘上；背景离焦时细节随之减弱
   const prep = sampleLevel(layers.prep, screenUV)
   const highPass = prep.rgb.sub(sampleLevel(layers.prep, screenUV, 2.5).rgb)
-  const inMedium = saturate(occ.a.div(max(float(1).sub(dof.clarity), 0.05)))
   const sharp = saturate(float(1).sub(abs(prep.a).div(4)))
-  const detail = highPass.mul(dof.detail.mul(inMedium).mul(float(1).sub(occ.a)).mul(ch.a).mul(sharp).mul(mediumLike))
+  const detail = highPass.mul(detailAmount.mul(float(1).sub(occ.a)).mul(ch.a).mul(sharp))
 
   // 水线高光：水线处一条随波纹起伏的亮线，颜色偏向周围水面的颜色
   const band = exp(h.div(max(dof.charHeight.mul(0.006), 1)).pow(2).negate())
   const glint = mix(sampleLevel(layers.prep, screenUV, 3).rgb, vec3(1), 0.5)
-  const highlight = glint.mul(dof.highlight.mul(band).mul(ch.a).mul(water).mul(0.8))
+  const highlight = glint.mul(highlightAmount.mul(band).mul(ch.a).mul(0.8))
 
-  const occluded = select(mode.equal(MODE.opaque).or(mediumLike.greaterThan(0)), covered.add(detail).add(highlight), layered)
+  const occluded = covered
+    .add(detail)
+    .add(highlight)
+    .mul(float(1).sub(darkenWeight).sub(multiplyWeight))
+    .add(darken.add(behindCh).mul(darkenWeight))
+    .add(multiply.add(behindCh).mul(multiplyWeight))
   const rgb = mix(occluded, MASK_TINT, charDepth.g.mul(charDepth.a).mul(dof.showMask).mul(0.6))
+  return material(vec4(rgb, 1))
+}
+
+/**
+ * 预览显示：合成结果 → 调试视图 → 灰球。
+ * view 不为 0 时按调试视图着色，再按 overlay 与合成结果混合。
+ */
+export function createDisplayPass(input: { placement: Placement; depth: DepthNodes; background: TextureNode; colormap: THREE.Texture; layers: LayerTextures; dof: DofUniforms }) {
+  const { placement, depth, background, layers, dof } = input
+  const u = { view: uniform(0), overlay: uniform(1) }
+  const rgb = sampleLevel(layers.composited, screenUV).rgb
+  const charDepth = sampleLevel(layers.characterDepth, screenUV)
+  const alpha = charDepth.a
 
   const cmap = (v: FloatNode) => srgbDecode(texture(input.colormap, vec2(v, 0.5)).rgb)
   const debugColor = (d: FloatNode, normal: Vec4Node, sky: Vec3Node) =>
@@ -234,7 +256,7 @@ export function createCompositePass(input: {
   const strength = saturate(abs(coc).div(dof.targetLong.mul(FOCUS_VIEW_SCALE))).mul(0.85)
   const focusView = mix(vec3(luma(rgb)), select(coc.greaterThan(0), NEAR_TINT, FAR_TINT), strength)
 
-  const debug = select(u.view.equal(4), focusView, chDebug.mul(ch.a).add(bgDebug.mul(float(1).sub(ch.a))))
+  const debug = select(u.view.equal(4), focusView, chDebug.mul(alpha).add(bgDebug.mul(float(1).sub(alpha))))
   const out = mix(rgb, debug, u.overlay.mul(step(0.5, u.view)))
   const ball = ballOverlay(out, placement.p)
 

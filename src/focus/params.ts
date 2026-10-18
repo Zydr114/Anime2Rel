@@ -6,7 +6,7 @@ import type { CharacterInfo } from '@/fusion/protocol'
 import { sampleDepth } from '@/lighting/sampling'
 import type { DocState } from '@/state/store'
 import { bokehKernel, circleOfConfusion, reliefDepth, reliefScale, type KernelPoint } from './dof'
-import { OCCLUSION_MODES } from './model'
+import { MAX_REGIONS, OCCLUSION_MODES, type OcclusionStyle } from './model'
 
 /** 散景采样点数 */
 export const BOKEH_SAMPLES = 48
@@ -82,19 +82,27 @@ export interface FocusParams {
   characterCoc: number
   occlusion: {
     enabled: boolean
-    mode: number
     tolerance: number
     softness: number
-    clarity: number
-    density: number
-    detail: number
-    highlight: number
-    ripple: number
+    /** 遮挡方式：第 0 项用于区域以外，第 i 项用于第 i 个区域（区域遮罩纹理的第 i − 1 个通道），共 1 + MAX_REGIONS 项 */
+    styles: StyleParams[]
     /** 水线（文档 y，过接地点的水平线）与立绘不透明区域的高度（文档像素），水体的深浅和波纹按它换算 */
     waterline: number
     height: number
   }
 }
+
+/** 着色器使用的遮挡方式：mode 为 OCCLUSION_MODES 中的序号 */
+export type StyleParams = Omit<OcclusionStyle, 'mode'> & { mode: number }
+
+const styleParams = ({ mode, clarity, density, detail, highlight, ripple }: OcclusionStyle): StyleParams => ({
+  mode: OCCLUSION_MODES.indexOf(mode),
+  clarity,
+  density,
+  detail,
+  highlight,
+  ripple,
+})
 
 /** 水线：过接地点的水平线（文档 y） */
 export function waterline(doc: DocState, info: CharacterInfo | undefined): number {
@@ -117,8 +125,10 @@ export function focusParams(input: FocusInputs): FocusParams {
     relief,
     characterCoc: Math.max(coc(0), coc(1), coc(relief.reference)),
     occlusion: {
-      ...occlusion,
-      mode: OCCLUSION_MODES.indexOf(occlusion.mode),
+      enabled: occlusion.enabled,
+      tolerance: occlusion.tolerance,
+      softness: occlusion.softness,
+      styles: Array.from({ length: 1 + MAX_REGIONS }, (_, i) => styleParams((i > 0 && occlusion.regions[i - 1]) || occlusion)),
       waterline: waterline(input.doc, input.info),
       height: characterHeight(input.doc, input.info),
     },

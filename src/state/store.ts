@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { AssetRef } from './assets'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
-import { DEFAULT_FOCUS, type FocusDoc, type FocusSection } from '@/focus/model'
+import { DEFAULT_FOCUS, DEFAULT_STYLE, MAX_REGIONS, newRegionId, type BrushStroke, type FocusDoc, type FocusSection, type OcclusionRegion, type OcclusionStyle } from '@/focus/model'
 import { DEFAULT_FUSION, type FusionDoc, type FusionSection } from '@/fusion/model'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
@@ -74,8 +74,13 @@ interface AppState {
 
   updateFocus: <K extends FocusSection>(section: K, update: Partial<FocusDoc[K]>) => void
   setFocus: (update: Partial<Pick<FocusDoc, 'target' | 'thickness'>>) => void
-  /** 恢复默认的景深与遮挡参数，保留焦点 */
+  /** 恢复默认的景深与遮挡参数，保留焦点和画好的遮挡区域 */
   resetFocus: () => void
+  /** 添加遮挡区域，返回其 id；达到上限时返回 null */
+  addRegion: () => string | null
+  updateRegion: (id: string, update: Partial<OcclusionStyle>) => void
+  removeRegion: (id: string) => void
+  addRegionStroke: (id: string, stroke: BrushStroke) => void
 
   setView: (view: ViewTransform) => void
   setViewport: (size: Size) => void
@@ -85,6 +90,10 @@ interface AppState {
 }
 
 const pushPast = (past: DocState[], doc: DocState) => [...past.slice(-(HISTORY_LIMIT - 1)), doc]
+
+function setRegions(get: () => AppState, update: (regions: OcclusionRegion[]) => OcclusionRegion[]): void {
+  get().setDoc((d) => ({ ...d, focus: { ...d.focus, occlusion: { ...d.focus.occlusion, regions: update(d.focus.occlusion.regions) } } }))
+}
 
 export const useApp = create<AppState>()((set, get) => ({
   doc: initialDoc,
@@ -137,13 +146,21 @@ export const useApp = create<AppState>()((set, get) => ({
       set({ doc: { ...doc, background: asset, charTransform }, past: [], future: [] })
     } else {
       get().setDoc((d) => {
-        // 更换尺寸不同的背景时，按比例保持立绘和背景焦点的相对位置
+        // 更换尺寸不同的背景时，按比例保持立绘、背景焦点和遮挡区域的相对位置
         if (!d.background || !sizeChanged) return { ...d, background: asset }
         const k = asset.width / d.background.width
         const ky = asset.height / d.background.height
         const t = d.charTransform
         const target = d.focus.target
-        const focus = target?.kind === 'background' ? { ...d.focus, target: { ...target, x: target.x * k, y: target.y * ky } } : d.focus
+        const regions = d.focus.occlusion.regions.map((r) => ({
+          ...r,
+          strokes: r.strokes.map((st) => ({ ...st, radius: st.radius * Math.min(k, ky), points: st.points.map((v, i) => v * (i % 2 ? ky : k)) })),
+        }))
+        const focus = {
+          ...d.focus,
+          target: target?.kind === 'background' ? { ...target, x: target.x * k, y: target.y * ky } : target,
+          occlusion: { ...d.focus.occlusion, regions },
+        }
         const charTransform = d.character ? { ...t, x: t.x * k, y: t.y * ky, scale: t.scale * Math.min(k, ky) } : t
         return { ...d, background: asset, charTransform, focus }
       })
@@ -228,7 +245,26 @@ export const useApp = create<AppState>()((set, get) => ({
   },
 
   resetFocus: () => {
-    get().setDoc((d) => ({ ...d, focus: { ...DEFAULT_FOCUS, target: d.focus.target } }))
+    get().setDoc((d) => ({ ...d, focus: { ...DEFAULT_FOCUS, target: d.focus.target, occlusion: { ...DEFAULT_FOCUS.occlusion, regions: d.focus.occlusion.regions } } }))
+  },
+
+  addRegion: () => {
+    if (get().doc.focus.occlusion.regions.length >= MAX_REGIONS) return null
+    const region: OcclusionRegion = { ...DEFAULT_STYLE, id: newRegionId(), strokes: [] }
+    setRegions(get, (regions) => [...regions, region])
+    return region.id
+  },
+
+  updateRegion: (id, update) => {
+    setRegions(get, (regions) => regions.map((r) => (r.id === id ? { ...r, ...update } : r)))
+  },
+
+  removeRegion: (id) => {
+    setRegions(get, (regions) => regions.filter((r) => r.id !== id))
+  },
+
+  addRegionStroke: (id, stroke) => {
+    setRegions(get, (regions) => regions.map((r) => (r.id === id ? { ...r, strokes: [...r.strokes, stroke] } : r)))
   },
 
   setView: (view) => set({ view }),
