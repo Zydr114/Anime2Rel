@@ -1,13 +1,41 @@
 /**
  * 终处理 pass：全局基础调整之后的显示空间处理（docs/Plan.md M5 实现方案）。
- * 目前包括色轮和分离色调，公式与 src/grade/creative.ts 一致。输入输出都是线性 sRGB。
+ * 目前包括色轮、分离色调和 LUT，公式与 src/grade/creative.ts 一致。输入输出都是线性 sRGB。
  */
 import * as THREE from 'three/webgpu'
-import { float, max, pow, select, smoothstep, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { clamp, float, max, mix, pow, select, smoothstep, texture3D, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { toHalf } from '@/algo/half'
+import type { CubeLut } from '@/grade/cube'
 import { SPLIT_BLACK, SPLIT_WIDTH, type CreativeParams } from '@/grade/creative'
+import type { RegisteredLut } from '@/grade/luts'
 import { fromOklab, material, srgbDecode, srgbEncode, toOklab, type Vec3Node, type Vec4Node } from './nodes'
 
+/** LUT → RGBA 半精度三维纹理，线性插值 */
+function lutTexture(lut: Pick<CubeLut, 'size' | 'data'>): THREE.Data3DTexture {
+  const count = lut.size ** 3
+  const data = new Uint16Array(count * 4)
+  const one = toHalf(1)
+  for (let i = 0; i < count; i++) {
+    data[i * 4] = toHalf(lut.data[i * 3])
+    data[i * 4 + 1] = toHalf(lut.data[i * 3 + 1])
+    data[i * 4 + 2] = toHalf(lut.data[i * 3 + 2])
+    data[i * 4 + 3] = one
+  }
+  const t = new THREE.Data3DTexture(data, lut.size, lut.size, lut.size)
+  t.format = THREE.RGBAFormat
+  t.type = THREE.HalfFloatType
+  t.colorSpace = THREE.NoColorSpace
+  t.minFilter = t.magFilter = THREE.LinearFilter
+  t.wrapS = t.wrapT = t.wrapR = THREE.ClampToEdgeWrapping
+  t.unpackAlignment = 1
+  t.needsUpdate = true
+  return t
+}
+
+const IDENTITY_LUT = { size: 2, data: Float32Array.from([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1]) }
+
 export function createFinishUniforms() {
+  const lutPlaceholder = lutTexture(IDENTITY_LUT)
   return {
     /** 0 时不做全局调色（没有调色，或前后对比显示调色前） */
     creative: uniform(0),
@@ -17,6 +45,15 @@ export function createFinishUniforms() {
     shadowTint: uniform(new THREE.Vector2()),
     highlightTint: uniform(new THREE.Vector2()),
     pivot: uniform(0.5),
+    /** LUT 强度，没有 LUT 时为 0 */
+    lutAmount: uniform(0),
+    lutSize: uniform(2),
+    lutMin: uniform(new THREE.Vector3(0, 0, 0)),
+    lutMax: uniform(new THREE.Vector3(1, 1, 1)),
+    lut: texture3D(lutPlaceholder),
+    lutPlaceholder,
+    /** 当前上传的 LUT */
+    lutState: { id: null as string | null, texture: null as THREE.Data3DTexture | null },
   }
 }
 
@@ -32,7 +69,13 @@ function creative(u: FinishUniforms, c: Vec3Node): Vec3Node {
   const wh = smoothstep(u.pivot.sub(SPLIT_WIDTH), u.pivot.add(SPLIT_WIDTH), lab.x)
   const ws = float(1).sub(wh).mul(smoothstep(0, SPLIT_BLACK, lab.x))
   const ab = vec2(lab.y, lab.z).add(u.shadowTint.mul(ws)).add(u.highlightTint.mul(wh))
-  return max(fromOklab(vec3(lab.x, ab.x, ab.y)), vec3(0))
+  const split = srgbEncode(max(fromOklab(vec3(lab.x, ab.x, ab.y)), vec3(0)))
+
+  // LUT：编码值按定义域换算到网格坐标，超出范围的值裁剪
+  const x = clamp(split.sub(u.lutMin).div(u.lutMax.sub(u.lutMin)), 0, 1)
+  const uvw = x.mul(u.lutSize.sub(1).div(u.lutSize)).add(float(0.5).div(u.lutSize))
+  const graded = mix(split, u.lut.sample(uvw).rgb, u.lutAmount)
+  return srgbDecode(max(graded, vec3(0)))
 }
 
 export function createFinishPass(u: FinishUniforms, input: Vec4Node) {
@@ -48,4 +91,24 @@ export function applyFinishParams(u: FinishUniforms, p: CreativeParams | null, e
   u.shadowTint.value.set(...p.shadowTint)
   u.highlightTint.value.set(...p.highlightTint)
   u.pivot.value = p.pivot
+  u.lutAmount.value = p.lut && u.lutState.id === p.lut.id ? p.lut.intensity : 0
+}
+
+/** 切换使用的 LUT；同一个 LUT 不会重复上传。需在 applyFinishParams 之前调用 */
+export function setFinishLut(u: FinishUniforms, lut: RegisteredLut | null): void {
+  const id = lut?.id ?? null
+  if (u.lutState.id === id) return
+  u.lutState.texture?.dispose()
+  u.lutState.texture = lut ? lutTexture(lut) : null
+  u.lutState.id = id
+  u.lut.value = u.lutState.texture ?? u.lutPlaceholder
+  if (!lut) return
+  u.lutSize.value = lut.size
+  u.lutMin.value.set(...lut.domainMin)
+  u.lutMax.value.set(...lut.domainMax)
+}
+
+export function disposeFinish(u: FinishUniforms): void {
+  u.lutState.texture?.dispose()
+  u.lutPlaceholder.dispose()
 }

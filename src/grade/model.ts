@@ -62,10 +62,20 @@ export interface SplitToning {
   balance: number
 }
 
+/** 导入的 LUT：数据在 src/grade/luts.ts 的登记表中 */
+export interface LutRef {
+  id: string
+  /** 文件名 */
+  name: string
+}
+
 /** 全局调色（色彩风格）：在全局基础调整之后、显示空间中进行 */
 export interface CreativeGrade {
   wheels: Record<WheelKey, ColorWheel>
   split: SplitToning
+  lut: LutRef | null
+  /** LUT 强度 [0,1] */
+  lutIntensity: number
 }
 
 export interface GradeDoc {
@@ -103,6 +113,8 @@ export const DEFAULT_CREATIVE: CreativeGrade = {
   wheels: { lift: NO_WHEEL, gamma: NO_WHEEL, gain: NO_WHEEL },
   // 色相取常见的冷暗部、暖亮部，强度为 0 时不起作用
   split: { shadow: { hue: 230, amount: 0 }, highlight: { hue: 70, amount: 0 }, balance: 0 },
+  lut: null,
+  lutIntensity: 1,
 }
 
 export const DEFAULT_GRADE: GradeDoc = {
@@ -128,5 +140,9 @@ export function isNeutralAdjust(a: BasicAdjust): boolean {
 
 /** 全局调色是否不做任何修改 */
 export function isNeutralCreative(c: CreativeGrade): boolean {
-  return WHEEL_KEYS.every((k) => c.wheels[k].amount === 0 && c.wheels[k].luma === 0) && TONE_KEYS.every((k) => c.split[k].amount === 0)
+  return (
+    WHEEL_KEYS.every((k) => c.wheels[k].amount === 0 && c.wheels[k].luma === 0) &&
+    TONE_KEYS.every((k) => c.split[k].amount === 0) &&
+    (c.lut === null || c.lutIntensity === 0)
+  )
 }

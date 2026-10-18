@@ -12,7 +12,7 @@ import {
   createTilePass,
   TILE,
 } from './dof'
-import { applyFinishParams, createFinishPass, createFinishUniforms } from './finish'
+import { applyFinishParams, createFinishPass, createFinishUniforms, disposeFinish, setFinishLut } from './finish'
 import { applyFusionParams } from './fusion'
 import {
   applyAdjustParams,
@@ -48,6 +48,7 @@ import type { DepthResult } from '@/depth/protocol'
 import type { FocusParams } from '@/focus/params'
 import type { FusionParams } from '@/fusion/params'
 import { GRADE_LEVELS, type GradeLevel } from '@/grade/model'
+import { getLut } from '@/grade/luts'
 import type { GradeParams } from '@/grade/params'
 import type { NormalMap } from '@/fusion/protocol'
 import type { ShadowParams } from '@/fusion/shadow'
@@ -493,6 +494,8 @@ export class Engine {
     // 背景层调整变化时，背景预处理和背景景深需要重算
     if (params?.levels.background !== this.grade?.levels.background) this.backgroundDirty = true
     this.grade = params
+    const lut = params?.creative.lut
+    setFinishLut(this.finish, (lut && getLut(lut.id)) ?? null)
     this.syncDisplay()
   }
 
@@ -723,6 +726,7 @@ export class Engine {
     this.charNormal?.texture.dispose()
     this.regions?.texture.dispose()
     for (const u of Object.values(this.adjust)) u.curveMap.dispose()
+    disposeFinish(this.finish)
     for (const set of Object.values(this.depthPlaceholder)) for (const t of Object.values(set)) t.dispose()
     for (const layer of Object.values(this.depth)) if (layer) for (const t of Object.values(layer.textures)) t.dispose()
     for (const q of [...Object.values(this.quads), ...Object.values(this.toneQuads)]) (q.material as THREE.Material).dispose()

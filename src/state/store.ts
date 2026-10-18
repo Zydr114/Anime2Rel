@@ -89,6 +89,7 @@ interface AppState {
   resetAdjust: (level: GradeLevel) => void
   updateWheel: (key: WheelKey, update: Partial<ColorWheel>) => void
   updateSplit: (update: Partial<SplitToning>) => void
+  updateCreative: (update: Partial<Pick<CreativeGrade, 'lut' | 'lutIntensity'>>) => void
   resetCreative: () => void
 
   setView: (view: ViewTransform) => void
@@ -294,6 +295,10 @@ export const useApp = create<AppState>()((set, get) => ({
 
   updateSplit: (update) => {
     setCreative(get, (c) => ({ ...c, split: { ...c.split, ...update } }))
+  },
+
+  updateCreative: (update) => {
+    setCreative(get, (c) => ({ ...c, ...update }))
   },
 
   resetCreative: () => {

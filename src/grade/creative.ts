@@ -56,6 +56,8 @@ export interface CreativeParams {
   highlightTint: [number, number]
   /** 暗部到亮部过渡的中心（Oklab L） */
   pivot: number
+  /** 使用的 LUT（登记表 id）与强度；没有 LUT 或强度为 0 时为 null */
+  lut: { id: string; intensity: number } | null
 }
 
 const cache = new WeakMap<CreativeGrade, CreativeParams>()
@@ -71,6 +73,7 @@ export function creativeParams(c: CreativeGrade): CreativeParams {
     shadowTint: tintVector(c.split.shadow),
     highlightTint: tintVector(c.split.highlight),
     pivot: 0.5 - c.split.balance * SPLIT_BALANCE,
+    lut: c.lut && c.lutIntensity > 0 ? { id: c.lut.id, intensity: c.lutIntensity } : null,
   }
   cache.set(c, params)
   return params
