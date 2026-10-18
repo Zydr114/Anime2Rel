@@ -13,6 +13,7 @@ import { focalLength } from '@/algo/normals'
 import { shade, wrapDiffuse } from '@/algo/shading'
 import { LUMA, type ShRgb, type Vec3 } from '@/algo/sh'
 import type { DepthResult } from '@/depth/protocol'
+import { waterActive } from '@/focus/model'
 import { effectiveLight } from '@/lighting/preview'
 import type { DocState } from '@/state/store'
 import { characterDepth, characterGround, groundUV } from './placement'
@@ -94,12 +95,12 @@ export function cutOff(doc: DocState, info: CharacterInfo | undefined): boolean 
   return !doc.fusion.ground && !!info && info.bbox.y1 >= CUT_EDGE && info.bottomCoverage > CUT_COVERAGE
 }
 
-/** 没有立绘、阴影都关闭，或立绘底部被裁切且接地点为自动时返回 null。 */
+/** 没有立绘、阴影都关闭、水体遮挡开启（接地点是水线），或立绘底部被裁切且接地点为自动时返回 null。 */
 export function shadowParams({ doc, background, info, ambient }: ShadowInputs): ShadowParams | null {
   const bg = doc.background
   const ch = doc.character
   const s = doc.fusion.shadow
-  if (!bg || !ch || (s.contact <= 0 && s.cast <= 0)) return null
+  if (!bg || !ch || (s.contact <= 0 && s.cast <= 0) || waterActive(doc.focus)) return null
   const bbox = info?.bbox ?? FULL_BOX
   if (cutOff(doc, info)) return null
 

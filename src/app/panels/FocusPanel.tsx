@@ -1,12 +1,13 @@
 import { useCallback, useRef } from 'react'
 import type { SegmentedButtonGroup } from 'mdui/components/segmented-button-group.js'
-import { BOKEH_BLADES, OCCLUSION_MODES, type FocusDoc, type FocusSection, type OcclusionMode } from '@/focus/model'
+import { BOKEH_BLADES, MEDIUM_MODES, OCCLUSION_MODES, type FocusDoc, type FocusSection } from '@/focus/model'
 import { focusDepth } from '@/focus/params'
 import { focusInputs } from '@/focus/service'
 import { t } from '@/i18n'
 import { useDepth } from '@/state/depth'
 import { useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
+import { SelectField } from '@/ui/SelectField'
 import { SliderField } from '@/ui/SliderField'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { useGestureChange } from '../useGestureChange'
@@ -166,16 +167,33 @@ function OcclusionSection() {
         onChange={(v) => useApp.getState().updateFocus('occlusion', { enabled: v })}
         testId="focus-occlusion-enabled"
       />
-      <Segmented<OcclusionMode>
+      <SelectField
+        label={t.focus.occlusionMode}
         value={mode}
-        options={OCCLUSION_MODES}
-        label={(v) => t.focus.modes[v]}
+        options={OCCLUSION_MODES.map((v) => ({ value: v, label: t.focus.modes[v] }))}
         onChange={(v) => useApp.getState().updateFocus('occlusion', { mode: v })}
         testId="focus-occlusion-mode"
       />
       <Hint>{t.focus.modeHints[mode]}</Hint>
-      <FocusSlider section="occlusion" field="tolerance" label={t.focus.tolerance} min={0} max={30} step={0.5} />
-      <FocusSlider section="occlusion" field="softness" label={t.focus.softness} min={0} max={20} step={0.5} />
+      {mode !== 'water' && (
+        <>
+          <FocusSlider section="occlusion" field="tolerance" label={t.focus.tolerance} min={0} max={30} step={0.5} />
+          <FocusSlider section="occlusion" field="softness" label={t.focus.softness} min={0} max={20} step={0.5} />
+        </>
+      )}
+      {MEDIUM_MODES.includes(mode) && (
+        <>
+          <FocusSlider section="occlusion" field="clarity" label={t.focus.clarity} min={0} max={100} format={formatPercent} />
+          <FocusSlider section="occlusion" field="density" label={t.focus.density} min={0} max={100} format={formatPercent} />
+          <FocusSlider section="occlusion" field="detail" label={t.focus.detail} min={0} max={100} format={formatPercent} />
+        </>
+      )}
+      {mode === 'water' && (
+        <>
+          <FocusSlider section="occlusion" field="highlight" label={t.focus.highlight} min={0} max={100} format={formatPercent} />
+          <FocusSlider section="occlusion" field="ripple" label={t.focus.ripple} min={0} max={100} format={formatPercent} />
+        </>
+      )}
       <ToggleRow label={t.focus.showMask} checked={showMask} onChange={useFusion.getState().setShowMask} testId="focus-show-mask" />
       <Hint>{t.focus.occlusionHint}</Hint>
     </Section>

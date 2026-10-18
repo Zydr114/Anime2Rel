@@ -1,6 +1,7 @@
 import { useCallback, useRef, type ReactNode } from 'react'
 import type { SegmentedButtonGroup } from 'mdui/components/segmented-button-group.js'
 import type { Switch } from 'mdui/components/switch.js'
+import { waterActive } from '@/focus/model'
 import { RELIGHT_STYLES, type FusionDoc, type FusionSection, type RelightStyle } from '@/fusion/model'
 import { characterDepth } from '@/fusion/placement'
 import { cutOff } from '@/fusion/shadow'
@@ -135,7 +136,7 @@ function ShadowSection() {
       <FusionSlider section="shadow" field="contactSoftness" label={t.fusion.contactSoftness} min={0} max={100} />
       <FusionSlider section="shadow" field="cast" label={t.fusion.cast} min={0} max={100} />
       <FusionSlider section="shadow" field="castSoftness" label={t.fusion.castSoftness} min={0} max={100} />
-      <Hint>{cutOff(doc, info) ? t.fusion.shadowCut : t.fusion.shadowHint}</Hint>
+      <Hint>{waterActive(doc.focus) ? t.fusion.shadowWater : cutOff(doc, info) ? t.fusion.shadowCut : t.fusion.shadowHint}</Hint>
     </Section>
   )
 }

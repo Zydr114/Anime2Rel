@@ -7,7 +7,7 @@
  * 采样半径取周围 16×16 像素块内弥散圆的最大值，按采样间距选用 mipmap 级别做预模糊。
  */
 import * as THREE from 'three/webgpu'
-import { abs, float, floor, Fn, If, log2, Loop, max, min, mix, screenCoordinate, screenUV, select, sign, smoothstep, uniform, uniformArray, vec2, vec4 } from 'three/tsl'
+import { abs, exp, float, floor, Fn, If, log2, Loop, max, min, mix, mx_noise_float, screenCoordinate, screenUV, select, sign, smoothstep, uniform, uniformArray, vec2, vec4 } from 'three/tsl'
 import { DEPTH_SHIFT, MIN_PSEUDO_DEPTH } from '@/focus/dof'
 import { BOKEH_SAMPLES, type FocusParams } from '@/focus/params'
 import { material, type FloatNode, type Vec4Node } from './nodes'
@@ -42,6 +42,14 @@ export function createDofUniforms() {
     occlusionMode: uniform(0),
     tolerance: uniform(0.05),
     softness: uniform(0.03),
+    clarity: uniform(0.6),
+    density: uniform(0.3),
+    detail: uniform(0.3),
+    highlight: uniform(0.3),
+    ripple: uniform(0.2),
+    /** 水线（文档 y）与立绘不透明区域的高度（文档像素） */
+    waterline: uniform(0),
+    charHeight: uniform(1),
     /** 1 时合成直接使用未模糊的图层（景深关闭、前后对比、法线视图） */
     bypass: uniform(1),
     showMask: uniform(0),
@@ -66,6 +74,35 @@ export function reliefDepthNode(u: DofUniforms, relief: FloatNode): FloatNode {
   const z = u.planeZ.sub(relief.sub(u.reliefReference).mul(u.reliefScale))
   return float(1).div(max(z, MIN_PSEUDO_DEPTH)).sub(DEPTH_SHIFT)
 }
+
+/** 遮挡方式的编号，与 OCCLUSION_MODES 的顺序一致 */
+export const MODE = { opaque: 0, darken: 1, multiply: 2, medium: 3, water: 4 } as const
+
+/** 介质与水体的衰减速度：浑浊度为 1 时，介质每 0.1 深度差、水体每 5% 立绘高度衰减到 1/e */
+const MEDIUM_FALLOFF = 10
+const WATER_FALLOFF = 20
+
+/** 立绘高度的比例 → 文档像素 */
+const ofHeight = (u: DofUniforms, k: number) => u.charHeight.mul(k)
+
+/**
+ * 水面：文档坐标 p 在水线以下的距离（文档像素），水线随波纹起伏。
+ * 波长约为立绘高度的 5%，振幅随折射扰动增大。
+ */
+export function waterDepth(u: DofUniforms, p: Vec2Node): FloatNode {
+  const wave = mx_noise_float(vec2(p.x.div(ofHeight(u, 0.05)), 0.37))
+  return p.y.sub(u.waterline.add(wave.mul(u.ripple).mul(ofHeight(u, 0.012))))
+}
+
+/** 水下部分的折射偏移（文档像素） */
+export function refraction(u: DofUniforms, p: Vec2Node): Vec2Node {
+  const q = p.div(ofHeight(u, 0.03))
+  const offset = vec2(mx_noise_float(q), mx_noise_float(q.add(vec2(17.3, 9.1))))
+  return offset.mul(u.ripple).mul(ofHeight(u, 0.008))
+}
+
+/** 水线的抗锯齿宽度（文档像素） */
+export const waterEdge = (u: DofUniforms) => max(ofHeight(u, 0.002), 0.5)
 
 interface GatherInput {
   center: Vec4Node
@@ -158,12 +195,21 @@ export function createBackgroundDofPass(u: DofUniforms, prep: TextureNode, tiles
  * 立绘深度：r = 归一化逆深度，g = 遮挡强度，b = 弥散圆半径，a = 立绘 alpha。
  * 透明处按立绘平面计算：模糊时立绘的边缘以平面的弥散圆向外扩散；
  * 遮罩在立绘矩形内连续，剪影边缘不会因为遮罩截断而透出立绘。
+ *
+ * 透明介质与水体的遮挡强度是介质的不透明度：交界处为 1 − 清澈度，越深越接近 1。
+ * 介质按深度测试划定、按深度差加深；水体是水线以下的部分、按离水线的距离加深，与深度无关。
  */
-export function createCharacterDepthPass(u: DofUniforms, input: { alpha: FloatNode; inside: FloatNode; relief: FloatNode; hasRelief: FloatNode; background: FloatNode }) {
+export function createCharacterDepthPass(u: DofUniforms, input: { p: Vec2Node; alpha: FloatNode; inside: FloatNode; relief: FloatNode; hasRelief: FloatNode; background: FloatNode }) {
   const plane = float(1).div(u.planeZ).sub(DEPTH_SHIFT)
   const depth = select(input.alpha.greaterThan(0.004), mix(plane, reliefDepthNode(u, input.relief), input.hasRelief), plane)
   const delta = input.background.sub(depth)
-  const mask = smoothstep(u.tolerance.sub(u.softness.mul(0.5)), u.tolerance.add(u.softness.mul(0.5)), delta).mul(u.occlusion).mul(input.inside)
+  const behind = smoothstep(u.tolerance.sub(u.softness.mul(0.5)), u.tolerance.add(u.softness.mul(0.5)), delta)
+  const medium = behind.mul(float(1).sub(u.clarity.mul(exp(u.density.mul(-MEDIUM_FALLOFF).mul(max(delta.sub(u.tolerance), 0))))))
+  const h = waterDepth(u, input.p)
+  const below = smoothstep(waterEdge(u).negate(), waterEdge(u), h)
+  const water = below.mul(float(1).sub(u.clarity.mul(exp(u.density.mul(-WATER_FALLOFF).mul(max(h, 0).div(u.charHeight))))))
+  const mode = u.occlusionMode
+  const mask = select(mode.equal(MODE.water), water, select(mode.equal(MODE.medium), medium, behind)).mul(u.occlusion).mul(input.inside)
   return material(vec4(depth, mask, cocPx(u, depth), input.alpha))
 }
 
@@ -218,7 +264,15 @@ export function applyFocusParams(u: DofUniforms, params: FocusParams): boolean {
   u.characterCoc.value = params.characterCoc
   u.occlusion.value = params.occlusion.enabled ? 1 : 0
   u.occlusionMode.value = params.occlusion.mode
-  u.tolerance.value = params.occlusion.tolerance
-  u.softness.value = Math.max(params.occlusion.softness, 1e-4)
+  const o = params.occlusion
+  u.tolerance.value = o.tolerance
+  u.softness.value = Math.max(o.softness, 1e-4)
+  u.clarity.value = o.clarity
+  u.density.value = o.density
+  u.detail.value = o.detail
+  u.highlight.value = o.highlight
+  u.ripple.value = o.ripple
+  u.waterline.value = o.waterline
+  u.charHeight.value = Math.max(o.height, 1)
   return changed || kernelChanged
 }

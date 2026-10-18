@@ -1,7 +1,7 @@
 // 渲染各阶段使用的 TSL 材质。所有中间结果都是线性 sRGB；立绘使用预乘 alpha。
 import * as THREE from 'three/webgpu'
-import { abs, cos, dot, float, fwidth, length, log2, max, mix, saturate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
-import { sampleLevel, type DofUniforms } from './dof'
+import { abs, cos, dot, exp, float, fwidth, length, log2, max, mix, saturate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { MODE, refraction, sampleLevel, waterDepth, waterEdge, type DofUniforms } from './dof'
 import { createFusionNode } from './fusion'
 import type { ShadowUniforms } from './shadow'
 import { evalSh, material, srgbDecode, srgbEncode, type FloatNode, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
@@ -163,6 +163,8 @@ export interface LayerTextures {
 
 /**
  * 最终合成：模糊背景（乘以站立阴影） → 模糊立绘 → 遮挡层（按遮挡方式混合）→ 遮罩预览 → 调试视图 → 灰球。
+ * 透明介质与水体按遮挡强度（介质的不透明度）普通覆盖，再在透出的立绘上叠加背景的高频细节；
+ * 水体另外在水下部分做折射偏移、在水线处加高光。
  * view 不为 0 时按调试视图着色，再按 overlay 与合成结果混合。
  */
 export function createCompositePass(input: {
@@ -181,8 +183,17 @@ export function createCompositePass(input: {
   const shadowLod = log2(max(abs(sampleLevel(layers.prep, screenUV).a), 1))
   const shadow = mix(vec3(1), sampleLevel(layers.shadow, screenUV, shadowLod).rgb, input.shadow.enabled)
   const bg = mix(sampleLevel(layers.backgroundDof, screenUV).rgb, background.rgb, dof.bypass).mul(shadow)
-  const ch = mix(sampleLevel(layers.characterDof, screenUV), sampleLevel(layers.character, screenUV), dof.bypass)
   const charDepth = sampleLevel(layers.characterDepth, screenUV)
+  const mode = dof.occlusionMode
+  const water = dof.occlusion.mul(select(mode.equal(MODE.water), 1, 0))
+  const mediumLike = dof.occlusion.mul(select(mode.greaterThanEqual(MODE.medium), 1, 0))
+
+  // 水下部分的立绘按折射偏移采样
+  const p = placement.p
+  const h = waterDepth(dof, p)
+  const below = smoothstep(waterEdge(dof).negate(), waterEdge(dof), h).mul(water)
+  const chUV = screenUV.add(refraction(dof, p).mul(below).div(placement.uniforms.docSize))
+  const ch = mix(sampleLevel(layers.characterDof, chUV), sampleLevel(layers.character, chUV), dof.bypass)
 
   // 遮挡：不透明为普通覆盖；变暗与正片叠底只改变立绘自身的像素（遮挡层在立绘外就是背景本身）
   const occ = sampleLevel(layers.occlusion, screenUV).mul(dof.occlusion)
@@ -191,10 +202,23 @@ export function createCompositePass(input: {
   const darker = smoothstep(-0.02, 0.02, luma(straight).sub(luma(occColor)))
   const darken = mix(straight, occColor, darker.mul(occ.a)).mul(ch.a)
   const multiply = ch.rgb.mul(mix(vec3(1), occColor, occ.a))
-  const mode = dof.occlusionMode
-  const chRgb = select(mode.equal(1), darken, select(mode.equal(2), multiply, ch.rgb))
+  const chRgb = select(mode.equal(MODE.darken), darken, select(mode.equal(MODE.multiply), multiply, ch.rgb))
   const layered = chRgb.add(bg.mul(float(1).sub(ch.a)))
-  const occluded = select(mode.equal(0), occ.rgb.add(layered.mul(float(1).sub(occ.a))), layered)
+  const covered = occ.rgb.add(layered.mul(float(1).sub(occ.a)))
+
+  // 介质的表面细节：背景的高频部分，叠加在透出的立绘上；背景离焦时细节随之减弱
+  const prep = sampleLevel(layers.prep, screenUV)
+  const highPass = prep.rgb.sub(sampleLevel(layers.prep, screenUV, 2.5).rgb)
+  const inMedium = saturate(occ.a.div(max(float(1).sub(dof.clarity), 0.05)))
+  const sharp = saturate(float(1).sub(abs(prep.a).div(4)))
+  const detail = highPass.mul(dof.detail.mul(inMedium).mul(float(1).sub(occ.a)).mul(ch.a).mul(sharp).mul(mediumLike))
+
+  // 水线高光：水线处一条随波纹起伏的亮线，颜色偏向周围水面的颜色
+  const band = exp(h.div(max(dof.charHeight.mul(0.006), 1)).pow(2).negate())
+  const glint = mix(sampleLevel(layers.prep, screenUV, 3).rgb, vec3(1), 0.5)
+  const highlight = glint.mul(dof.highlight.mul(band).mul(ch.a).mul(water).mul(0.8))
+
+  const occluded = select(mode.equal(MODE.opaque).or(mediumLike.greaterThan(0)), covered.add(detail).add(highlight), layered)
   const rgb = mix(occluded, MASK_TINT, charDepth.g.mul(charDepth.a).mul(dof.showMask).mul(0.6))
 
   const cmap = (v: FloatNode) => srgbDecode(texture(input.colormap, vec2(v, 0.5)).rgb)

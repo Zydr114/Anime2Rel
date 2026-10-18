@@ -1,7 +1,9 @@
 /** 景深与深度遮挡参数（可撤销，docs/Plan.md §3.4）。 */
 
-export type OcclusionMode = 'opaque' | 'darken' | 'multiply'
-export const OCCLUSION_MODES: readonly OcclusionMode[] = ['opaque', 'darken', 'multiply']
+export type OcclusionMode = 'opaque' | 'darken' | 'multiply' | 'medium' | 'water'
+export const OCCLUSION_MODES: readonly OcclusionMode[] = ['opaque', 'darken', 'multiply', 'medium', 'water']
+/** 用到介质参数（清澈度、浑浊度、表面细节）的遮挡方式 */
+export const MEDIUM_MODES: readonly OcclusionMode[] = ['medium', 'water']
 
 /** 散景形状：光圈叶片数，0 为圆形 */
 export const BOKEH_BLADES = [0, 5, 6, 8] as const
@@ -33,14 +35,29 @@ export interface FocusDoc {
     tolerance: number
     /** 遮挡从 0 过渡到 1 的深度差宽度 */
     softness: number
+    /** 透明介质与水体：交界处立绘透出的比例 */
+    clarity: number
+    /** 透明介质与水体：越深越看不清立绘的速度（介质按深度差，水体按水线以下的距离） */
+    density: number
+    /** 透明介质与水体：在透出的立绘上叠加背景的高频细节（波纹、雾的纹理） */
+    detail: number
+    /** 水体：水线处的高光 */
+    highlight: number
+    /** 水体：水线起伏与水下部分的折射扰动 */
+    ripple: number
   }
 }
 
 export type FocusSection = 'dof' | 'occlusion'
 
+/** 水体遮挡开启时接地点就是水线 */
+export function waterActive(focus: FocusDoc): boolean {
+  return focus.occlusion.enabled && focus.occlusion.mode === 'water'
+}
+
 export const DEFAULT_FOCUS: FocusDoc = {
   dof: { enabled: true, aperture: 0.01, range: 0.03, blades: 0, rotation: 0 },
   target: null,
   thickness: 0.15,
-  occlusion: { enabled: false, mode: 'opaque', tolerance: 0.05, softness: 0.03 },
+  occlusion: { enabled: false, mode: 'opaque', tolerance: 0.05, softness: 0.03, clarity: 0.6, density: 0.3, detail: 0.3, highlight: 0.3, ripple: 0.2 },
 }

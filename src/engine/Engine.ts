@@ -267,6 +267,7 @@ export class Engine {
       character: quad(this.character.material),
       characterDepth: quad(
         createCharacterDepthPass(dof, {
+          p: placement.p,
           alpha: characterNode.a.mul(placement.inside),
           inside: placement.inside,
           relief: this.depthNodes.character.depth,

@@ -1,13 +1,17 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { clamp, docToLayerUV, docToScreen, screenToDoc, type Point } from '@/algo/geometry'
-import { characterGround } from '@/fusion/placement'
+import { waterActive } from '@/focus/model'
+import { characterBox, characterGround } from '@/fusion/placement'
 import { useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 
 /** 接地点标记的半宽（屏幕像素） */
 const HALF = 14
 
-/** 立绘与景深步骤的接地点控件：拖动设置立绘脚下（或水线处）的接地点，双击恢复自动。 */
+/** 水线的颜色 */
+const WATER = 'rgb(125, 211, 252)'
+
+/** 立绘与景深步骤的接地点控件：拖动设置立绘脚下（或水线处）的接地点，双击恢复自动。水体遮挡开启时同时画出整条水线。 */
 export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
@@ -19,8 +23,12 @@ export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
   const { background, character } = doc
   if (!background || !character || (step !== 'character' && step !== 'focus')) return null
 
-  const at = docToScreen(view, characterGround(doc, background, bbox))
+  const ground = characterGround(doc, background, bbox)
+  const at = docToScreen(view, ground)
   const manual = doc.fusion.ground !== null
+  // 水线横跨立绘不透明区域的左右范围，两端各多出一点
+  const xs = characterBox(doc, bbox).map((p) => docToScreen(view, p).x)
+  const water = waterActive(doc.focus) && { x0: Math.min(...xs) - HALF, x1: Math.max(...xs) + HALF }
 
   const toDoc = (e: ReactPointerEvent) => {
     const rect = svgRef.current!.getBoundingClientRect()
@@ -57,6 +65,12 @@ export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
 
   return (
     <svg ref={svgRef} className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="ground-gizmo">
+      {water && (
+        <g data-testid="waterline">
+          <line x1={water.x0} y1={at.y} x2={water.x1} y2={at.y} stroke="rgba(0,0,0,0.5)" strokeWidth={3} />
+          <line x1={water.x0} y1={at.y} x2={water.x1} y2={at.y} stroke={WATER} strokeWidth={1.5} strokeDasharray="6 4" />
+        </g>
+      )}
       <g
         transform={`translate(${at.x} ${at.y})`}
         style={{ pointerEvents: passThrough ? 'none' : 'auto', cursor: 'move' }}

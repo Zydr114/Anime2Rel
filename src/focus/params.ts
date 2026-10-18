@@ -1,7 +1,7 @@
 /** 焦点深度与景深着色器参数（docs/Plan.md §3.4），GPU 实现见 src/engine/dof.ts。 */
 import { layerToDoc, type Point } from '@/algo/geometry'
 import type { DepthResult } from '@/depth/protocol'
-import { characterBox, characterDepth } from '@/fusion/placement'
+import { characterBox, characterDepth, characterGround } from '@/fusion/placement'
 import type { CharacterInfo } from '@/fusion/protocol'
 import { sampleDepth } from '@/lighting/sampling'
 import type { DocState } from '@/state/store'
@@ -27,15 +27,18 @@ export interface CharacterRelief {
   scale: number
 }
 
+/** 立绘不透明区域的高度（文档像素） */
+function characterHeight(doc: DocState, info: CharacterInfo | undefined): number {
+  const box = info?.bbox ?? { y0: 0, y1: 1 }
+  return (box.y1 - box.y0) * (doc.character?.height ?? 0) * doc.charTransform.scale
+}
+
 export function characterRelief({ doc, background, character, info }: FocusInputs): CharacterRelief {
   const plane = characterDepth(doc, background, info?.bbox)
-  const ch = doc.character
   const bg = doc.background
   const reference = info?.reliefMedian ?? 0.5
-  if (!ch || !bg || !character) return { plane, reference, scale: 0 }
-  const box = info?.bbox ?? { y0: 0, y1: 1 }
-  const height = (box.y1 - box.y0) * ch.height * doc.charTransform.scale
-  return { plane, reference, scale: reliefScale(doc.focus.thickness, height, plane, bg, doc.lighting.fovDeg) }
+  if (!doc.character || !bg || !character) return { plane, reference, scale: 0 }
+  return { plane, reference, scale: reliefScale(doc.focus.thickness, characterHeight(doc, info), plane, bg, doc.lighting.fovDeg) }
 }
 
 /** 立绘 UV 处的自身起伏（引导分辨率，最近邻） */
@@ -77,7 +80,25 @@ export interface FocusParams {
   relief: CharacterRelief
   /** 立绘各处弥散圆半径的上限（相对图像长边），决定立绘层的采样范围 */
   characterCoc: number
-  occlusion: { enabled: boolean; mode: number; tolerance: number; softness: number }
+  occlusion: {
+    enabled: boolean
+    mode: number
+    tolerance: number
+    softness: number
+    clarity: number
+    density: number
+    detail: number
+    highlight: number
+    ripple: number
+    /** 水线（文档 y，过接地点的水平线）与立绘不透明区域的高度（文档像素），水体的深浅和波纹按它换算 */
+    waterline: number
+    height: number
+  }
+}
+
+/** 水线：过接地点的水平线（文档 y） */
+export function waterline(doc: DocState, info: CharacterInfo | undefined): number {
+  return doc.background ? characterGround(doc, doc.background, info?.bbox).y : 0
 }
 
 export function focusParams(input: FocusInputs): FocusParams {
@@ -95,6 +116,11 @@ export function focusParams(input: FocusInputs): FocusParams {
     kernel: bokehKernel(BOKEH_SAMPLES, dof.blades, dof.rotation),
     relief,
     characterCoc: Math.max(coc(0), coc(1), coc(relief.reference)),
-    occlusion: { enabled: occlusion.enabled, mode: OCCLUSION_MODES.indexOf(occlusion.mode), tolerance: occlusion.tolerance, softness: occlusion.softness },
+    occlusion: {
+      ...occlusion,
+      mode: OCCLUSION_MODES.indexOf(occlusion.mode),
+      waterline: waterline(input.doc, input.info),
+      height: characterHeight(input.doc, input.info),
+    },
   }
 }
