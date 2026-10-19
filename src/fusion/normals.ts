@@ -9,7 +9,7 @@
  */
 import { distanceTransform } from '@/algo/edt'
 import { guidedFilter } from '@/algo/guidedFilter'
-import { boxMean, gaussianBlur, maskedGaussianBlur } from '@/algo/raster'
+import { boxMean, gaussianBlur, maskedGaussianBlur, resizeBilinear } from '@/algo/raster'
 
 export interface NormalWeights {
   depth: number
@@ -70,8 +70,12 @@ export function inflateNormals(alpha: Float32Array, w: number, h: number, radius
 
 /** 线稿遮罩：明显暗于周围且本身较暗的细线（1 表示线稿）。 */
 export function lineArtMask(luma: Float32Array, alpha: Float32Array, w: number, h: number): Float32Array {
-  const local = boxMean(luma, w, h, Math.max(2, Math.round(Math.max(w, h) / 256)))
-  const raw = Float32Array.from(luma, (v, i) => (alpha[i] > 0.5 && v < 0.35 && v < local[i] - 0.08 ? 1 : 0))
+  // 周围的亮度只统计不透明像素，否则透明区域会拉低外描边处的均值，外描边大多检测不到
+  const r = Math.max(2, Math.round(Math.max(w, h) / 256))
+  const opaque = Float32Array.from(alpha, (a) => (a > 0.5 ? 1 : 0))
+  const sum = boxMean(Float32Array.from(luma, (v, i) => v * opaque[i]), w, h, r)
+  const count = boxMean(opaque, w, h, r)
+  const raw = Float32Array.from(luma, (v, i) => (opaque[i] && v < 0.35 && v < sum[i] / count[i] - 0.08 ? 1 : 0))
   // 膨胀 1 像素，覆盖线条的抗锯齿边
   return Float32Array.from(boxMean(raw, w, h, 1), (v) => (v > 0 ? 1 : 0))
 }
@@ -136,6 +140,75 @@ export function characterNormals(input: NormalMapInput): Uint8Array {
     out[i * 4 + 1] = Math.round((y / len) * 127.5 + 127.5)
     out[i * 4 + 2] = Math.round((z / len) * 127.5 + 127.5)
     out[i * 4 + 3] = Math.round((1 - line[i]) * 255)
+  }
+  return out
+}
+
+/** 轮廓光边缘带的最大宽度，相对立绘长边 */
+export const RIM_WIDTH = 0.02
+/** 边缘带宽度相对局部半宽的比例：发丝、手臂这类细的部位，边缘带相应变窄，不会整条被照亮 */
+export const RIM_THICKNESS_RATIO = 0.2
+/** 外描边粗细的上限，相对立绘长边 */
+const OUTLINE_WIDTH = 0.006
+/** 求局部半宽的网格长边上限，半宽变化平缓，不需要全分辨率 */
+const HALF_WIDTH_EDGE = 512
+
+/**
+ * 局部半宽：包含该像素、且完全落在剪影内的最大圆的半径（像素），只区分 [minRadius, maxRadius] 之间的值。
+ * 半径按 √2 倍分级：圆心取到边界距离不小于半径的像素，再按半径向外扩张。
+ */
+export function localHalfWidth(dist: Float32Array, w: number, h: number, minRadius: number, maxRadius: number): Float32Array {
+  const out = Float32Array.from(dist, (d) => Math.min(d, minRadius))
+  for (let r = minRadius; r < maxRadius * Math.SQRT2; r *= Math.SQRT2) {
+    const level = Math.min(r, maxRadius)
+    const far = distanceTransform(Uint8Array.from(dist, (d) => (d >= level ? 0 : 1)), w, h)
+    let covered = false
+    for (let i = 0; i < out.length; i++)
+      if (dist[i] > 0 && far[i] <= level) {
+        out[i] = level
+        covered = true
+      }
+    if (!covered) break
+  }
+  return out
+}
+
+/**
+ * 轮廓光的边缘带（RGBA8）：r = 到剪影边缘的距离 / 边缘带宽度，g = (1 − 线稿)·alpha，b = alpha，
+ * a = 到剪影边缘的距离 / (RIM_WIDTH·长边)。
+ * 距离从外描边的内侧算起，边缘带宽度取 min(RIM_WIDTH·长边, RIM_THICKNESS_RATIO·局部半宽)。
+ * 着色器按 mipmap 采样，g / b 是采样范围内不透明部分中非线稿的比例：立绘缩得很小时，描边也不会被轮廓光照亮。
+ */
+export function rimMap(px: CharacterPixels): Uint8Array {
+  const { width: w, height: h, alpha } = px
+  const n = w * h
+  const luma = new Float32Array(n)
+  for (let i = 0; i < n; i++) luma[i] = 0.2126 * px.rgb[i * 3] + 0.7152 * px.rgb[i * 3 + 1] + 0.0722 * px.rgb[i * 3 + 2]
+  const line = lineArtMask(luma, alpha, w, h)
+  const inside = Float32Array.from(alpha, (a) => (a > 0.5 ? 1 : 0))
+  const dist = distanceTransform(inside, w, h)
+  const maxWidth = Math.max(1, RIM_WIDTH * Math.max(w, h))
+  // 边缘带从外描边的内侧算起：描边粗细不同，亮边都紧贴在描边里面
+  const outline = Math.max(2, OUTLINE_WIDTH * Math.max(w, h))
+  const inner = distanceTransform(Uint8Array.from(inside, (v, i) => (v && !(line[i] > 0 && dist[i] <= outline) ? 1 : 0)), w, h)
+
+  const k = Math.max(1, Math.max(w, h) / HALF_WIDTH_EDGE)
+  const sw = Math.max(1, Math.round(w / k))
+  const sh = Math.max(1, Math.round(h / k))
+  const smallInside = Float32Array.from(resizeBilinear(inside, w, h, sw, sh), (v) => (v > 0.5 ? 1 : 0))
+  const smallHalf = localHalfWidth(distanceTransform(smallInside, sw, sh), sw, sh, 1 / RIM_THICKNESS_RATIO / k, maxWidth / RIM_THICKNESS_RATIO / k)
+  // 分级的半宽是阶梯状的，平滑后边缘带宽度连续变化
+  const half = resizeBilinear(maskedGaussianBlur(smallHalf, smallInside, sw, sh, 1), sw, sh, w, h)
+
+  const out = new Uint8Array(n * 4)
+  for (let i = 0; i < n; i++) {
+    const width = Math.max(1, Math.min(maxWidth, RIM_THICKNESS_RATIO * k * half[i]))
+    // 像素中心到边界约有半个像素
+    const t = inner[i] > 0 ? Math.min(1, Math.max(0, inner[i] - 0.5) / width) : 0
+    out[i * 4] = Math.round(t * 255)
+    out[i * 4 + 1] = Math.round((1 - line[i]) * alpha[i] * 255)
+    out[i * 4 + 2] = Math.round(alpha[i] * 255)
+    out[i * 4 + 3] = Math.round(Math.min(1, dist[i] / maxWidth) * 255)
   }
   return out
 }

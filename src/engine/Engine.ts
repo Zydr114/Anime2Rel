@@ -97,13 +97,13 @@ function makePlaceholder(): THREE.DataTexture {
   return t
 }
 
-/** 原始数据纹理（不做色彩空间转换），线性过滤，无 mipmap。 */
-function dataTexture(data: Uint8Array | Uint16Array, width: number, height: number, type: THREE.TextureDataType): THREE.DataTexture {
+/** 原始数据纹理（不做色彩空间转换），线性过滤，默认无 mipmap。 */
+function dataTexture(data: Uint8Array | Uint16Array, width: number, height: number, type: THREE.TextureDataType, mipmaps = false): THREE.DataTexture {
   const t = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, type)
   t.colorSpace = THREE.NoColorSpace
   t.flipY = false
-  t.generateMipmaps = false
-  t.minFilter = THREE.LinearFilter
+  t.generateMipmaps = mipmaps
+  t.minFilter = mipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter
   t.magFilter = THREE.LinearFilter
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping
   t.needsUpdate = true
@@ -280,7 +280,9 @@ export class Engine {
   private readonly depthPlaceholder: Record<DepthLayer, DepthTextures> = { background: depthPlaceholder(), character: depthPlaceholder() }
   private readonly colormap = makeColormap()
   private readonly normalPlaceholder = dataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1, THREE.UnsignedByteType)
-  private charNormal: { map: NormalMap; texture: THREE.DataTexture } | null = null
+  /** 没有边缘带数据时不加轮廓光的边缘带：r = 1 在带外，g = b 表示没有线稿 */
+  private readonly rimPlaceholder = dataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.UnsignedByteType)
+  private charNormal: { map: NormalMap; texture: THREE.DataTexture; rim: THREE.DataTexture } | null = null
   private fusionReady = false
   private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false }
   private focus: FocusParams | null = null
@@ -388,7 +390,7 @@ export class Engine {
     })
     const dof = this.dof
     const lt = (level: GradeLevel): LocalTone => ({ ...this.local, uv: this.tile.uv, tone: nodes.tone, coef: nodes[COEF[level]] })
-    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder)
+    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder)
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder, this.tile)
@@ -629,8 +631,13 @@ export class Engine {
   setCharacterNormals(map: NormalMap | null): void {
     if ((this.charNormal?.map ?? null) === map) return
     this.charNormal?.texture.dispose()
-    this.charNormal = map ? { map, texture: dataTexture(map.data, map.width, map.height, THREE.UnsignedByteType) } : null
+    this.charNormal?.rim.dispose()
+    // 带 mipmap：立绘缩小时线稿遮罩按覆盖比例过滤，不会断续地漏掉描边
+    this.charNormal = map
+      ? { map, texture: dataTexture(map.data, map.width, map.height, THREE.UnsignedByteType, true), rim: dataTexture(map.rim, map.width, map.height, THREE.UnsignedByteType, true) }
+      : null
     this.character.characterNormal.value = this.charNormal?.texture ?? this.normalPlaceholder
+    this.character.characterRim.value = this.charNormal?.rim ?? this.rimPlaceholder
     this.docDirty = true
     this.schedule()
   }
@@ -953,7 +960,9 @@ export class Engine {
     this.placeholder.dispose()
     this.colormap.dispose()
     this.normalPlaceholder.dispose()
+    this.rimPlaceholder.dispose()
     this.charNormal?.texture.dispose()
+    this.charNormal?.rim.dispose()
     this.regions?.texture.dispose()
     for (const u of Object.values(this.adjust)) u.curveMap.dispose()
     disposeFinish(this.finish)

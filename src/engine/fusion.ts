@@ -4,14 +4,14 @@
  * 输入输出都是线性预乘 alpha。
  */
 import * as THREE from 'three/webgpu'
-import { atan, cos, dot, float, hash, length, log2, max, min, mix, normalize, pow, saturate, select, sin, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { atan, cos, dFdx, dFdy, dot, exp, float, hash, int, length, log2, max, min, mix, normalize, pow, saturate, select, sin, smoothstep, texture, textureSize, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { RIM_WIDTH } from '@/fusion/normals'
 import { FUSION_LIGHTS, type FusionParams } from '@/fusion/params'
 import { evalSh, fromOklab, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type TileMapping, type Vec3Node, type Vec4Node } from './nodes'
 
 type Vec2Node = THREE.Node<'vec2'>
 
-/** 轮廓光边缘带的宽度，相对立绘长边 */
-const RIM_WIDTH = 0.02
+const LUMA = vec3(0.2126, 0.7152, 0.0722)
 
 /** 三个控制点的单调 Hermite 曲线，控制点之外线性延伸（与 src/algo/curve.ts 一致） */
 function evalCurve(x: FloatNode, xs: Vec3Node, ys: Vec3Node, ms: Vec3Node): FloatNode {
@@ -54,6 +54,8 @@ export interface FusionNodeInput {
   /** 背景采样节点（带 mipmap），按 tile.toBackground 换算坐标 */
   background: TextureNode
   normalPlaceholder: THREE.Texture
+  /** 轮廓光的边缘带（src/fusion/normals.ts 的 rimMap），带 mipmap */
+  rimPlaceholder: THREE.Texture
   tile: TileMapping
   docSize: THREE.UniformNode<'vec2', THREE.Vector2>
   charSize: THREE.UniformNode<'vec2', THREE.Vector2>
@@ -136,7 +138,9 @@ export function createFusionNode(input: FusionNodeInput) {
   const c = cos(input.charRotation)
   const s = sin(input.charRotation)
   const N = normalize(vec3(c.mul(nx).add(s.mul(nl.y)), s.negate().mul(nx).add(c.mul(nl.y)), nl.z))
-  const lineMask = normalTex.a
+  // 线稿遮罩取采样范围内不透明部分中非线稿的比例
+  const rimTex = texture(input.rimPlaceholder, charUV)
+  const lineMask = saturate(rimTex.g.div(max(rimTex.b, 1 / 255)))
   const nxy = N.xy.div(max(length(N.xy), 1e-4))
 
   // 重光照：像素在立绘平面上的相机空间位置，用于点光源的方向和衰减
@@ -180,20 +184,26 @@ export function createFusionNode(input: FusionNodeInput) {
     .div(5)
   // 平方让混合集中在最外侧，避免整条边缘带发灰
   const edge = saturate(alpha.mul(float(1).sub(blurredAlpha)).mul(2)).pow(2)
-  // 轮廓光的边缘带按立绘尺寸取宽度，需要比描边宽，才能在线稿内侧留下亮边
-  const rimLod = log2(max(max(charSize.x, charSize.y).mul(RIM_WIDTH), 1)).sub(1)
-  const rimHalf = max(charSize.x, charSize.y).mul(RIM_WIDTH * 0.5)
-  const rimAlpha = diagonal
-    .map((d) => sampleAt(character, charUV.add(d.mul(rimHalf).div(charSize)), rimLod).a)
-    .reduce<FloatNode>((acc, a) => acc.add(a), sampleAt(character, charUV, rimLod).a)
-    .div(5)
-  const rimEdge = saturate(alpha.mul(float(1).sub(rimAlpha)).mul(2)).pow(2)
+  // 轮廓光的边缘带从外描边内侧算起，宽度随局部粗细变化
+  const rimEdge = float(1).sub(rimTex.r).pow(2)
+  // 立绘缩小到一个像素盖住多个引导像素时，最外一个像素不加轮廓光，留住描边或剪影本身的颜色，不形成一圈亮边
+  const rimSize = vec2(textureSize(rimTex, int(0)) as unknown as THREE.Node<'ivec2'>)
+  const guideUV = charUV.mul(rimSize)
+  const footprint = max(length(dFdx(guideUV)), length(dFdy(guideUV)))
+  const margin = max(footprint.sub(1), 0)
+  const silhouette = rimTex.a.mul(max(rimSize.x, rimSize.y).mul(RIM_WIDTH))
+  const outer = saturate(silhouette.sub(margin).div(max(margin, 1e-3)))
 
   // 轮廓光同时看法线和剪影：合成法线在轮廓处不一定贴近像平面
   const ratio = irradiance.mul(u.inverseReference).clamp(0, 4)
   const fresnel = max(pow(float(1).sub(saturate(N.z)), 2), rimEdge)
   // 亮度以立绘中间调为基准（约为中间调的 2 倍），一半取立绘本身的颜色
-  const rim = rimLight.mul(fresnel.mul(u.rim).mul(lineMask)).mul(mix(vec3(u.mid), matched, 0.5).mul(2))
+  const rimRaw = rimLight.mul(fresnel.mul(u.rim).mul(lineMask).mul(outer)).mul(mix(vec3(u.mid), matched, 0.5).mul(2))
+  // 亮度软限制在立绘本身亮度（不低于中间调）的 3 倍以内：逆光很强时不会饱和成一圈白边，一般强度下不变
+  const rimY = dot(rimRaw, LUMA)
+  const knee = max(dot(matched, LUMA), u.mid).mul(1.5)
+  const rimLimited = select(rimY.lessThan(knee), rimY, knee.mul(float(2).sub(exp(rimY.div(knee).oneMinus()))))
+  const rim = rimRaw.mul(rimLimited.div(max(rimY, 1e-6)))
   const spec = specLight.mul(u.specular.mul(u.mid).mul(2).mul(lineMask))
   const relit = matched.mul(mix(vec3(1), ratio, u.relight)).add(rim).add(spec)
 
@@ -213,7 +223,7 @@ export function createFusionNode(input: FusionNodeInput) {
   const color = mix(center, vec4(fused.mul(alpha), alpha), u.enabled)
   const normalView = srgbDecode(normalTex.rgb).mul(color.a)
   const output = mix(color, vec4(normalView, color.a), u.showNormals)
-  return { uniforms: u, normal: normalTex, output }
+  return { uniforms: u, normal: normalTex, rim: rimTex, output }
 }
 
 export type FusionUniforms = ReturnType<typeof createFusionNode>['uniforms']

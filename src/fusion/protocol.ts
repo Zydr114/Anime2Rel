@@ -59,6 +59,8 @@ export interface NormalMap {
   height: number
   /** RGBA8：rgb = n·0.5 + 0.5，a = 1 − 线稿遮罩 */
   data: Uint8Array
+  /** 轮廓光的边缘带，RGBA8，尺寸同上，见 src/fusion/normals.ts 的 rimMap */
+  rim: Uint8Array
 }
 
 export interface StatsRequest {

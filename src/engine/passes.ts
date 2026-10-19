@@ -133,7 +133,7 @@ export function createDepthNodes(placement: Placement, background: TextureNode, 
 export type DepthNodes = ReturnType<typeof createDepthNodes>
 
 /** 立绘层：融合后的立绘按变换摆放到文档空间（线性预乘 alpha）。 */
-export function createCharacterPass(placement: Placement, character: TextureNode, background: TextureNode, normalPlaceholder: THREE.Texture) {
+export function createCharacterPass(placement: Placement, character: TextureNode, background: TextureNode, normalPlaceholder: THREE.Texture, rimPlaceholder: THREE.Texture) {
   const u = placement.uniforms
   const fusion = createFusionNode({
     p: placement.p,
@@ -141,6 +141,7 @@ export function createCharacterPass(placement: Placement, character: TextureNode
     character,
     background,
     normalPlaceholder,
+    rimPlaceholder,
     tile: placement.tile,
     docSize: u.docSize,
     charSize: u.charSize,
@@ -148,7 +149,7 @@ export function createCharacterPass(placement: Placement, character: TextureNode
     charScale: u.charScale,
     charFlip: u.charFlip,
   })
-  return { fusion: fusion.uniforms, characterNormal: fusion.normal, material: material(fusion.output.mul(placement.inside)) }
+  return { fusion: fusion.uniforms, characterNormal: fusion.normal, characterRim: fusion.rim, material: material(fusion.output.mul(placement.inside)) }
 }
 
 /** 合成使用的各图层纹理（均与渲染目标同尺寸） */

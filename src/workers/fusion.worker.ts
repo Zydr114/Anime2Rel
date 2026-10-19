@@ -9,7 +9,7 @@ import { fitWithin } from '@/algo/geometry'
 import { oklabImage } from '@/algo/oklab'
 import { quantiles, resizeBilinear } from '@/algo/raster'
 import type { Vec3 } from '@/algo/sh'
-import { characterNormals } from '@/fusion/normals'
+import { characterNormals, rimMap } from '@/fusion/normals'
 import { ROW_BINS, type BackgroundInfo, type BackgroundInput, type CharacterInfo, type CharacterInput, type FusionStats, type FusionWorkerApi, type NormalMap, type NormalRequest, type StatsRequest } from '@/fusion/protocol'
 import { labStats, noiseSigma, whitePoint } from '@/fusion/stats'
 
@@ -45,6 +45,8 @@ interface Character {
   depthNormal: Uint8Array | null
   /** 统计分辨率下的线性 RGB 与 alpha */
   small: { linear: Float32Array; alpha: Float32Array }
+  /** 轮廓光的边缘带，只与立绘本身有关，首次求法线时计算 */
+  rim: Uint8Array | null
 }
 
 let background: Background | null = null
@@ -134,7 +136,7 @@ const api: FusionWorkerApi = {
     const sp = resizeBilinear(premul, width, height, small.width, small.height, 3)
     const sa = resizeBilinear(alpha, width, height, small.width, small.height)
     for (let i = 0; i < sa.length; i++) for (let c = 0; c < 3; c++) sp[i * 3 + c] = sa[i] > 1e-3 ? sp[i * 3 + c] / sa[i] : 0
-    character = { id: input.id, width, height, rgb, alpha, depthNormal: input.depthNormal, small: { linear: sp, alpha: sa } }
+    character = { id: input.id, width, height, rgb, alpha, depthNormal: input.depthNormal, small: { linear: sp, alpha: sa }, rim: null }
 
     let x0 = width
     let y0 = height
@@ -177,7 +179,9 @@ const api: FusionWorkerApi = {
       weights: request.weights,
       inflateRadius: request.inflateRadius * Math.max(ch.width, ch.height),
     })
-    return Comlink.transfer({ width: ch.width, height: ch.height, data }, [data.buffer])
+    ch.rim ??= rimMap(ch)
+    const rim = ch.rim.slice()
+    return Comlink.transfer({ width: ch.width, height: ch.height, data, rim }, [data.buffer, rim.buffer])
   },
 
   async stats(request: StatsRequest): Promise<FusionStats> {

@@ -6,7 +6,7 @@ import { DEFAULT_LIGHTING, newDirectionalLight, type Light } from '@/lighting/mo
 import type { DepthResult } from '@/depth/protocol'
 import { initialDoc, type DocState } from '@/state/store'
 import { DEFAULT_FUSION } from './model'
-import { characterNormals, inflateNormals, lineArtMask } from './normals'
+import { characterNormals, inflateNormals, lineArtMask, rimMap } from './normals'
 import { fusionParams, toneCurve } from './params'
 import { characterDepth, characterGround } from './placement'
 import { ROW_BINS } from './protocol'
@@ -49,6 +49,44 @@ describe('character normals', () => {
     const packed = characterNormals({ width: w, height: w, rgb, alpha, depthNormal: null, weights: { depth: 0.5, inflate: 0.4, detail: 0.1 }, inflateRadius: 6 })
     expect(packed[(10 * w + 24) * 4 + 3]).toBe(0)
     expect(packed[(10 * w + 10) * 4 + 3]).toBe(255)
+  })
+
+  // 浅色圆盘（半径 40）带 2 像素深色外描边，左侧伸出一条半宽 6 的细条
+  function outlined() {
+    const w = 128
+    const rgb = new Float32Array(w * w * 3)
+    const alpha = new Float32Array(w * w)
+    for (let y = 0; y < w; y++)
+      for (let x = 0; x < w; x++) {
+        const disk = Math.hypot(x + 0.5 - 80, y + 0.5 - 64) - 40
+        const bar = Math.max(Math.abs(y + 0.5 - 64) - 6, Math.abs(x + 0.5 - 25) - 25)
+        const d = Math.min(disk, bar)
+        alpha[y * w + x] = d < 0 ? 1 : 0
+        rgb.fill(d > -2 ? 0.08 : 0.8, (y * w + x) * 3, (y * w + x) * 3 + 3)
+      }
+    return { w, rgb, alpha }
+  }
+
+  it('finds the outer outline next to transparent pixels', () => {
+    const { w, rgb, alpha } = outlined()
+    const line = lineArtMask(Float32Array.from({ length: w * w }, (_, i) => rgb[i * 3]), alpha, w, w)
+    // 圆盘最右侧的描边：x = 118、119
+    for (let x = 118; x < 120; x++) expect(line[64 * w + x]).toBe(1)
+    expect(line[64 * w + 100]).toBe(0)
+  })
+
+  it('starts the rim band inside the outline and narrows it on thin parts', () => {
+    const { w, rgb, alpha } = outlined()
+    const rim = rimMap({ width: w, height: w, rgb, alpha })
+    const t = (x: number, y: number) => rim[(y * w + x) * 4] / 255
+    // 描边内侧紧挨着的像素靠近带的起点，往里很快出带：带宽为长边的 2%（2.6 像素）
+    expect(t(117, 64)).toBeLessThan(0.3)
+    expect(t(115, 64)).toBeGreaterThan(0.9)
+    // 细条半宽 6，带宽按局部半宽变窄：同样紧挨描边内侧的像素，在细条上比在圆盘上更靠近带外
+    expect(t(20, 60)).toBeGreaterThan(t(80, 26) + 0.15)
+    // 描边处 g / b 为 0，内部为 1
+    expect(rim[(64 * w + 118) * 4 + 1]).toBe(0)
+    expect(rim[(64 * w + 100) * 4 + 1]).toBe(255)
   })
 })
 
