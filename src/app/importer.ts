@@ -17,7 +17,7 @@ function reportError(e: unknown): void {
   }
 }
 
-async function apply(img: DecodedImage, role: 'background' | 'character'): Promise<void> {
+async function apply(img: DecodedImage, file: File, role: 'background' | 'character'): Promise<void> {
   if (role === 'character' && !img.hasTransparency) {
     const ok = await ask(t.import.noTransparencyTitle, t.import.noTransparencyBody, t.import.useAnyway, t.import.cancel)
     if (!ok) {
@@ -26,7 +26,7 @@ async function apply(img: DecodedImage, role: 'background' | 'character'): Promi
     }
   }
   if (img.downscaled) notify(t.import.downscaled(img.sourceWidth, img.sourceHeight, textureLimit()))
-  const ref = registerAsset(img.bitmap, {
+  const ref = registerAsset(img.bitmap, file, {
     name: img.name,
     sourceWidth: img.sourceWidth,
     sourceHeight: img.sourceHeight,
@@ -62,7 +62,7 @@ export async function importFiles(files: Iterable<File>, role: ImportRole): Prom
       continue
     }
     used.add(target)
-    await apply(img, target)
+    await apply(img, file, target)
     if (role !== 'auto') break
   }
 }
