@@ -457,7 +457,7 @@ M5 实现说明（与上文不同的地方）：
 - **左侧**：mdui `navigation-rail`，列出 8 个步骤。
 - **右侧**：液态玻璃浮动检查器，内部使用 mdui 的 slider、switch、segmented-button，可折叠。
 - **底部**：基于 Magic UI `Dock` 的液态玻璃工具栏，包含缩放、前后对比、撤销、调试视图、导出。
-- **首屏**：`BlurFade` + `AuroraText` 标题；上传区加 `BorderBeam`；`ShimmerButton` 作为主按钮；模型加载时用 `AnimatedBeam` 展示“图像 → 深度 → 光源”的处理流程。
+- **首屏**：`BlurFade` + 衬线体标题（Instrument Serif，暖灰底色配香槟金强调色）；上传区加 `BorderBeam`；`ShimmerButton` 作为主按钮；模型加载时用 `AnimatedBeam` 展示“图像 → 深度 → 光源”的处理流程。
 
 **移动端（次要目标）**：检查器改为底部抽屉，导航改为底部导航；预览上限降到 1024 px；支持双指缩放和旋转立绘；液态玻璃降级为毛玻璃。
 

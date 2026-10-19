@@ -35,8 +35,14 @@ const repoUrl = pkg.repository.url.replace(/^git\+/, '').replace(/\.git$/, '')
 // AGPL §13：部署修改版时，请通过 A2R_SOURCE_URL 指向你自己的源码仓库。
 const sourceUrl = process.env.A2R_SOURCE_URL || (commit ? `${repoUrl}/tree/${commit}` : repoUrl)
 
-// 以下组件不经过主包打包（复制进仓库的源码、只在 Worker 中使用的依赖、模型权重），需要手动写入声明。
+// 以下组件不经过主包打包（复制进仓库的源码、只在 Worker 中使用的依赖、模型权重、只从 CSS 引用的字体），需要手动写入声明。
 const vendoredNotices = [
+  {
+    name: `Instrument Serif 字体（@fontsource/instrument-serif@${pkg.dependencies['@fontsource/instrument-serif']}）`,
+    url: 'https://github.com/Instrument/instrument-serif',
+    license: 'OFL-1.1',
+    text: text('./node_modules/@fontsource/instrument-serif/LICENSE'),
+  },
   {
     name: 'Magic UI（src/ui/magicui/，已修改）',
     url: 'https://github.com/magicuidesign/magicui',

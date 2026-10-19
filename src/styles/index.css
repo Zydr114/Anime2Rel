@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @import 'mdui/mdui.css';
+@import '@fontsource/instrument-serif/latin-400.css';
+@import '@fontsource/instrument-serif/latin-400-italic.css';
 
 /* 把 mdui 的 Material 3 颜色变量映射为 Tailwind token，动态主题色会同时作用于两者。 */
 @theme inline {
@@ -12,11 +14,15 @@
   --color-outline: rgb(var(--mdui-color-outline));
   --color-outline-variant: rgb(var(--mdui-color-outline-variant));
   --color-error: rgb(var(--mdui-color-error));
+  /* 暖灰 + 香槟金：主题色由 main.tsx 的种子色生成，这里是首页标题等处直接使用的固定色 */
+  --color-ivory: #f2ede4;
+  --color-champagne: #c9a96e;
+  --color-taupe: #a39e94;
+  --font-display: 'Instrument Serif', 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
   --font-sans: 'Inter', 'Noto Sans SC', 'Source Han Sans SC', system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 
   --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
   --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
-  --animate-aurora: aurora 8s ease-in-out infinite alternate;
   --animate-popover-in: popover-in var(--mdui-motion-duration-short4) var(--mdui-motion-easing-emphasized-decelerate);
 
   @keyframes popover-in {
@@ -46,32 +52,45 @@
       transform: translateZ(0) rotate(360deg);
     }
   }
-  @keyframes aurora {
-    0% {
-      background-position: 0% 50%;
-      transform: rotate(-5deg) scale(0.9);
-    }
-    25% {
-      background-position: 50% 100%;
-      transform: rotate(5deg) scale(1.1);
-    }
-    50% {
-      background-position: 100% 50%;
-      transform: rotate(-3deg) scale(0.95);
-    }
-    75% {
-      background-position: 50% 0%;
-      transform: rotate(3deg) scale(1.05);
-    }
-    100% {
-      background-position: 0% 50%;
-      transform: rotate(-5deg) scale(0.9);
-    }
-  }
 }
 
 :root {
   color-scheme: dark;
+}
+
+/* 深色主题配色：暖灰底 + 香槟金强调色（胶片感）。种子色自动生成的金色偏黄、偏艳，所以手动给出整套 Material 3 角色色。 */
+:root {
+  --mdui-color-primary-dark: 201, 169, 110;
+  --mdui-color-on-primary-dark: 50, 37, 12;
+  --mdui-color-primary-container-dark: 82, 66, 38;
+  --mdui-color-on-primary-container-dark: 244, 226, 190;
+  --mdui-color-inverse-primary-dark: 126, 99, 48;
+  --mdui-color-secondary-dark: 214, 199, 172;
+  --mdui-color-on-secondary-dark: 56, 47, 30;
+  --mdui-color-secondary-container-dark: 74, 63, 44;
+  --mdui-color-on-secondary-container-dark: 245, 230, 202;
+  --mdui-color-tertiary-dark: 178, 196, 168;
+  --mdui-color-on-tertiary-dark: 33, 50, 30;
+  --mdui-color-tertiary-container-dark: 56, 72, 52;
+  --mdui-color-on-tertiary-container-dark: 212, 232, 200;
+  --mdui-color-surface-dark: 18, 17, 16;
+  --mdui-color-surface-dim-dark: 18, 17, 16;
+  --mdui-color-surface-bright-dark: 56, 54, 50;
+  --mdui-color-surface-container-lowest-dark: 12, 11, 10;
+  --mdui-color-surface-container-low-dark: 27, 26, 24;
+  --mdui-color-surface-container-dark: 33, 31, 29;
+  --mdui-color-surface-container-high-dark: 43, 41, 38;
+  --mdui-color-surface-container-highest-dark: 54, 52, 48;
+  --mdui-color-surface-variant-dark: 76, 71, 64;
+  --mdui-color-on-surface-dark: 236, 231, 222;
+  --mdui-color-on-surface-variant-dark: 190, 183, 171;
+  --mdui-color-inverse-surface-dark: 236, 231, 222;
+  --mdui-color-inverse-on-surface-dark: 47, 45, 42;
+  --mdui-color-background-dark: 18, 17, 16;
+  --mdui-color-on-background-dark: 236, 231, 222;
+  --mdui-color-outline-dark: 145, 139, 129;
+  --mdui-color-outline-variant-dark: 72, 68, 61;
+  --mdui-color-surface-tint-color-dark: 201, 169, 110;
 }
 
 html,
@@ -80,25 +99,30 @@ body,
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: #111114;
+  background: #121110;
   color: rgb(var(--mdui-color-on-surface));
   font-family: var(--font-sans);
 }
 
 /* 玻璃面板：M0 先用毛玻璃，液态玻璃折射在 M6 实现。 */
 @utility glass {
-  background: rgb(30 30 36 / 0.62);
-  backdrop-filter: blur(22px) saturate(160%);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
-  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(27 26 24 / 0.74);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border: 1px solid rgb(255 255 255 / 0.08);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.08),
-    0 12px 40px rgb(0 0 0 / 0.35);
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 12px 40px rgb(0 0 0 / 0.4);
+}
+
+/* 胶片颗粒：平铺的分形噪声，叠在首页背景上 */
+@utility film-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .glass {
-    background: rgb(30 30 36 / 0.96);
+    background: rgb(27 26 24 / 0.97);
     backdrop-filter: none;
   }
 }
