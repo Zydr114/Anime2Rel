@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_FOCUS, DEFAULT_STYLE } from '@/focus/model'
+import { flarePreset } from '@/grade/flare'
 import { newBlendLayer } from '@/grade/model'
 import { newDirectionalLight, newLightAt } from '@/lighting/model'
 import type { AssetRef } from './assets'
@@ -27,7 +28,11 @@ function sampleDoc(): DocState {
       occlusion: { ...DEFAULT_FOCUS.occlusion, enabled: true, mode: 'water', regions: [{ ...DEFAULT_STYLE, mode: 'medium', id: 'region-x', strokes: [{ erase: false, radius: 12, points: [10, 20, 30, 40] }] }] },
     },
     grade: { ...initialDoc.grade, creative: { ...initialDoc.grade.creative, layers: [{ ...newBlendLayer(), opacity: 0.3 }] } },
-    post: { ...initialDoc.post, rays: { ...initialDoc.post.rays, intensity: 0.5, light: lamp.id } },
+    post: {
+      ...initialDoc.post,
+      rays: { ...initialDoc.post.rays, intensity: 0.5, light: lamp.id },
+      flare: { ...initialDoc.post.flare, enabled: true, light: sun.id, elements: flarePreset('star') },
+    },
   }
 }
 
@@ -41,7 +46,11 @@ function withoutIds(doc: DocState) {
     lighting: { ...doc.lighting, analyzedFor: null, lights: doc.lighting.lights.map((l, i) => ({ ...l, id: i })) },
     focus: { ...doc.focus, occlusion: { ...doc.focus.occlusion, regions: doc.focus.occlusion.regions.map((r) => ({ ...r, id: 0 })) } },
     grade: { ...doc.grade, creative: { ...doc.grade.creative, layers: doc.grade.creative.layers.map((l) => ({ ...l, id: 0 })) } },
-    post: { ...doc.post, rays: { ...doc.post.rays, light: doc.post.rays.light && lights.indexOf(doc.post.rays.light) } },
+    post: {
+      ...doc.post,
+      rays: { ...doc.post.rays, light: doc.post.rays.light && lights.indexOf(doc.post.rays.light) },
+      flare: { ...doc.post.flare, light: doc.post.flare.light && lights.indexOf(doc.post.flare.light), elements: doc.post.flare.elements.map((e) => ({ ...e, id: 0 })) },
+    },
   }
 }
 

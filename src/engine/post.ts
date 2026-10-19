@@ -1,13 +1,16 @@
 /**
  * 后期效果中需要多个 pass 的部分（docs/Plan.md M5 实现方案）：Bloom 与 Halation 共用一个 mip 金字塔，光束为低分辨率的径向模糊。
  * 轮廓光束（M8.1）在光束遮罩中加入立绘的轮廓光，轮廓光由融合节点在光束的分辨率上单独渲染一次。
+ * 镜头光晕（M8.2）的可见度在这里渲染到 1×1 的目标，见 src/engine/flare.ts。
  * 金字塔第 0 级的长边固定为 BLOOM_SIZE，与渲染分辨率无关，所以预览与导出的光晕相同；第 0 级由全分辨率图像的 mip 预滤波得到。
  * 结果在终处理 pass（src/engine/finish.ts）中叠加。
  */
 import * as THREE from 'three/webgpu'
-import { clamp, dot, exp, float, length, log, max, min, mix, screenUV, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { clamp, dot, exp, float, length, log, max, min, mix, screenUV, texture, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl'
 import type { Size } from '@/algo/geometry'
+import { MAX_FLARE_ELEMENTS } from '@/grade/flare'
 import type { PostParams } from '@/grade/post'
+import { FLARE_VEC4S, flareVisibility } from './flare'
 import { material, sampleAt, type FloatNode, type TextureNode, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
 
 /** 金字塔第 0 级的长边（像素） */
@@ -64,6 +67,9 @@ export function createPostUniforms() {
     /** 光束遮罩中亮部与轮廓光的权重 */
     raysSky: uniform(0),
     raysRim: uniform(0),
+    /** 光晕的光源位置（文档 UV）；1 为方向光，落在非天空处时视为被遮挡 */
+    flareLight: uniform(new THREE.Vector2(0.5, 0.5)),
+    flareSky: uniform(0),
 
     // 以下由终处理 pass 使用；强度为 0 时不叠加
     bloom: uniform(0),
@@ -77,6 +83,13 @@ export function createPostUniforms() {
     grain: uniform(0),
     grainCell: uniform(0.001),
     grainColor: uniform(0),
+    flare: uniform(0),
+    flareCount: uniform(0, 'int'),
+    /** 各光晕元素的参数，每个元素 FLARE_VEC4S 个 vec4，见 packFlareElements */
+    flareParams: uniformArray(
+      Array.from({ length: MAX_FLARE_ELEMENTS * FLARE_VEC4S }, () => new THREE.Vector4()),
+      'vec4',
+    ),
   }
 }
 
@@ -91,6 +104,7 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   u.vignette.value = on ? p!.vignette : 0
   u.toneMapping.value = on ? p!.toneMapping : 0
   u.grain.value = on ? p!.grain : 0
+  u.flare.value = on && p!.flareLight && p!.flareCount > 0 ? p!.flare : 0
   if (!p) return
   u.bloomThreshold.value = p.bloomThreshold
   u.halationThreshold.value = p.halationThreshold
@@ -105,6 +119,10 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   u.vignetteRange.value.set(p.vignetteInner, p.vignetteOuter)
   u.grainCell.value = p.grainCell
   u.grainColor.value = p.grainColor
+  if (p.flareLight) u.flareLight.value.set(p.flareLight.x, p.flareLight.y)
+  u.flareSky.value = p.flareSky ? 1 : 0
+  u.flareCount.value = p.flareCount
+  ;(u.flareParams.array as THREE.Vector4[]).forEach((v, i) => v.fromArray(p.flareElements, i * 4))
 }
 
 /** 软阈值（带过渡区）：br 为亮度，返回乘到颜色上的权重 */
@@ -139,6 +157,8 @@ export interface PostTargets {
   rays: THREE.RenderTarget[]
   /** 轮廓光束的发光区域 */
   rim: THREE.RenderTarget
+  /** 光晕的可见度（1×1） */
+  visibility: THREE.RenderTarget
 }
 
 export function createPostTargets(): PostTargets {
@@ -147,6 +167,7 @@ export function createPostTargets(): PostTargets {
     up: Array.from({ length: BLOOM_LEVELS - 1 }, halfTarget),
     rays: Array.from({ length: 3 }, halfTarget),
     rim: halfTarget(),
+    visibility: halfTarget(),
   }
 }
 
@@ -157,16 +178,18 @@ export interface PostPasses {
   bloom: { target: THREE.RenderTarget; quad: THREE.QuadMesh }[]
   rays: { target: THREE.RenderTarget; quad: THREE.QuadMesh }[]
   rim: { target: THREE.RenderTarget; quad: THREE.QuadMesh }
+  visibility: { target: THREE.RenderTarget; quad: THREE.QuadMesh }
   /** 叠加用的结果 */
   bloomResult: THREE.Texture
   raysResult: THREE.Texture
+  visibilityResult: THREE.Texture
 }
 
 /**
- * 创建 Bloom 与光束的 pass。image 为全局调整后的线性图像（需有 mipmap），
- * sky 为背景的天空遮罩（hasSky 为 0 时不可用），character 为立绘层（预乘 alpha，需有 mipmap），rimGlow 为融合节点输出的轮廓光。
+ * 创建 Bloom、光束和光晕可见度的 pass。image 为全局调整后的线性图像（需有 mipmap），
+ * skyMap 为背景的深度辅助图（g 为天空遮罩，hasSky 为 0 时不可用），character 为立绘层（预乘 alpha，需有 mipmap），rimGlow 为融合节点输出的轮廓光。
  */
-export function createPostPasses(u: PostUniforms, image: TextureNode, sky: FloatNode, hasSky: FloatNode, character: TextureNode, rimGlow: Vec4Node): PostPasses {
+export function createPostPasses(u: PostUniforms, image: TextureNode, skyMap: TextureNode, hasSky: FloatNode, character: TextureNode, rimGlow: Vec4Node): PostPasses {
   const targets = createPostTargets()
   const { down, up, rays } = targets
   const texels = Array.from({ length: BLOOM_LEVELS }, () => uniform(new THREE.Vector2(1, 1)))
@@ -199,7 +222,7 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, sky: Float
   {
     const lod = max(u.sourceLod, 0)
     const c = sampleAt(image, screenUV, lod).rgb
-    const skyWeight = mix(float(1), sky, u.skyOnly.mul(hasSky))
+    const skyWeight = mix(float(1), sampleAt(skyMap, screenUV).g, u.skyOnly.mul(hasSky))
     const visible = float(1).sub(sampleAt(character, screenUV, lod).a)
     const phase = float(1).div(distance.div(RAYS_PHASE_RADIUS).pow(2).add(1))
     const bright = c.mul(softThreshold(dot(c, LUMA), u.raysThreshold).mul(skyWeight).mul(visible).mul(phase))
@@ -224,7 +247,18 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, sky: Float
     raysPasses.push({ target: blurTarget(j), quad: quad(vec4(sum.div(RAYS_SAMPLES), 1)) })
   }
 
-  return { targets, texels, bloom, rays: raysPasses, rim, bloomResult: up[0].texture, raysResult: blurTarget(RAYS_PASSES - 1).texture }
+  const visibility = { target: targets.visibility, quad: quad(flareVisibility(u, character, skyMap, hasSky)) }
+  return {
+    targets,
+    texels,
+    bloom,
+    rays: raysPasses,
+    rim,
+    visibility,
+    bloomResult: up[0].texture,
+    raysResult: blurTarget(RAYS_PASSES - 1).texture,
+    visibilityResult: targets.visibility.texture,
+  }
 }
 
 /** 按文档尺寸设置金字塔和光束的尺寸 */
@@ -239,7 +273,7 @@ export function resizePostPasses(p: PostPasses, doc: Size): void {
 }
 
 /** rim 为是否需要轮廓光束：不需要时遮罩中的权重为 0，不必更新轮廓光 */
-export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloom: boolean; rays: boolean; rim: boolean }): void {
+export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloom: boolean; rays: boolean; rim: boolean; flare: boolean }): void {
   const run = (passes: PostPasses['bloom']) => {
     for (const { target, quad } of passes) {
       r.setRenderTarget(target)
@@ -249,9 +283,10 @@ export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloo
   if (which.bloom) run(p.bloom)
   if (which.rays && which.rim) run([p.rim])
   if (which.rays) run(p.rays)
+  if (which.flare) run([p.visibility])
 }
 
 export function disposePostPasses(p: PostPasses): void {
-  for (const rt of [...p.targets.down, ...p.targets.up, ...p.targets.rays, p.targets.rim]) rt.dispose()
-  for (const { quad } of [...p.bloom, ...p.rays, p.rim]) (quad.material as THREE.Material).dispose()
+  for (const rt of [...p.targets.down, ...p.targets.up, ...p.targets.rays, p.targets.rim, p.targets.visibility]) rt.dispose()
+  for (const { quad } of [...p.bloom, ...p.rays, p.rim, p.visibility]) (quad.material as THREE.Material).dispose()
 }

@@ -172,11 +172,12 @@ interface Effects {
   grade: boolean
   /** 各级是否有局部调整 */
   local: Record<GradeLevel, boolean>
-  /** 后期效果，以及其中需要单独 pass 的 Bloom/Halation、光束和其中的轮廓光束 */
+  /** 后期效果，以及其中需要单独 pass 的 Bloom/Halation、光束和其中的轮廓光束、光晕的可见度 */
   post: boolean
   bloom: boolean
   rays: boolean
   rim: boolean
+  flare: boolean
   /** 有调色或后期时，8 位输出前加抖动 */
   dither: boolean
 }
@@ -400,8 +401,14 @@ export class Engine {
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder, this.tile)
-    this.postPasses = createPostPasses(this.post, nodes.adjusted, this.depthNodes.background.sky, this.depthNodes.uniforms.hasBgDepth, nodes.character, this.character.rimGlow)
-    const finishInputs = { image: nodes.adjusted, bloom: this.postPasses.bloomResult, rays: this.postPasses.raysResult, tile: this.tile }
+    this.postPasses = createPostPasses(this.post, nodes.adjusted, this.depthNodes.textures.background.aux, this.depthNodes.uniforms.hasBgDepth, nodes.character, this.character.rimGlow)
+    const finishInputs = {
+      image: nodes.adjusted,
+      bloom: this.postPasses.bloomResult,
+      rays: this.postPasses.raysResult,
+      flareVisibility: this.postPasses.visibilityResult,
+      tile: this.tile,
+    }
     const quad = (m: THREE.NodeMaterial) => new THREE.QuadMesh(m)
     this.quads = {
       charPrep: quad(this.charPrep.material),
@@ -609,6 +616,7 @@ export class Engine {
       bloom: post && (p!.bloom > 0 || p!.halation > 0),
       rays: post && (p!.rays > 0 || p!.raysRim > 0) && !!p!.raysLight,
       rim: post && p!.raysRim > 0 && !!p!.raysLight,
+      flare: post && p!.flare > 0 && p!.flareCount > 0 && !!p!.flareLight,
       dither: gradeActive || post,
     }
   }

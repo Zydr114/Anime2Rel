@@ -90,7 +90,7 @@ export function Viewport() {
           e.setFocus(currentFocusParams(doc))
           e.setShadow(currentShadowParams(doc))
           e.setGrade(gradeParams(doc.grade))
-          e.setPost(postParams(doc.post, doc.lighting, doc.background))
+          e.setPost(postParams(doc.post, doc.lighting, doc.background, doc.focus.dof))
           // 调色、后期步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
           e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus' })

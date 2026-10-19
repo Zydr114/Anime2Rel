@@ -35,7 +35,12 @@ describe('preset files', () => {
           levels: { global: { exposure: 99, contrast: 'high', curves: { master: [[0, 0], [0.5, 2], [0.4, 1], [1, 1]] }, hsl: { hue: [5] } } },
           creative: { lut: { id: 'lut-missing', name: 'gone' }, layers: Array.from({ length: 9 }, () => ({ mode: 'bogus', color: 'red', opacity: 3 })) },
         },
-        post: { grain: { amount: -1 }, lens: { vignette: -5 }, toneMapping: 'filmic' },
+        post: {
+          grain: { amount: -1 },
+          lens: { vignette: -5 },
+          toneMapping: 'filmic',
+          flare: { enabled: 'yes', intensity: 2, light: 'light-1', elements: [...Array.from({ length: 20 }, () => ({ type: 'ghost', sides: 9, size: -1, color: 'red' })), { type: 'laser' }] },
+        },
       }),
       '文件名',
     )
@@ -51,6 +56,9 @@ describe('preset files', () => {
     expect(preset.post.grain.amount).toBe(0)
     expect(preset.post.lens.vignette).toBe(-1)
     expect(preset.post.toneMapping).toBe('none')
+    expect(preset.post.flare).toMatchObject({ enabled: false, intensity: 1, light: null })
+    expect(preset.post.flare.elements).toHaveLength(16)
+    expect(preset.post.flare.elements[0]).toMatchObject({ type: 'ghost', sides: 0, size: 0, color: '#ffffff' })
   })
 
   it('built-in presets are valid and survive a round trip', () => {

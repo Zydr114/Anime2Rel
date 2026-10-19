@@ -1,6 +1,6 @@
 /**
  * 终处理 pass：全局基础调整之后的处理（docs/Plan.md M5 实现方案）。依次为：
- * 色差 → 叠加 Bloom、Halation、光束（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
+ * 色差 → 叠加 Bloom、Halation、光束、镜头光晕（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
  * 全局调色的公式与 src/grade/creative.ts 一致，后期参数见 src/grade/post.ts。输入输出都是线性 sRGB。
  */
 import * as THREE from 'three/webgpu'
@@ -37,6 +37,7 @@ import { MASK_FEATHER, RAMP_SIZE, SPLIT_BLACK, SPLIT_WIDTH, type CreativeParams 
 import type { RegisteredLut } from '@/grade/luts'
 import { MAX_BLEND_LAYERS } from '@/grade/model'
 import { blend, blendLuma } from './blend'
+import { flareColor } from './flare'
 import { fromOklab, material, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type TileMapping, type Vec2Node, type Vec3Node } from './nodes'
 import type { PostUniforms } from './post'
 
@@ -200,6 +201,8 @@ export interface FinishInputs {
   /** Bloom 金字塔（rgb 为 Bloom，a 为 Halation 的亮度）与光束的结果，覆盖整幅图像 */
   bloom: THREE.Texture
   rays: THREE.Texture
+  /** 光晕的可见度（1×1） */
+  flareVisibility: THREE.Texture
   tile: TileMapping
 }
 
@@ -210,6 +213,7 @@ export interface FinishInputs {
 export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: FinishInputs) {
   const bloomMap = texture(inputs.bloom)
   const raysMap = texture(inputs.rays)
+  const visibilityMap = texture(inputs.flareVisibility)
   const uv = inputs.tile.uv
   const node = Fn(() => {
     const c = aberration(post, inputs.image, inputs.tile).toVar()
@@ -219,6 +223,9 @@ export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: 
     })
     If(post.rays.greaterThan(0), () => {
       c.addAssign(sampleAt(raysMap, uv, float(0)).rgb.mul(post.rays))
+    })
+    If(post.flare.greaterThan(0), () => {
+      c.addAssign(flareColor(post, uv).mul(post.flare.mul(sampleAt(visibilityMap, vec2(0.5), float(0)).r)))
     })
     // 暗角：椭圆形，画面角落处半径为 1
     const r = length(uv.sub(0.5)).mul(Math.SQRT2)

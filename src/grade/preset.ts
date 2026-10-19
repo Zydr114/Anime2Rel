@@ -29,6 +29,7 @@ import {
   type HslBand,
   type LutRef,
 } from './model'
+import { conformFlare, flareElementsForFile } from './flare'
 import { DEFAULT_POST, TONE_MAPPINGS, type PostDoc, type PostSection } from './post'
 
 export interface Preset {
@@ -123,10 +124,10 @@ export function conformGrade(v: unknown, lut: (ref: Json) => LutRef | null): Gra
   }
 }
 
-/** 后期参数：除暗角外都是 [0,1]。光束的光源与画面有关，light 把文件中的光源 id 换成文档中的，预设中一律为自动 */
+/** 后期参数：除暗角外都是 [0,1]。光束和光晕的光源与画面有关，light 把文件中的光源 id 换成文档中的，预设中一律为自动 */
 export function conformPost(v: unknown, light: (id: unknown) => string | null = () => null): PostDoc {
   const o = record(v)
-  const section = <K extends PostSection>(key: K): PostDoc[K] => {
+  const section = <K extends Exclude<PostSection, 'flare'>>(key: K): PostDoc[K] => {
     const src = record(o[key])
     const out: Json = {}
     for (const [field, fallback] of Object.entries(DEFAULT_POST[key])) {
@@ -143,6 +144,7 @@ export function conformPost(v: unknown, light: (id: unknown) => string | null = 
     rays: section('rays'),
     lens: section('lens'),
     grain: section('grain'),
+    flare: conformFlare(o.flare, light),
     toneMapping: oneOf(o.toneMapping, TONE_MAPPINGS, 'none'),
   }
 }
@@ -151,6 +153,9 @@ export function conformPost(v: unknown, light: (id: unknown) => string | null = 
 
 /** 混色层的 id 只在文档内有意义，预设文件和比较中都去掉 */
 const withoutIds = (layers: BlendLayer[]) => layers.map((l) => ({ ...l, id: undefined }))
+
+/** 后期参数 → 预设文件和比较中的形式：去掉光束、光晕的光源和光晕元素的 id */
+const postForPreset = (p: PostDoc) => ({ ...p, rays: { ...p.rays, light: null }, flare: { ...p.flare, light: null, elements: flareElementsForFile(p.flare.elements) } })
 
 function toBase64(data: Float32Array): string {
   const bytes = new Uint8Array(data.length * 4)
@@ -219,8 +224,11 @@ export function gradeForFile(grade: GradeDoc): Json {
 
 /** 当前参数 → 预设文件的文本。使用中的 LUT 会内嵌进去 */
 export function serializePreset(preset: Preset): string {
-  const post = { ...preset.post, rays: { ...preset.post.rays, light: null } }
-  return JSON.stringify({ format: PRESET_FORMAT, version: PRESET_VERSION, name: preset.name, grade: gradeForFile(preset.grade), post, luts: embedLuts(preset.grade) }, null, 2)
+  return JSON.stringify(
+    { format: PRESET_FORMAT, version: PRESET_VERSION, name: preset.name, grade: gradeForFile(preset.grade), post: postForPreset(preset.post), luts: embedLuts(preset.grade) },
+    null,
+    2,
+  )
 }
 
 /** 预设文件的文本 → 预设，内嵌的 LUT 会被登记。格式不对时抛出 PresetError */
@@ -237,10 +245,9 @@ export function parsePreset(text: string, fallbackName: string): Preset {
   return { name: conformName(o.name, fallbackName), grade: conformGrade(o.grade, lutResolver(o.luts)), post: conformPost(o.post) }
 }
 
-/** 参数是否与预设一致（不比较混色层的 id 和光束的光源） */
+/** 参数是否与预设一致（不比较混色层、光晕元素的 id 和光束、光晕的光源） */
 export function matchesPreset(grade: GradeDoc, post: PostDoc, preset: Pick<Preset, 'grade' | 'post'>): boolean {
-  const key = (g: GradeDoc, p: PostDoc) =>
-    JSON.stringify([{ ...g, creative: { ...g.creative, layers: withoutIds(g.creative.layers) } }, { ...p, rays: { ...p.rays, light: null } }])
+  const key = (g: GradeDoc, p: PostDoc) => JSON.stringify([{ ...g, creative: { ...g.creative, layers: withoutIds(g.creative.layers) } }, postForPreset(p)])
   return key(grade, post) === key(preset.grade, preset.post)
 }
 

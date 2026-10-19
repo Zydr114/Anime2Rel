@@ -7,6 +7,7 @@ import { hexToLinear, srgbToLinear } from '@/algo/color'
 import type { Point, Size } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
 import type { Light, LightingDoc } from '@/lighting/model'
+import { DEFAULT_FLARE, flareScale, MAX_FLARE_ELEMENTS, packFlareElements, type FlareDoc } from './flare'
 
 export type ToneMapping = 'none' | 'agx' | 'neutral'
 export const TONE_MAPPINGS: readonly ToneMapping[] = ['none', 'agx', 'neutral']
@@ -22,6 +23,8 @@ export interface PostDoc {
   lens: { aberration: number; vignette: number; midpoint: number; feather: number }
   /** 颗粒强度、尺寸、彩色程度 [0,1] */
   grain: { amount: number; size: number; color: number }
+  /** 镜头光晕（M8.2），见 src/grade/flare.ts */
+  flare: FlareDoc
   toneMapping: ToneMapping
 }
 
@@ -33,8 +36,11 @@ export const DEFAULT_POST: PostDoc = {
   rays: { intensity: 0, threshold: 0.8, length: 0.5, light: null, skyOnly: true, rim: 0 },
   lens: { aberration: 0, vignette: 0, midpoint: 0.5, feather: 0.5 },
   grain: { amount: 0, size: 0.3, color: 0.3 },
+  flare: DEFAULT_FLARE,
   toneMapping: 'none',
 }
+
+const flareActive = (f: FlareDoc) => f.enabled && f.intensity > 0 && f.elements.length > 0
 
 export function isNeutralPost(p: PostDoc): boolean {
   return (
@@ -45,6 +51,7 @@ export function isNeutralPost(p: PostDoc): boolean {
     p.lens.aberration === 0 &&
     p.lens.vignette === 0 &&
     p.grain.amount === 0 &&
+    !flareActive(p.flare) &&
     p.toneMapping === 'none'
   )
 }
@@ -56,6 +63,10 @@ const SCATTER_MAX = 0.95
 export const ABERRATION_SCALE = 0.015
 /** 暗角满格时画面角落的曝光变化（EV） */
 export const VIGNETTE_STOPS = 2
+/** 光晕整体强度满格时的倍数（0.5 为元素本身的强度） */
+const FLARE_GAIN = 2
+/** 光源移出画面后，光晕在这个距离（相对长边）内淡出 */
+export const FLARE_FADE = 0.2
 /** 颗粒尺寸的范围（相对长边） */
 const GRAIN_CELL_MIN = 1 / 3000
 const GRAIN_CELL_MAX = 1 / 500
@@ -90,6 +101,15 @@ export interface PostParams {
   /** 颗粒尺寸（相对长边） */
   grainCell: number
   grainColor: number
+  /** 光晕：整体强度（含移出画面的淡出），0 时不计算 */
+  flare: number
+  /** 光晕的光源在画面上的位置（文档 UV） */
+  flareLight: Point | null
+  /** 光源是太阳 / 天光：落在非天空处时视为被遮挡 */
+  flareSky: boolean
+  flareCount: number
+  /** 元素参数，见 packFlareElements */
+  flareElements: Float32Array
   toneMapping: 0 | 1 | 2
 }
 
@@ -115,9 +135,21 @@ export function raysLight(lighting: LightingDoc, id: string | null, size: Size):
   return null
 }
 
-export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null): PostParams {
+/** 光源在画面外时到画面边缘的距离（相对长边） */
+function outside(uv: Point, size: Size): number {
+  const long = Math.max(size.width, size.height)
+  const dx = Math.max(0, -uv.x, uv.x - 1) * (size.width / long)
+  const dy = Math.max(0, -uv.y, uv.y - 1) * (size.height / long)
+  return Math.hypot(dx, dy)
+}
+
+/** aperture：景深的光圈叶片数和旋转角，跟随光圈的鬼影使用 */
+export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null, aperture = { blades: 0, rotation: 0 }): PostParams {
   const scatter = (radius: number) => SCATTER_MIN + (SCATTER_MAX - SCATTER_MIN) * radius
   const light = size && (p.rays.intensity > 0 || p.rays.rim > 0) ? raysLight(lighting, p.rays.light, size) : null
+  const flare = size && flareActive(p.flare) ? raysLight(lighting, p.flare.light, size) : null
+  const t = flare && size ? Math.min(1, outside(flare.uv, size) / FLARE_FADE) : 1
+  const fade = 1 - t * t * (3 - 2 * t)
   const mid = 0.3 + 0.6 * p.lens.midpoint
   const width = 0.05 + 0.9 * p.lens.feather
   return {
@@ -142,6 +174,11 @@ export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null)
     grain: p.grain.amount,
     grainCell: GRAIN_CELL_MIN * (GRAIN_CELL_MAX / GRAIN_CELL_MIN) ** p.grain.size,
     grainColor: p.grain.color,
+    flare: p.flare.intensity * FLARE_GAIN * fade,
+    flareLight: flare?.uv ?? null,
+    flareSky: flare?.light.type === 'directional',
+    flareCount: fade > 0 ? Math.min(p.flare.elements.length, MAX_FLARE_ELEMENTS) : 0,
+    flareElements: packFlareElements(p.flare.elements, flareScale(p.flare.size), aperture),
     toneMapping: p.toneMapping === 'agx' ? 1 : p.toneMapping === 'neutral' ? 2 : 0,
   }
 }

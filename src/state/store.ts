@@ -18,6 +18,7 @@ import {
   type SplitToning,
   type WheelKey,
 } from '@/grade/model'
+import { MAX_FLARE_ELEMENTS, newFlareElement, newFlareId, sameFlareElements, type FlareDoc, type FlareElement, type FlareElementType } from '@/grade/flare'
 import { DEFAULT_POST, type PostDoc, type PostSection, type ToneMapping } from '@/grade/post'
 import { matchesPreset, type Preset } from '@/grade/preset'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
@@ -121,9 +122,19 @@ interface AppState {
   resetCreative: () => void
 
   updatePost: <K extends PostSection>(section: K, update: Partial<PostDoc[K]>) => void
+  /** 在最后添加光晕元素，返回其 id；达到上限时返回 null */
+  addFlareElement: (type: FlareElementType) => string | null
+  updateFlareElement: (id: string, update: Partial<Omit<FlareElement, 'id'>>) => void
+  /** 在原元素后面插入副本，返回副本的 id；达到上限时返回 null */
+  duplicateFlareElement: (id: string) => string | null
+  removeFlareElement: (id: string) => void
+  /** 在列表中前移（−1）或后移（+1） */
+  moveFlareElement: (id: string, delta: 1 | -1) => void
+  /** 换成一组元素（内置或自定义光晕，重新分配 id）并开启光晕，一次撤销记录 */
+  setFlareElements: (elements: FlareElement[]) => void
   setToneMapping: (mode: ToneMapping) => void
   resetPost: () => void
-  /** 套用预设（一次撤销记录）：替换三级调整、全局调色和后期参数，保留光束所选的光源 */
+  /** 套用预设（一次撤销记录）：替换三级调整、全局调色和后期参数，保留光束和光晕所选的光源 */
   applyPreset: (preset: Pick<Preset, 'grade' | 'post'>) => void
 
   setView: (view: ViewTransform) => void
@@ -161,6 +172,18 @@ function setCreative(get: () => AppState, update: (c: CreativeGrade) => Creative
     const creative = update(d.grade.creative)
     return creative === d.grade.creative ? d : { ...d, grade: { ...d.grade, creative } }
   })
+}
+
+function setFlare(get: () => AppState, update: (f: FlareDoc) => FlareDoc): void {
+  get().setDoc((d) => {
+    const flare = update(d.post.flare)
+    return flare === d.post.flare ? d : { ...d, post: { ...d.post, flare } }
+  })
+}
+
+const withElements = (f: FlareDoc, update: (elements: FlareElement[]) => FlareElement[]): FlareDoc => {
+  const elements = update(f.elements)
+  return elements === f.elements ? f : { ...f, elements }
 }
 
 function setRegions(get: () => AppState, update: (regions: OcclusionRegion[]) => OcclusionRegion[]): void {
@@ -395,6 +418,54 @@ export const useApp = create<AppState>()((set, get) => ({
     })
   },
 
+  addFlareElement: (type) => {
+    if (get().doc.post.flare.elements.length >= MAX_FLARE_ELEMENTS) return null
+    const element = newFlareElement({ type })
+    setFlare(get, (f) => withElements(f, (es) => [...es, element]))
+    return element.id
+  },
+
+  updateFlareElement: (id, update) => {
+    setFlare(get, (f) =>
+      withElements(f, (es) => {
+        const element = es.find((e) => e.id === id)
+        // 下拉框在撤销后被程序赋值时也会触发 change，值没有变化时不产生撤销记录
+        if (!element || (Object.keys(update) as (keyof typeof update)[]).every((k) => element[k] === update[k])) return es
+        return es.map((e) => (e === element ? { ...e, ...update } : e))
+      }),
+    )
+  },
+
+  duplicateFlareElement: (id) => {
+    const es = get().doc.post.flare.elements
+    const i = es.findIndex((e) => e.id === id)
+    if (i < 0 || es.length >= MAX_FLARE_ELEMENTS) return null
+    const copy = { ...es[i], id: newFlareId() }
+    setFlare(get, (f) => withElements(f, (list) => [...list.slice(0, i + 1), copy, ...list.slice(i + 1)]))
+    return copy.id
+  },
+
+  removeFlareElement: (id) => {
+    setFlare(get, (f) => withElements(f, (es) => (es.some((e) => e.id === id) ? es.filter((e) => e.id !== id) : es)))
+  },
+
+  moveFlareElement: (id, delta) => {
+    setFlare(get, (f) =>
+      withElements(f, (es) => {
+        const i = es.findIndex((e) => e.id === id)
+        const j = i + delta
+        if (i < 0 || j < 0 || j >= es.length) return es
+        const list = [...es]
+        ;[list[i], list[j]] = [list[j], list[i]]
+        return list
+      }),
+    )
+  },
+
+  setFlareElements: (elements) => {
+    setFlare(get, (f) => (f.enabled && sameFlareElements(f.elements, elements) ? f : { ...f, enabled: true, elements: elements.slice(0, MAX_FLARE_ELEMENTS).map((e) => ({ ...e, id: newFlareId() })) }))
+  },
+
   setToneMapping: (toneMapping) => {
     get().setDoc((d) => (d.post.toneMapping === toneMapping ? d : { ...d, post: { ...d.post, toneMapping } }))
   },
@@ -405,7 +476,13 @@ export const useApp = create<AppState>()((set, get) => ({
 
   applyPreset: (preset) => {
     get().setDoc((d) =>
-      matchesPreset(d.grade, d.post, preset) ? d : { ...d, grade: preset.grade, post: { ...preset.post, rays: { ...preset.post.rays, light: d.post.rays.light } } },
+      matchesPreset(d.grade, d.post, preset)
+        ? d
+        : {
+            ...d,
+            grade: preset.grade,
+            post: { ...preset.post, rays: { ...preset.post.rays, light: d.post.rays.light }, flare: { ...preset.post.flare, light: d.post.flare.light } },
+          },
     )
   },
 
