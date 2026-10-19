@@ -1,9 +1,10 @@
-// 浏览器本地存储（IndexedDB）：自动保存的工程、工程用到的素材原图、导入的预设。
+// 浏览器本地存储（IndexedDB）：自动保存的工程、工程用到的素材原图、导入的预设、自定义光晕。
 // 素材按内容哈希保存，多次自动保存之间不重复写入；不再被引用的素材在下次保存时删除。
 import { createStore, delMany, get, keys, set, setMany, type UseStore } from 'idb-keyval'
 
 const AUTOSAVE = 'autosave'
 const PRESETS = 'presets'
+const FLARES = 'flares'
 const ASSET_PREFIX = 'asset:'
 
 export interface AutosaveRecord {
@@ -59,4 +60,14 @@ export async function readPresets(): Promise<string[]> {
 
 export function writePresets(list: string[]): Promise<void> {
   return set(PRESETS, list, db())
+}
+
+/** 自定义光晕（未经检查的对象，由调用方逐项检查） */
+export async function readFlares(): Promise<unknown[]> {
+  const list = await get<unknown>(FLARES, db())
+  return Array.isArray(list) ? list : []
+}
+
+export function writeFlares(list: unknown[]): Promise<void> {
+  return set(FLARES, list, db())
 }

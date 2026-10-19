@@ -9,6 +9,7 @@ import { SelectField } from '@/ui/SelectField'
 import { SliderField } from '@/ui/SliderField'
 import { lightName } from '../lightName'
 import { useGestureChange } from '../useGestureChange'
+import { FlareSection } from './FlareSection'
 import { Hint, Section, ToggleRow } from './FusionSections'
 
 const formatPercent = (v: number) => `${Math.round(v)}%`
@@ -38,6 +39,7 @@ export function EffectsPanel() {
       </Section>
       <HalationSection />
       <RaysSection />
+      <FlareSection />
       <Section title={t.effects.lens} testId="post-lens">
         <PostSlider section="lens" field="aberration" label={t.effects.aberration} />
         <PostSlider section="lens" field="vignette" label={t.effects.vignette} min={-100} format={formatSigned} />

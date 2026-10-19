@@ -66,7 +66,7 @@ export const VIGNETTE_STOPS = 2
 /** 光晕整体强度满格时的倍数（0.5 为元素本身的强度） */
 const FLARE_GAIN = 2
 /** 光源移出画面后，光晕在这个距离（相对长边）内淡出 */
-export const FLARE_FADE = 0.2
+const FLARE_FADE = 0.2
 /** 颗粒尺寸的范围（相对长边） */
 const GRAIN_CELL_MIN = 1 / 3000
 const GRAIN_CELL_MAX = 1 / 500
@@ -135,12 +135,13 @@ export function raysLight(lighting: LightingDoc, id: string | null, size: Size):
   return null
 }
 
-/** 光源在画面外时到画面边缘的距离（相对长边） */
-function outside(uv: Point, size: Size): number {
+/** 光晕随光源移出画面的淡出：画面内为 1，到画面边缘的距离（相对长边）达到 FLARE_FADE 时为 0 */
+export function flareFade(uv: Point, size: Size): number {
   const long = Math.max(size.width, size.height)
   const dx = Math.max(0, -uv.x, uv.x - 1) * (size.width / long)
   const dy = Math.max(0, -uv.y, uv.y - 1) * (size.height / long)
-  return Math.hypot(dx, dy)
+  const t = Math.min(1, Math.hypot(dx, dy) / FLARE_FADE)
+  return 1 - t * t * (3 - 2 * t)
 }
 
 /** aperture：景深的光圈叶片数和旋转角，跟随光圈的鬼影使用 */
@@ -148,8 +149,7 @@ export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null,
   const scatter = (radius: number) => SCATTER_MIN + (SCATTER_MAX - SCATTER_MIN) * radius
   const light = size && (p.rays.intensity > 0 || p.rays.rim > 0) ? raysLight(lighting, p.rays.light, size) : null
   const flare = size && flareActive(p.flare) ? raysLight(lighting, p.flare.light, size) : null
-  const t = flare && size ? Math.min(1, outside(flare.uv, size) / FLARE_FADE) : 1
-  const fade = 1 - t * t * (3 - 2 * t)
+  const fade = flare && size ? flareFade(flare.uv, size) : 0
   const mid = 0.3 + 0.6 * p.lens.midpoint
   const width = 0.05 + 0.9 * p.lens.feather
   return {

@@ -37,7 +37,7 @@ async function exportPreset() {
   downloadBlob(new Blob([text], { type: 'application/json' }), `${name.replace(UNSAFE_FILE_CHARS, '_')}.json`)
 }
 
-function PresetItem({ name, description, active, onClick, testId }: { name: string; description?: string; active: boolean; onClick: () => void; testId: string }) {
+export function PresetItem({ name, description, active, onClick, testId }: { name: string; description?: string; active: boolean; onClick: () => void; testId: string }) {
   return (
     <button
       type="button"
