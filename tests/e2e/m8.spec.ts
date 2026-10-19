@@ -153,3 +153,66 @@ test('lights are named by kind, the intro stays dismissed, and rim beams spread 
   await expect(page.getByTestId('light-list')).toBeVisible()
   await expect(page.getByTestId('light-intro')).toHaveCount(0)
 })
+
+/** 夜景，灯在 (470, 140)：光源识别为点光源 */
+const night = (() => {
+  const s = renderScene(W, H, { direction: null, color: [0, 0, 0], ambient: [0.03, 0.03, 0.04], lamp: { x: 470, y: 140, r: 7 }, night: true })
+  return encodePng(W, H, new Uint8Array(s.rgba.buffer))
+})()
+
+test('a lens flare appears around the lamp, can be edited and saved, and fades when the character covers the lamp', async ({ page }, info) => {
+  await page.goto(`/${rendererQuery(info.project.metadata.renderer)}`)
+  await importAndStart(page, [
+    ['drop-background', 'night.png', night],
+    ['drop-character', 'figure.png', figure(240, 480)],
+  ])
+  await page.getByTestId('step-light').click()
+  await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
+  await page.getByTestId('step-character').click()
+  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 30_000 })
+  await page.waitForTimeout(1500)
+  // 灯右侧的夜空，离灯 45–105 px
+  const glow = (img: ExportedImage) => meanLuma(img, 515, 120, 575, 160)
+  const plain = await exportPixels(page)
+
+  await page.getByTestId('step-effects').click()
+  await page.getByTestId('flare-preset-soft-sun').click()
+  await expect(page.getByTestId('flare-preset-soft-sun')).toHaveAttribute('aria-pressed', 'true')
+  await page.waitForTimeout(1500)
+  const flared = await exportPixels(page)
+  expect(glow(flared)).toBeGreaterThan(glow(plain) + 8)
+
+  // 元素的添加、复制和删除
+  await page.getByTestId('step-effects').click()
+  const rows = page.getByTestId('flare-elements').locator('button')
+  await expect(rows).toHaveCount(5)
+  await page.getByTestId('flare-add').click()
+  await page.getByTestId('flare-add-ring').click()
+  await expect(rows).toHaveCount(6)
+  await expect(page.getByTestId('flare-editor')).toHaveAttribute('data-type', 'ring')
+  await page.getByTestId('flare-remove').click()
+  await page.getByTestId('flare-element-0').click()
+  await page.getByTestId('flare-duplicate').click()
+  await expect(page.getByTestId('flare-element-1')).toHaveAttribute('data-type', 'glow')
+  await page.getByTestId('flare-remove').click()
+  await expect(rows).toHaveCount(5)
+  await expect(page.getByTestId('flare-preset-soft-sun')).toHaveAttribute('aria-pressed', 'true')
+
+  // 存为自定义光晕
+  await page.getByTestId('flare-save').click()
+  await page.locator('mdui-dialog[open] input').fill('夜灯')
+  await page.locator('mdui-dialog[open] mdui-button', { hasText: '保存' }).click()
+  await expect(page.getByTestId('flare-custom-0')).toContainText('夜灯')
+
+  // 立绘的头部挡住灯：光晕消失
+  await page.getByTestId('step-character').click()
+  await setSlider(page, 'char-x', 470)
+  await setSlider(page, 'char-y', 267)
+  await page.waitForTimeout(1500)
+  const covered = await exportPixels(page)
+  await page.getByTestId('step-effects').click()
+  await page.getByTestId('post-flare-enabled').click()
+  await page.waitForTimeout(1500)
+  const coveredOff = await exportPixels(page)
+  expect(Math.abs(glow(covered) - glow(coveredOff))).toBeLessThan(2)
+})

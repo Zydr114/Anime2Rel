@@ -101,29 +101,29 @@ const PRESET_INPUTS: Record<FlarePresetId, ElementInput[]> = {
   'soft-sun': [
     { type: 'glow', size: 0.35, color: '#fff1d6', intensity: 0.55, softness: 0.7 },
     { type: 'rainbow', size: 0.42, intensity: 0.05, softness: 0.5, dispersion: 0.8 },
-    { type: 'ghost', position: 0.55, size: 0.035, color: '#ffb36b', intensity: 0.08, softness: 0.4 },
-    { type: 'ghost', position: 1.25, size: 0.08, color: '#9cc4ff', intensity: 0.04, softness: 0.5 },
-    { type: 'ghost', position: 1.6, size: 0.025, color: '#ffe0a0', intensity: 0.1, softness: 0.3 },
+    { type: 'ghost', position: 0.55, size: 0.035, color: '#ffb36b', intensity: 0.12, softness: 0.4 },
+    { type: 'ghost', position: 1.25, size: 0.08, color: '#9cc4ff', intensity: 0.07, softness: 0.5 },
+    { type: 'ghost', position: 1.6, size: 0.025, color: '#ffe0a0', intensity: 0.15, softness: 0.3 },
   ],
   // 变形宽银幕镜头：贯穿画面的蓝色水平拉丝，偏蓝的鬼影
   'blue-anamorphic': [
     { type: 'glow', size: 0.12, color: '#d6e6ff', intensity: 0.7, softness: 0.3 },
-    { type: 'anamorphic', size: 0.95, color: '#3f7dff', intensity: 0.45, softness: 0.35 },
-    { type: 'anamorphic', size: 0.45, color: '#a6c8ff', intensity: 0.35, softness: 0.1 },
-    { type: 'ghost', position: 0.7, size: 0.05, color: '#3a74ff', intensity: 0.06, softness: 0.4 },
-    { type: 'ghost', position: 1.4, size: 0.1, color: '#2552d9', intensity: 0.04, softness: 0.6 },
-    { type: 'ring', position: 1.9, size: 0.07, color: '#6f9bff', intensity: 0.06, softness: 0.2 },
+    { type: 'anamorphic', size: 0.95, color: '#3f7dff', intensity: 0.6, softness: 0.4 },
+    { type: 'anamorphic', size: 0.45, color: '#a6c8ff', intensity: 0.5, softness: 0.1 },
+    { type: 'ghost', position: 0.7, size: 0.05, color: '#3a74ff', intensity: 0.09, softness: 0.4 },
+    { type: 'ghost', position: 1.4, size: 0.1, color: '#2552d9', intensity: 0.06, softness: 0.6 },
+    { type: 'ring', position: 1.9, size: 0.07, color: '#6f9bff', intensity: 0.08, softness: 0.2 },
   ],
   // 老镜头：一串彩色的多边形鬼影，边数跟随光圈
   'vintage-ghosts': [
     { type: 'glow', size: 0.25, color: '#ffd9a8', intensity: 0.5, softness: 0.6 },
-    { type: 'ghost', position: 0.3, size: 0.03, color: '#ffcc66', intensity: 0.12, softness: 0.2, sides: FOLLOW_APERTURE },
-    { type: 'ghost', position: 0.55, size: 0.06, color: '#8cf29f', intensity: 0.06, softness: 0.25, sides: FOLLOW_APERTURE },
-    { type: 'ghost', position: 0.8, size: 0.02, color: '#ff8a66', intensity: 0.14, softness: 0.2, sides: FOLLOW_APERTURE },
-    { type: 'ghost', position: 1.1, size: 0.1, color: '#6b9cff', intensity: 0.05, softness: 0.3, sides: FOLLOW_APERTURE },
-    { type: 'ghost', position: 1.35, size: 0.04, color: '#ffad5c', intensity: 0.1, softness: 0.2, sides: FOLLOW_APERTURE },
-    { type: 'ghost', position: 1.7, size: 0.14, color: '#66ccaa', intensity: 0.04, softness: 0.35, sides: FOLLOW_APERTURE },
-    { type: 'ring', position: 1.9, size: 0.08, color: '#ffeeaa', intensity: 0.05, softness: 0.25 },
+    { type: 'ghost', position: 0.3, size: 0.03, color: '#ffcc66', intensity: 0.18, softness: 0.2, sides: FOLLOW_APERTURE },
+    { type: 'ghost', position: 0.55, size: 0.06, color: '#8cf29f', intensity: 0.09, softness: 0.25, sides: FOLLOW_APERTURE },
+    { type: 'ghost', position: 0.8, size: 0.02, color: '#ff8a66', intensity: 0.2, softness: 0.2, sides: FOLLOW_APERTURE },
+    { type: 'ghost', position: 1.1, size: 0.1, color: '#6b9cff', intensity: 0.08, softness: 0.3, sides: FOLLOW_APERTURE },
+    { type: 'ghost', position: 1.35, size: 0.04, color: '#ffad5c', intensity: 0.15, softness: 0.2, sides: FOLLOW_APERTURE },
+    { type: 'ghost', position: 1.7, size: 0.14, color: '#66ccaa', intensity: 0.06, softness: 0.35, sides: FOLLOW_APERTURE },
+    { type: 'ring', position: 1.9, size: 0.08, color: '#ffeeaa', intensity: 0.07, softness: 0.25 },
   ],
   // 小光圈拍太阳：锐利的六芒星和细密的射线，周围有闪点
   star: [
@@ -137,7 +137,7 @@ const PRESET_INPUTS: Record<FlarePresetId, ElementInput[]> = {
   'rainbow-halo': [
     { type: 'glow', size: 0.2, color: '#fff4e0', intensity: 0.6, softness: 0.5 },
     { type: 'rainbow', size: 0.32, intensity: 0.16, softness: 0.35, dispersion: 1 },
-    { type: 'ring', size: 0.5, color: '#ffe0c0', intensity: 0.04, softness: 0.6 },
+    { type: 'ring', size: 0.5, color: '#ffe0c0', intensity: 0.03, softness: 0.6 },
     { type: 'ghost', position: 1.5, size: 0.06, color: '#c4e0ff', intensity: 0.05, softness: 0.4 },
   ],
 }

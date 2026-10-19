@@ -161,7 +161,7 @@ test('a tiled export matches the whole-image render', async ({ page }, info) => 
     ['drop-character', 'figure.png', figure(240, 480)],
   ])
   await settle(page)
-  // 景深、局部调整、色差读取邻近的像素，Bloom、轮廓光束、暗角和颗粒按整幅图像计算
+  // 景深、局部调整、色差读取邻近的像素，Bloom、轮廓光束、光晕、暗角和颗粒按整幅图像计算
   await page.getByTestId('step-focus').click()
   await setSlider(page, 'focus-dof-aperture', 3)
   await page.getByTestId('step-adjust').click()
@@ -180,6 +180,8 @@ test('a tiled export matches the whole-image render', async ({ page }, info) => 
     ['post-grain-amount', 40],
   ] as const)
     await setSlider(page, testId, value)
+  // 镜头光晕逐像素解析计算，可见度来自整幅的代理渲染
+  await page.getByTestId('flare-preset-star').click()
   await page.waitForTimeout(1500)
   const whole = await exportPixels(page)
 
