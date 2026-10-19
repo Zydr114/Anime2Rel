@@ -79,6 +79,11 @@ pnpm dev
 
 构建、测试、部署到自己的服务器等内容见 [开发与部署](docs/Development.md)。
 
+## 协作者
+
+- [Zydr114](https://github.com/Zydr114)：项目维护者，负责需求、设计决策和验收。
+- [Claude](https://www.anthropic.com/claude)（Anthropic）：参与算法设计、编码、测试和文档编写。
+
 ## 协议
 
 本项目以 [GNU Affero 通用公共许可证 v3.0 或更新版本](LICENSE)（AGPL-3.0-or-later）发布。页面底部和“关于”对话框中提供源代码链接。如果你部署的是修改版，请按 [开发与部署](docs/Development.md#协议与源代码链接) 中的说明，把链接指向你自己的源码。
