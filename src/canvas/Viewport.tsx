@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import type { Engine } from '@/engine/Engine'
+import type { Engine, EngineOptions } from '@/engine/Engine'
 import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
 import { isGradeStep } from '@/app/steps'
@@ -11,6 +11,7 @@ import { t } from '@/i18n'
 import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useEngine } from '@/state/engine'
+import { isExporting, useExport } from '@/state/export'
 import { characterBBox, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
@@ -23,8 +24,14 @@ import { useSpaceHeld } from './useSpaceHeld'
 
 const WHEEL_ZOOM_SPEED = 0.0015
 
-function forcedWebGL(): boolean {
-  return new URLSearchParams(location.search).get('renderer') === 'webgl'
+/** 测试用的地址参数：renderer=webgl 强制使用 WebGL2，textureLimit 限制纹理尺寸，exportTile 总是分块导出并指定块的边长 */
+function engineOptions(): EngineOptions {
+  const q = new URLSearchParams(location.search)
+  const size = (key: string) => {
+    const v = Number(q.get(key))
+    return Number.isInteger(v) && v > 0 ? v : undefined
+  }
+  return { forceWebGL: q.get('renderer') === 'webgl', textureLimit: size('textureLimit'), exportTile: size('exportTile') }
 }
 
 /** 画布视口：持有引擎画布，处理平移、缩放、拖放导入，并在上层叠加变换控件。 */
@@ -50,7 +57,7 @@ export function Viewport() {
 
     // three.js 体积较大，单独分包异步加载，首屏不必等待
     import('@/engine/Engine')
-      .then(({ Engine }) => Engine.create(canvas, { forceWebGL: forcedWebGL() }))
+      .then(({ Engine }) => Engine.create(canvas, engineOptions()))
       .then((e) => {
         if (cancelled) {
           e.dispose()
@@ -59,7 +66,6 @@ export function Viewport() {
         engine = e
         const s = useApp.getState()
         e.setView(s.view, s.viewport)
-        e.setDocument(s.doc)
         const syncDepth = () => {
           const { doc } = useApp.getState()
           const d = useDepth.getState()
@@ -88,10 +94,20 @@ export function Viewport() {
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
           e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus' })
         }
-        syncDepth()
-        syncBall()
-        syncFusion()
+        const syncAll = () => {
+          e.setDocument(useApp.getState().doc)
+          syncDepth()
+          syncBall()
+          syncFusion()
+        }
+        syncAll()
+        // 导出期间引擎逐块渲染，文档的变化等导出结束后再一起同步
+        const offExport = useExport.subscribe((next, prev) => {
+          if (next.progress === null && prev.progress !== null) syncAll()
+        })
         const offApp = useApp.subscribe((next, prev) => {
+          if (next.view !== prev.view || next.viewport !== prev.viewport) e.setView(next.view, next.viewport)
+          if (isExporting()) return
           if (next.doc !== prev.doc) {
             e.setDocument(next.doc)
             syncDepth()
@@ -100,9 +116,9 @@ export function Viewport() {
             syncBall()
             syncFusion()
           }
-          if (next.view !== prev.view || next.viewport !== prev.viewport) e.setView(next.view, next.viewport)
         })
         const offDepth = useDepth.subscribe((next, prev) => {
+          if (isExporting()) return
           if (next.resultsVersion !== prev.resultsVersion || next.view !== prev.view || next.overlay !== prev.overlay || next.edgeAlign !== prev.edgeAlign) syncDepth()
           if (next.resultsVersion !== prev.resultsVersion) {
             syncBall()
@@ -110,14 +126,17 @@ export function Viewport() {
           }
         })
         const offLighting = useLighting.subscribe((next, prev) => {
+          if (isExporting()) return
           if (next.analyses !== prev.analyses || next.showBall !== prev.showBall) syncBall()
           if (next.analyses !== prev.analyses) syncFusion()
         })
         const offFusion = useFusion.subscribe((next, prev) => {
+          if (isExporting()) return
           if (next.character !== prev.character) syncBall()
           syncFusion()
         })
         unsubscribe = () => {
+          offExport()
           offApp()
           offDepth()
           offLighting()

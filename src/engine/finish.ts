@@ -21,7 +21,6 @@ import {
   mix,
   neutralToneMapping,
   pow,
-  screenUV,
   select,
   smoothstep,
   sqrt,
@@ -38,7 +37,7 @@ import { MASK_FEATHER, RAMP_SIZE, SPLIT_BLACK, SPLIT_WIDTH, type CreativeParams 
 import type { RegisteredLut } from '@/grade/luts'
 import { MAX_BLEND_LAYERS } from '@/grade/model'
 import { blend, blendLuma } from './blend'
-import { fromOklab, material, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type Vec3Node } from './nodes'
+import { fromOklab, material, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type TileMapping, type Vec2Node, type Vec3Node } from './nodes'
 import type { PostUniforms } from './post'
 
 /** LUT → RGBA 半精度三维纹理，线性插值 */
@@ -151,12 +150,12 @@ const ABERRATION_WEIGHTS = (() => {
 })()
 
 /** 色差：各通道按到画面中心的距离做不同的缩放 */
-function aberration(post: PostUniforms, image: TextureNode): Vec3Node {
-  const d = screenUV.sub(0.5)
+function aberration(post: PostUniforms, image: TextureNode, tile: TileMapping): Vec3Node {
+  const d = tile.uv.sub(0.5)
   let sum: Vec3Node = vec3(0)
   ABERRATION_WEIGHTS.forEach(([r, g, b], i) => {
     const t = (2 * i) / (ABERRATION_TAPS - 1) - 1
-    sum = sum.add(sampleAt(image, d.mul(post.aberration.mul(t).add(1)).add(0.5), float(0)).rgb.mul(vec3(r, g, b)))
+    sum = sum.add(sampleAt(image, tile.toTarget(d.mul(post.aberration.mul(t).add(1)).add(0.5)), float(0)).rgb.mul(vec3(r, g, b)))
   })
   return sum
 }
@@ -169,9 +168,9 @@ const LUMA = vec3(0.2126, 0.7152, 0.0722)
  * 胶片颗粒：按文档坐标划分网格（尺寸相对长边），每个格点三个通道各取一个随机数，在格点间平滑插值并保持方差不变。
  * 颗粒小于一个像素时按尺寸减弱，使缩小的预览与导出图缩小后的观感一致。中间调最明显，在编码值上叠加。
  */
-function grain(post: PostUniforms, c: Vec3Node): Vec3Node {
+function grain(post: PostUniforms, c: Vec3Node, uv: Vec2Node): Vec3Node {
   const e = srgbEncode(clamp(c, 0, 1))
-  const q = screenUV.mul(post.aspect).div(post.grainCell)
+  const q = uv.mul(post.aspect).div(post.grainCell)
   const i = floor(q)
   const f = fract(q)
   const s = f.mul(f).mul(f.mul(-2).add(3))
@@ -198,9 +197,10 @@ function grain(post: PostUniforms, c: Vec3Node): Vec3Node {
 export interface FinishInputs {
   /** 全局调整后的线性图像 */
   image: TextureNode
-  /** Bloom 金字塔（rgb 为 Bloom，a 为 Halation 的亮度）与光束的结果 */
+  /** Bloom 金字塔（rgb 为 Bloom，a 为 Halation 的亮度）与光束的结果，覆盖整幅图像 */
   bloom: THREE.Texture
   rays: THREE.Texture
+  tile: TileMapping
 }
 
 /**
@@ -210,17 +210,18 @@ export interface FinishInputs {
 export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: FinishInputs) {
   const bloomMap = texture(inputs.bloom)
   const raysMap = texture(inputs.rays)
+  const uv = inputs.tile.uv
   const node = Fn(() => {
-    const c = aberration(post, inputs.image).toVar()
+    const c = aberration(post, inputs.image, inputs.tile).toVar()
     If(post.bloom.add(post.halation).greaterThan(0), () => {
-      const bloom = sampleAt(bloomMap, screenUV, float(0))
+      const bloom = sampleAt(bloomMap, uv, float(0))
       c.addAssign(bloom.rgb.mul(post.bloom).add(post.halationColor.mul(bloom.a.mul(post.halation))))
     })
     If(post.rays.greaterThan(0), () => {
-      c.addAssign(sampleAt(raysMap, screenUV, float(0)).rgb.mul(post.rays))
+      c.addAssign(sampleAt(raysMap, uv, float(0)).rgb.mul(post.rays))
     })
     // 暗角：椭圆形，画面角落处半径为 1
-    const r = length(screenUV.sub(0.5)).mul(Math.SQRT2)
+    const r = length(uv.sub(0.5)).mul(Math.SQRT2)
     c.mulAssign(exp2(post.vignette.mul(smoothstep(post.vignetteRange.x, post.vignetteRange.y, r))))
     If(post.toneMapping.equal(1), () => {
       c.assign(agxToneMapping(c, float(1)))
@@ -231,7 +232,7 @@ export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: 
       c.assign(creative(u, c))
     })
     If(post.grain.greaterThan(0), () => {
-      c.assign(grain(post, c))
+      c.assign(grain(post, c, uv))
     })
     return vec4(c, 1)
   })

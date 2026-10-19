@@ -1,4 +1,4 @@
-// 工程的保存、打开与自动保存（docs/Plan.md §6.1 第 8 步）。清单格式与字段检查见 src/state/project.ts。
+// 工程的保存、打开与自动保存（docs/Plan.md §4 第 8 步、§7 的 M6 范围）。清单格式与字段检查见 src/state/project.ts。
 import { fitWithin } from '@/algo/geometry'
 import { t } from '@/i18n'
 import { decodeImage } from '@/io/decode'
@@ -6,7 +6,7 @@ import { downloadBlob } from '@/io/encode'
 import { readAsset, readAutosave, writeAutosave, type AutosaveRecord } from '@/io/storage'
 import { readZip, writeZip } from '@/io/zip'
 import { assetHash, getAsset, registerAsset, type AssetRef } from '@/state/assets'
-import { textureLimit, useEngine } from '@/state/engine'
+import { textureLimit, whenEngineReady } from '@/state/engine'
 import { conformProject, manifestAssets, manifestSlots, manifestStep, MANIFEST_NAME, ProjectError, projectManifest, readManifest, type ProjectAsset } from '@/state/project'
 import { useApp, type DocState, type StepId } from '@/state/store'
 import { ask, notify } from './notify'
@@ -41,24 +41,13 @@ async function snapshot(doc: DocState, step: StepId) {
   return { manifest, files }
 }
 
-function engineReady(): Promise<void> {
-  if (useEngine.getState().status !== 'loading') return Promise.resolve()
-  return new Promise((resolve) => {
-    const off = useEngine.subscribe((s) => {
-      if (s.status === 'loading') return
-      off()
-      resolve()
-    })
-  })
-}
-
 /** 按清单重新登记素材并替换文档。file 按清单中的素材取出原始文件 */
 async function restore(manifestText: string, file: (asset: ProjectAsset) => Promise<Blob | undefined>): Promise<void> {
   const manifest = readManifest(manifestText)
   const slots = manifestSlots(manifest)
   if (!slots.background) throw new ProjectError('工程中没有背景照片')
   const assets = new Map(manifestAssets(manifest).map((a) => [a.key, a]))
-  await engineReady()
+  await whenEngineReady()
   const load = async (key: string): Promise<AssetRef> => {
     const asset = assets.get(key) ?? { key, name: 'image', type: '' }
     const blob = await file(asset)

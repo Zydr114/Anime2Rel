@@ -25,6 +25,8 @@ export interface DecodedImage {
 }
 
 const ALPHA_SAMPLE_EDGE = 512
+/** 按 EXIF 方向摆正，转换到 sRGB，保留直通 alpha */
+const BITMAP_OPTIONS: ImageBitmapOptions = { imageOrientation: 'from-image', premultiplyAlpha: 'none', colorSpaceConversion: 'default' }
 
 function isHeic(file: File): boolean {
   return /hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name)
@@ -36,10 +38,9 @@ function isHeic(file: File): boolean {
  */
 export async function decodeImage(file: File, maxEdge: number): Promise<DecodedImage> {
   if (file.type && !file.type.startsWith('image/')) throw new DecodeError('not-image', file.name)
-  const options: ImageBitmapOptions = { imageOrientation: 'from-image', premultiplyAlpha: 'none', colorSpaceConversion: 'default' }
   let bitmap: ImageBitmap
   try {
-    bitmap = await createImageBitmap(file, options)
+    bitmap = await createImageBitmap(file, BITMAP_OPTIONS)
   } catch {
     throw new DecodeError(isHeic(file) ? 'heic' : 'decode', file.name)
   }
@@ -49,7 +50,7 @@ export async function decodeImage(file: File, maxEdge: number): Promise<DecodedI
   const target = fitWithin({ width: sourceWidth, height: sourceHeight }, maxEdge)
   const downscaled = target.width !== sourceWidth || target.height !== sourceHeight
   if (downscaled) {
-    const resized = await createImageBitmap(bitmap, { ...options, resizeWidth: target.width, resizeHeight: target.height, resizeQuality: 'high' })
+    const resized = await createImageBitmap(bitmap, { ...BITMAP_OPTIONS, resizeWidth: target.width, resizeHeight: target.height, resizeQuality: 'high' })
     bitmap.close()
     bitmap = resized
   }
@@ -62,4 +63,9 @@ export async function decodeImage(file: File, maxEdge: number): Promise<DecodedI
   const { transparentRatio, hasTransparency } = analyzeAlpha(ctx.getImageData(0, 0, sample.width, sample.height).data)
 
   return { name: file.name, bitmap, sourceWidth, sourceHeight, downscaled, transparentRatio, hasTransparency }
+}
+
+/** 按原分辨率解码，与 decodeImage 的处理一致（导出时从原图裁剪超出纹理上限的背景） */
+export function decodeOriginal(blob: Blob): Promise<ImageBitmap> {
+  return createImageBitmap(blob, BITMAP_OPTIONS)
 }

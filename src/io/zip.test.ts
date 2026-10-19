@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { crc32, readZip, writeZip } from './zip'
+import { crc32 } from './crc32'
+import { readZip, writeZip } from './zip'
 
 describe('zip', () => {
   it('computes the standard CRC-32', () => {

@@ -22,3 +22,15 @@ export const useEngine = create<EngineState>()((set) => ({
 export function textureLimit(): number {
   return useEngine.getState().engine?.maxTextureSize ?? 8192
 }
+
+/** 等引擎初始化结束（成功或失败）：解码图片前需要知道纹理尺寸上限 */
+export function whenEngineReady(): Promise<void> {
+  if (useEngine.getState().status !== 'loading') return Promise.resolve()
+  return new Promise((resolve) => {
+    const off = useEngine.subscribe((s) => {
+      if (s.status === 'loading') return
+      off()
+      resolve()
+    })
+  })
+}

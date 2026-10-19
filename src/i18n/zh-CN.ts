@@ -3,6 +3,7 @@ import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
 import type { BlendKind, BlendMode, CurveChannel, GradeLevel, HslBand, ToneKey, WheelKey } from '@/grade/model'
 import type { ToneMapping } from '@/grade/post'
+import type { ImageFormat } from '@/io/encode'
 import type { BuiltinPresetId } from '@/grade/preset'
 import type { GradeTab } from '@/state/grade'
 import type { BrushTool } from '@/state/regions'
@@ -305,12 +306,22 @@ export const zhCN = {
   },
   export: {
     title: '导出',
-    format: '格式：PNG',
+    formats: { png: 'PNG', jpeg: 'JPEG', webp: 'WebP' } as Record<ImageFormat, string>,
+    formatHints: {
+      png: '无损，文件最大。',
+      jpeg: '有损压缩，文件小，适合分享。',
+      webp: '有损压缩，同样的画质比 JPEG 更小；边长不能超过 16383 像素。',
+    } as Record<ImageFormat, string>,
+    quality: '质量',
     resolution: (w: number, h: number) => `分辨率：${w} × ${h}（背景原图）`,
-    action: '导出 PNG',
-    working: '正在导出…',
+    downscaled: (w: number, h: number) => `原图超出了显卡的纹理上限，预览按 ${w} × ${h} 显示，导出时分块渲染原分辨率。`,
+    action: (format: string) => `导出 ${format}`,
+    working: (percent: number) => `正在导出… ${percent}%`,
+    cancel: '取消',
+    cancelled: '已取消导出',
     done: '已导出',
     failed: '导出失败',
+    tooLarge: (format: string, w: number, h: number) => `${w} × ${h} 超出了 ${format} 或浏览器画布的尺寸上限，请改用 PNG 导出。`,
   },
   adjust: {
     tabs: { basic: '基础调整', style: '色彩风格', presets: '预设' } as Record<GradeTab, string>,

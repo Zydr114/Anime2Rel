@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { screenUV, texture } from 'three/tsl'
+import { texture } from 'three/tsl'
 import { detectCapabilities, type GpuCapabilities } from './capabilities'
 import {
   applyFocusParams,
@@ -14,6 +14,7 @@ import {
 } from './dof'
 import { applyFinishParams, createFinishPass, createFinishUniforms, disposeFinish, setFinishLut } from './finish'
 import { applyFusionParams } from './fusion'
+import { createTileMapping } from './nodes'
 import {
   applyAdjustParams,
   createAdjustUniforms,
@@ -43,6 +44,7 @@ import {
 } from './passes'
 import { applyPostParams, createPostPasses, createPostUniforms, disposePostPasses, renderPost, resizePostPasses, BLOOM_SIZE } from './post'
 import { applyShadowParams, createShadowPass, createShadowUniforms } from './shadow'
+import { planTiles, tilePlan, WHOLE_PIXELS, type Rect } from './tiling'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
@@ -55,8 +57,9 @@ import type { PostParams } from '@/grade/post'
 import type { NormalMap } from '@/fusion/protocol'
 import type { ShadowParams } from '@/fusion/shadow'
 import type { RegionMask } from '@/focus/regions'
+import { decodeOriginal } from '@/io/decode'
 import type { BallPreview } from '@/lighting/preview'
-import { getAsset } from '@/state/assets'
+import { getAsset, type AssetRef } from '@/state/assets'
 import type { DebugView } from '@/state/depth'
 import type { DocState } from '@/state/store'
 
@@ -64,13 +67,27 @@ export interface EngineOptions {
   forceWebGL?: boolean
   /** 预览渲染的长边上限（像素） */
   previewMaxEdge?: number
+  /** 测试用：把纹理尺寸上限限制得比显卡更小 */
+  textureLimit?: number
+  /** 测试用：总是分块导出，并指定块的边长 */
+  exportTile?: number
 }
 
-export interface RenderedImage {
-  width: number
+/** 导出结果中完整宽度的一条像素带 */
+export interface ImageBand {
+  /** 起始行与行数 */
+  y: number
   height: number
   /** 紧密排列、首行在上的 RGBA8（sRGB） */
   pixels: Uint8Array
+}
+
+export interface ExportOptions {
+  /** 按从上到下的顺序收到各条像素带 */
+  onBand: (band: ImageBand) => Promise<void> | void
+  /** 每渲染完一块调用一次 */
+  onProgress?: (done: number, total: number) => void
+  signal?: AbortSignal
 }
 
 function makePlaceholder(): THREE.DataTexture {
@@ -191,38 +208,67 @@ function linearTarget(width: number, height: number, mipmaps = false, filter: TH
   })
 }
 
-/** 合成用的中间图层，尺寸与输出相同（弥散圆统计块为 1/16，局部调整的引导滤波系数为 1/4） */
+function byteTarget(width: number, height: number): THREE.RenderTarget {
+  return new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
+}
+
+/** 合成用的中间图层，尺寸与渲染目标相同（弥散圆统计块为 1/16，各级局部调整的引导滤波系数为 1/4） */
 type LayerKey = keyof LayerTextures | 'tone' | 'adjusted'
-type LayerTargets = Record<LayerKey | 'tiles' | 'toneCoef', THREE.RenderTarget>
+const COEF = { background: 'backgroundCoef', character: 'characterCoef', global: 'globalCoef' } as const satisfies Record<GradeLevel, string>
+type CoefKey = (typeof COEF)[GradeLevel]
+const COEF_KEYS: readonly string[] = Object.values(COEF)
+type LayerTargets = Record<LayerKey | 'tiles' | CoefKey, THREE.RenderTarget>
+type SkipLayers = Partial<Record<LayerKey | CoefKey, boolean>>
 
 const tileCount = (n: number) => Math.max(1, Math.ceil(n / TILE))
 const coefSize = (n: number) => Math.max(1, Math.ceil(n / 4))
 
-/** 创建中间图层；skip 中的图层在这次渲染中用不到，只分配 1×1。Bloom 和光束从全局调整结果的 mipmap 采样 */
-function layerTargets(width: number, height: number, skip: Partial<Record<LayerKey, boolean>> = {}, adjustedMips = true): LayerTargets {
-  const target = (key: LayerKey, mipmaps = false) => (skip[key] ? linearTarget(1, 1) : linearTarget(width, height, mipmaps))
+/** 创建中间图层（1×1，由 sizeLayers 设置尺寸）。Bloom 和光束从全局调整结果的 mipmap 采样 */
+function layerTargets(adjustedMips = true): LayerTargets {
+  const target = (mipmaps = false) => linearTarget(1, 1, mipmaps)
   return {
-    background: target('background'),
-    prep: target('prep', true),
-    tiles: linearTarget(tileCount(width), tileCount(height), false, THREE.NearestFilter),
-    backgroundDof: target('backgroundDof'),
-    character: target('character', true),
-    characterAdjusted: target('characterAdjusted', true),
-    characterDepth: target('characterDepth', true),
-    characterDof: target('characterDof'),
-    occlusion: target('occlusion'),
-    shadow: target('shadow', true),
-    composited: target('composited'),
-    adjusted: target('adjusted', adjustedMips),
-    graded: target('graded'),
-    tone: target('tone', true),
-    toneCoef: skip.tone ? linearTarget(1, 1) : linearTarget(coefSize(width), coefSize(height), true),
+    background: target(),
+    prep: target(true),
+    tiles: linearTarget(1, 1, false, THREE.NearestFilter),
+    backgroundDof: target(),
+    character: target(true),
+    characterAdjusted: target(true),
+    characterDepth: target(true),
+    characterDof: target(),
+    occlusion: target(),
+    shadow: target(true),
+    composited: target(),
+    adjusted: target(adjustedMips),
+    graded: target(),
+    tone: target(true),
+    backgroundCoef: target(true),
+    characterCoef: target(true),
+    globalCoef: target(true),
   }
+}
+
+/** 按渲染目标的尺寸设置中间图层；skip 中的图层在这次渲染中用不到，保持 1×1 */
+function sizeLayers(targets: Partial<LayerTargets>, width: number, height: number, skip: SkipLayers = {}): void {
+  for (const [key, rt] of Object.entries(targets) as [keyof LayerTargets, THREE.RenderTarget][]) {
+    if (key !== 'tiles' && skip[key]) continue
+    if (key === 'tiles') rt.setSize(tileCount(width), tileCount(height))
+    else if (COEF_KEYS.includes(key)) rt.setSize(coefSize(width), coefSize(height))
+    else rt.setSize(width, height)
+  }
+}
+
+/** 渲染方式：预览（叠加调试视图）、整幅导出、分块导出前的整幅代理渲染（到全局调整和 Bloom、光束为止）、分块导出的一块 */
+type RenderMode = 'preview' | 'full' | 'proxy' | 'tile'
+
+/** 渲染目标在输出图像中的范围（像素） */
+interface Frame extends Rect {
+  outWidth: number
+  outHeight: number
 }
 
 /**
  * 渲染引擎：持有 WebGPURenderer（必要时回退 WebGL2）和所有 GPU 资源。
- * 管线：立绘预处理 → 文档空间的分层合成（预览分辨率，见 renderDocument）→ 视口显示；导出时以原分辨率合成后编码。
+ * 管线：立绘预处理 → 文档空间的分层合成（预览分辨率，见 renderDocument）→ 视口显示；导出时以背景原图的分辨率合成后编码（见 renderExport）。
  */
 export class Engine {
   readonly renderer: THREE.WebGPURenderer
@@ -245,9 +291,10 @@ export class Engine {
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
   private readonly docRT = linearTarget(1, 1, true)
-  private readonly layers = layerTargets(1, 1)
+  private readonly layers = layerTargets()
 
-  private readonly placement = createPlacement()
+  private readonly tile = createTileMapping()
+  private readonly placement = createPlacement(this.tile)
   private readonly backgroundNode
   private readonly layerNodes: Record<keyof LayerTargets, THREE.TextureNode>
   private readonly depthNodes
@@ -286,6 +333,8 @@ export class Engine {
     | 'toneCoef',
     THREE.QuadMesh
   >
+  private readonly textureLimit: number
+  private readonly exportTile: number | undefined
   /** 各级局部调整的 log2 亮度 */
   private readonly toneQuads: Record<GradeLevel, THREE.QuadMesh>
 
@@ -302,15 +351,19 @@ export class Engine {
   private viewDirty = false
   private frame = 0
   private disposed = false
+  /** 导出期间不渲染预览：导出逐块修改统一量和图层绑定 */
+  private exporting = false
 
   private constructor(renderer: THREE.WebGPURenderer, capabilities: GpuCapabilities, options: EngineOptions) {
     this.renderer = renderer
     this.capabilities = capabilities
-    this.previewMaxEdge = Math.min(options.previewMaxEdge ?? 2048, capabilities.maxTextureSize)
+    this.textureLimit = Math.min(capabilities.maxTextureSize, options.textureLimit ?? Infinity)
+    this.exportTile = options.exportTile
+    this.previewMaxEdge = Math.min(options.previewMaxEdge ?? 2048, this.textureLimit)
 
     this.charPrep = createCharPrepPass(this.placeholder)
     const placement = this.placement
-    this.backgroundNode = texture(this.placeholder, screenUV)
+    this.backgroundNode = texture(this.placeholder, this.tile.toBackground(this.tile.uv))
     const characterNode = texture(this.charRT.texture, placement.charUV)
     this.depthNodes = createDepthNodes(placement, this.backgroundNode, characterNode, this.depthPlaceholder)
     const layer = (key: keyof LayerTargets) => texture(this.layers[key].texture)
@@ -329,29 +382,32 @@ export class Engine {
       adjusted: layer('adjusted'),
       graded: layer('graded'),
       tone: layer('tone'),
-      toneCoef: layer('toneCoef'),
+      backgroundCoef: layer('backgroundCoef'),
+      characterCoef: layer('characterCoef'),
+      globalCoef: layer('globalCoef'),
     })
     const dof = this.dof
-    const lt: LocalTone = { ...this.local, tone: nodes.tone, coef: nodes.toneCoef }
+    const lt = (level: GradeLevel): LocalTone => ({ ...this.local, uv: this.tile.uv, tone: nodes.tone, coef: nodes[COEF[level]] })
     this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder)
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
-    this.encode = createEncodePass(this.placeholder)
+    this.encode = createEncodePass(this.placeholder, this.tile)
     this.postPasses = createPostPasses(this.post, nodes.adjusted, this.depthNodes.background.sky, this.depthNodes.uniforms.hasBgDepth, nodes.character)
-    const finishInputs = { image: nodes.adjusted, bloom: this.postPasses.bloomResult, rays: this.postPasses.raysResult }
+    const finishInputs = { image: nodes.adjusted, bloom: this.postPasses.bloomResult, rays: this.postPasses.raysResult, tile: this.tile }
     const quad = (m: THREE.NodeMaterial) => new THREE.QuadMesh(m)
     this.quads = {
       charPrep: quad(this.charPrep.material),
       // 背景层调整只改背景本身：立绘的融合和深度仍按原图计算
-      backgroundAdjust: quad(createBackgroundAdjustPass(this.adjust.background, lt, this.backgroundNode)),
+      backgroundAdjust: quad(createBackgroundAdjustPass(this.adjust.background, lt('background'), this.backgroundNode)),
       prep: quad(createPrepPass(dof, nodes.background, this.depthNodes.background.depth)),
       tiles: quad(createTilePass(dof, nodes.prep)),
       backgroundDof: quad(createBackgroundDofPass(dof, nodes.prep, nodes.tiles)),
       character: quad(this.character.material),
-      characterAdjust: quad(createCharacterAdjustPass(this.adjust.character, lt, nodes.character)),
+      characterAdjust: quad(createCharacterAdjustPass(this.adjust.character, lt('character'), nodes.character)),
       characterDepth: quad(
         createCharacterDepthPass(dof, {
           p: placement.p,
+          uv: this.tile.uv,
           alpha: characterNode.a.mul(placement.inside),
           inside: placement.inside,
           relief: this.depthNodes.character.depth,
@@ -363,12 +419,13 @@ export class Engine {
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
       shadow: quad(createShadowPass(this.shadow, placement, texture(this.charRT.texture), this.depthNodes.background)),
       composite: quad(createCompositePass({ placement, background: nodes.background, layers: nodes, dof, shadow: this.shadow })),
-      globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt, nodes.composited)),
+      globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt('global'), nodes.composited)),
       finish: quad(createFinishPass(this.finish, this.post, finishInputs)),
       display: quad(this.debugView.material),
       present: quad(this.present.material),
       encode: quad(this.encode.material),
-      toneCoef: quad(createToneCoefPass(lt)),
+      // 系数 pass 只读取 tone，三级共用
+      toneCoef: quad(createToneCoefPass(lt('global'))),
     }
     this.toneQuads = {
       background: quad(createTonePass(this.adjust.background, this.backgroundNode.rgb)),
@@ -386,7 +443,7 @@ export class Engine {
   }
 
   get maxTextureSize(): number {
-    return this.capabilities.maxTextureSize
+    return this.textureLimit
   }
 
   setDocument(doc: DocState): void {
@@ -590,10 +647,7 @@ export class Engine {
       this.docSize = { width: asset.width, height: asset.height }
       const preview = fitWithin(this.docSize, this.previewMaxEdge)
       this.docRT.setSize(preview.width, preview.height)
-      for (const [key, rt] of Object.entries(this.layers))
-        if (key === 'tiles') rt.setSize(tileCount(preview.width), tileCount(preview.height))
-        else if (key === 'toneCoef') rt.setSize(coefSize(preview.width), coefSize(preview.height))
-        else rt.setSize(preview.width, preview.height)
+      sizeLayers(this.layers, preview.width, preview.height)
       this.placement.uniforms.docSize.value.set(asset.width, asset.height)
       this.present.uniforms.docSize.value.set(asset.width, asset.height)
       resizePostPasses(this.postPasses, this.docSize)
@@ -637,28 +691,41 @@ export class Engine {
     for (const key of Object.keys(targets) as (keyof LayerTargets)[]) this.layerNodes[key].value = targets[key].texture
   }
 
+  /** 设置渲染目标在输出图像中的位置，以及按渲染目标、输出图像换算的尺寸 */
+  private setFrame(f: Frame, targets: LayerTargets, tiled: boolean): void {
+    const t = this.tile.uniforms
+    t.offset.value.set(f.x / f.outWidth, f.y / f.outHeight)
+    t.scale.value.set(f.width / f.outWidth, f.height / f.outHeight)
+    t.pixel.value.set(f.x, f.y)
+    const long = Math.max(f.outWidth, f.outHeight)
+    const u = this.dof
+    u.targetSize.value.set(f.width, f.height)
+    u.targetLong.value = long
+    u.tileSize.value.set(targets.tiles.width, targets.tiles.height)
+    this.character.fusion.targetScale.value = f.outWidth / this.docSize!.width
+    this.local.size.value.set(f.width, f.height)
+    this.local.outSize.value.set(f.outWidth, f.outHeight)
+    this.local.long.value = long
+    // 分块时系数纹理来自预览分辨率的整幅渲染
+    const coef = targets.backgroundCoef
+    this.local.coefShift.value = tiled ? Math.log2(long / Math.max(coef.width, coef.height)) : 2
+    this.post.long.value = long
+    this.post.aspect.value.set(f.outWidth / long, f.outHeight / long)
+    this.post.sourceLod.value = Math.log2(long / BLOOM_SIZE)
+  }
+
   /**
    * 渲染文档：背景层调整、背景预处理与景深（需要时）→ 立绘层、立绘层调整、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成 → 全局调整
    * → Bloom 金字塔与光束（需要时）→ 终处理到 out。
    * 每一级有局部调整时，先在它的调整 pass 之前算出 log2 亮度和引导滤波系数。
-   * 预览（preview 为 true）时先合成到中间图层，再叠加调试视图和灰球。
-   * 尺寸由 out 决定，弥散圆和噪声按 out 相对文档的比例换算。
+   * 预览时先合成到中间图层，再叠加调试视图和灰球。分块导出的一块不计算引导滤波系数、Bloom 和光束，使用代理渲染的结果。
+   * frame 为 out 在输出图像中的范围，默认是整幅图像；弥散圆和噪声按输出图像相对文档的比例换算。
    */
-  private renderDocument(targets: LayerTargets, out: THREE.RenderTarget, background: boolean, effects: Effects, preview = false): void {
+  private renderDocument(targets: LayerTargets, out: THREE.RenderTarget, effects: Effects, mode: RenderMode, background = true, frame?: Frame): void {
     if (!this.docSize) return
     const r = this.renderer
-    const { width, height } = out
-    const u = this.dof
-    u.targetSize.value.set(width, height)
-    u.targetLong.value = Math.max(width, height)
-    u.tileSize.value.set(targets.tiles.width, targets.tiles.height)
-    this.character.fusion.targetScale.value = width / this.docSize.width
-    const long = Math.max(width, height)
-    this.local.size.value.set(width, height)
-    this.local.long.value = long
-    this.post.long.value = long
-    this.post.aspect.value.set(width / long, height / long)
-    this.post.sourceLod.value = Math.log2(long / BLOOM_SIZE)
+    const tiled = mode === 'tile'
+    this.setFrame(frame ?? { x: 0, y: 0, width: out.width, height: out.height, outWidth: out.width, outHeight: out.height }, targets, tiled)
     const pass = (quad: THREE.QuadMesh, target: THREE.RenderTarget) => {
       r.setRenderTarget(target)
       quad.render(r)
@@ -666,7 +733,7 @@ export class Engine {
     const tone = (level: GradeLevel) => {
       if (!effects.local[level]) return
       pass(this.toneQuads[level], targets.tone)
-      pass(this.quads.toneCoef, targets.toneCoef)
+      if (!tiled) pass(this.quads.toneCoef, targets[COEF[level]])
     }
     if (background) {
       tone('background')
@@ -685,8 +752,9 @@ export class Engine {
     pass(this.quads.composite, targets.composited)
     tone('global')
     pass(this.quads.globalAdjust, targets.adjusted)
-    renderPost(r, this.postPasses, effects)
-    if (!preview) return pass(this.quads.finish, out)
+    if (!tiled) renderPost(r, this.postPasses, effects)
+    if (mode === 'proxy') return
+    if (mode !== 'preview') return pass(this.quads.finish, out)
     pass(this.quads.finish, targets.graded)
     pass(this.quads.display, out)
   }
@@ -694,8 +762,8 @@ export class Engine {
   private renderFrame(): void {
     if (this.disposed) return
     const r = this.renderer
-    if (this.docDirty && this.docSize) {
-      this.renderDocument(this.layers, this.docRT, this.backgroundDirty, this.effects(this.display), true)
+    if (this.docDirty && this.docSize && !this.exporting) {
+      this.renderDocument(this.layers, this.docRT, this.effects(this.display), 'preview', this.backgroundDirty)
       this.backgroundDirty = false
       this.docDirty = false
       this.viewDirty = true
@@ -708,47 +776,167 @@ export class Engine {
     }
   }
 
-  /** 以背景原分辨率渲染最终结果并读回为 sRGB RGBA8。 */
-  async renderFullResolution(): Promise<RenderedImage> {
-    if (!this.docSize || !this.doc) throw new Error('没有可导出的文档')
-    const { width, height } = this.docSize
-    const r = this.renderer
+  /** 导出图像的尺寸：背景原图的分辨率 */
+  exportSize(): Size | null {
+    const bg = this.doc?.background
+    return bg && this.docSize ? { width: bg.sourceWidth, height: bg.sourceHeight } : null
+  }
+
+  /**
+   * 以背景原图的分辨率渲染最终结果，按从上到下的顺序交给 onBand（sRGB RGBA8）。
+   * 图像较小时整幅渲染；超过渲染目标的面积上限、或背景超出纹理上限（预览使用缩小的位图）时分块渲染：
+   * 先在预览分辨率上整幅渲染一次，得到局部调整的系数和 Bloom、光束，再逐块渲染，背景从原图中裁剪。
+   */
+  async renderExport(options: ExportOptions): Promise<Size> {
+    const size = this.exportSize()
+    const bg = this.doc?.background
+    if (!size || !bg || !this.docSize) throw new Error('没有可导出的文档')
     // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
     const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false }
     const effects = this.effects(display)
-    const targets = layerTargets(
-      width,
-      height,
-      {
-        backgroundDof: !effects.dof,
-        characterDof: !effects.dof,
-        occlusion: !effects.occlusion,
-        shadow: !effects.shadow,
-        graded: true,
-        tone: !GRADE_LEVELS.some((level) => effects.local[level]),
-      },
-      effects.bloom || effects.rays,
-    )
-    const linear = linearTarget(width, height)
-    const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
+    const skip: SkipLayers = {
+      backgroundDof: !effects.dof,
+      characterDof: !effects.dof,
+      occlusion: !effects.occlusion,
+      shadow: !effects.shadow,
+      graded: true,
+      tone: !GRADE_LEVELS.some((level) => effects.local[level]),
+      backgroundCoef: !effects.local.background,
+      characterCoef: !effects.local.character,
+      globalCoef: !effects.local.global,
+    }
+    const downscaled = size.width !== this.docSize.width || size.height !== this.docSize.height
+    this.exporting = true
     this.syncDisplay(display)
     try {
-      this.bindLayers(targets)
-      this.renderDocument(targets, linear, true, effects)
-      this.encode.source.value = linear.texture
-      r.setRenderTarget(out)
-      this.quads.encode.render(r)
-      r.setRenderTarget(null)
-      const raw = (await r.readRenderTargetPixelsAsync(out, 0, 0, width, height)) as Uint8Array
-      const webgl = this.capabilities.backend === 'webgl2'
-      const stride = rowStride(width, 4, 1, webgl ? 1 : WEBGPU_ROW_ALIGNMENT)
-      const pixels = unpackRows(raw, width, height, 4, stride, webgl)
-      return { width, height, pixels }
+      if (!this.exportTile && !downscaled && size.width * size.height <= WHOLE_PIXELS) await this.exportWhole(size, effects, skip, options)
+      else await this.exportTiles(size, effects, skip, downscaled ? bg : null, options)
+      return size
     } finally {
+      this.exporting = false
       this.bindLayers(this.layers)
-      this.syncDisplay()
+      const t = this.tile.uniforms
+      t.bgOffset.value.set(0, 0)
+      t.bgScale.value.set(1, 1)
+      t.bgTexel.value = 1
+      this.backgroundNode.value = this.bgTexture ?? this.placeholder
       this.encode.source.value = this.placeholder
+      // 代理渲染覆盖了预览的中间图层
+      this.backgroundDirty = true
+      this.syncDisplay()
+    }
+  }
+
+  /** 编码到 8 位渲染目标并读回为紧密排列、首行在上的 RGBA8 */
+  private async readEncoded(linear: THREE.RenderTarget, out: THREE.RenderTarget): Promise<Uint8Array> {
+    const r = this.renderer
+    const { width, height } = out
+    this.encode.source.value = linear.texture
+    r.setRenderTarget(out)
+    this.quads.encode.render(r)
+    r.setRenderTarget(null)
+    const raw = (await r.readRenderTargetPixelsAsync(out, 0, 0, width, height)) as Uint8Array
+    const webgl = this.capabilities.backend === 'webgl2'
+    return unpackRows(raw, width, height, 4, rowStride(width, 4, 1, webgl ? 1 : WEBGPU_ROW_ALIGNMENT), webgl)
+  }
+
+  private async exportWhole({ width, height }: Size, effects: Effects, skip: SkipLayers, options: ExportOptions): Promise<void> {
+    const targets = layerTargets(effects.bloom || effects.rays)
+    sizeLayers(targets, width, height, skip)
+    const linear = linearTarget(width, height)
+    const out = byteTarget(width, height)
+    try {
+      this.bindLayers(targets)
+      this.renderDocument(targets, linear, effects, 'full')
+      const pixels = await this.readEncoded(linear, out)
+      options.onProgress?.(1, 1)
+      await options.onBand({ y: 0, height, pixels })
+    } finally {
       for (const rt of Object.values(targets)) rt.dispose()
+      linear.dispose()
+      out.dispose()
+    }
+  }
+
+  /** 分块渲染需要的扩展量和块大小 */
+  private tilePlan(size: Size, effects: Effects, cropped: boolean) {
+    const long = Math.max(size.width, size.height)
+    const u = this.dof
+    const water = effects.occlusion ? u.charHeight.value * 0.008 : 0
+    return tilePlan({
+      long,
+      scale: size.width / this.docSize!.width,
+      coc: effects.dof || effects.occlusion ? Math.max(u.aperture.value, u.characterCoc.value) * long : 0,
+      aberration: this.post.aberration.value,
+      reach: water + (cropped ? this.character.fusion.wrapRadius.value : 0),
+      maxEdge: this.textureLimit,
+      inner: this.exportTile,
+    })
+  }
+
+  /** original 为需要从原图裁剪背景时的背景素材 */
+  private async exportTiles(size: Size, effects: Effects, skip: SkipLayers, original: AssetRef | null, options: ExportOptions): Promise<void> {
+    const { width, height } = size
+    // 代理：预览分辨率的整幅渲染，留下各级局部调整的系数和 Bloom、光束的结果
+    this.bindLayers(this.layers)
+    this.renderDocument(this.layers, this.docRT, effects, 'proxy')
+
+    const plan = this.tilePlan(size, effects, !!original)
+    const rows = planTiles(width, height, plan.inner, plan.margin)
+    const total = rows.length * rows[0].length
+    // 各级局部调整的系数使用代理渲染的结果
+    const { backgroundCoef, characterCoef, globalCoef, ...own } = layerTargets(false)
+    const targets: LayerTargets = { ...own, backgroundCoef: this.layers.backgroundCoef, characterCoef: this.layers.characterCoef, globalCoef: this.layers.globalCoef }
+    for (const rt of [backgroundCoef, characterCoef, globalCoef]) rt.dispose()
+    const linear = linearTarget(1, 1)
+    const out = byteTarget(1, 1)
+    let source: ImageBitmap | null = null
+    let done = 0
+    try {
+      if (original) {
+        const asset = getAsset(original.id)
+        if (!asset) throw new Error('找不到背景原图')
+        source = await decodeOriginal(asset.source)
+        if (source.width !== width || source.height !== height) throw new Error('背景原图的尺寸与导入时不一致')
+      }
+      const t = this.tile.uniforms
+      this.bindLayers(targets)
+      for (const row of rows) {
+        const band = row[0].inner
+        const pixels = new Uint8Array(width * band.height * 4)
+        for (const { inner, target } of row) {
+          options.signal?.throwIfAborted()
+          sizeLayers(own, target.width, target.height, skip)
+          linear.setSize(target.width, target.height)
+          out.setSize(target.width, target.height)
+          let crop: { bitmap: ImageBitmap; texture: THREE.Texture } | null = null
+          if (source) {
+            const bitmap = await createImageBitmap(source, target.x, target.y, target.width, target.height)
+            crop = { bitmap, texture: bitmapTexture(bitmap) }
+            this.backgroundNode.value = crop.texture
+            t.bgOffset.value.set(target.x / width, target.y / height)
+            t.bgScale.value.set(target.width / width, target.height / height)
+            t.bgTexel.value = width / this.docSize!.width
+          }
+          try {
+            this.renderDocument(targets, linear, effects, 'tile', true, { ...target, outWidth: width, outHeight: height })
+            const tile = await this.readEncoded(linear, out)
+            const dx = inner.x - target.x
+            for (let y = 0; y < inner.height; y++) {
+              const from = ((inner.y - target.y + y) * target.width + dx) * 4
+              pixels.set(tile.subarray(from, from + inner.width * 4), (y * width + inner.x) * 4)
+            }
+          } finally {
+            crop?.texture.dispose()
+            crop?.bitmap.close()
+          }
+          options.onProgress?.(++done, total)
+        }
+        await options.onBand({ y: band.y, height: band.height, pixels })
+      }
+    } finally {
+      source?.close()
+      for (const rt of Object.values(own)) rt.dispose()
       linear.dispose()
       out.dispose()
     }

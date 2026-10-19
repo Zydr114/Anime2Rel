@@ -1,7 +1,7 @@
 import { t } from '@/i18n'
 import { DecodeError, decodeImage, type DecodedImage } from '@/io/decode'
 import { registerAsset } from '@/state/assets'
-import { textureLimit } from '@/state/engine'
+import { textureLimit, whenEngineReady } from '@/state/engine'
 import { useApp } from '@/state/store'
 import { ask, notify } from './notify'
 import { isProjectFile, openProjectFile } from './project'
@@ -54,6 +54,7 @@ export async function importFiles(files: Iterable<File>, role: ImportRole): Prom
     if (first) notify(t.import.notImage(first.name))
     return
   }
+  await whenEngineReady()
   const used = new Set<string>()
   for (const file of list) {
     let img: DecodedImage

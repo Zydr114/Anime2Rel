@@ -127,3 +127,98 @@ test('a project survives a reload and round-trips through a .a2r file', async ({
   expect(await page.getByTestId('char-flip').evaluate((el) => (el as HTMLInputElement).checked)).toBe(true)
   expect(maxDiff(await exportPixels(page), before)).toBeLessThanOrEqual(2)
 })
+
+const rendererQuery = (renderer: unknown) => (renderer === 'webgl' ? 'renderer=webgl&' : '')
+
+async function importAndStart(page: Page, files: [testId: string, name: string, buffer: Buffer][]) {
+  for (const [testId, name, buffer] of files) {
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByTestId(testId).click()
+    await (await chooser).setFiles({ name, mimeType: 'image/png', buffer })
+  }
+  await page.getByTestId('start').click()
+}
+
+/** 各通道差值的最大值、平均值，以及超过 tolerance 的比例 */
+function diffStats(a: ExportedImage, b: ExportedImage, tolerance: number) {
+  let max = 0
+  let sum = 0
+  let over = 0
+  for (let i = 0; i < a.data.length; i++) {
+    const d = Math.abs(a.data[i] - b.data[i])
+    max = Math.max(max, d)
+    sum += d
+    if (d > tolerance) over++
+  }
+  return { max, mean: sum / a.data.length, over: over / a.data.length }
+}
+
+test('a tiled export matches the whole-image render', async ({ page }, info) => {
+  const query = rendererQuery(info.project.metadata.renderer)
+  await page.goto(`/?${query}`)
+  await importAndStart(page, [
+    ['drop-background', 'scene.png', scene],
+    ['drop-character', 'figure.png', figure(240, 480)],
+  ])
+  await settle(page)
+  // 景深、局部调整、色差读取邻近的像素，Bloom、暗角和颗粒按整幅图像计算
+  await page.getByTestId('step-focus').click()
+  await setSlider(page, 'focus-dof-aperture', 3)
+  await page.getByTestId('step-adjust').click()
+  for (const [testId, value] of [
+    ['adjust-clarity', 60],
+    ['adjust-sharpen', 80],
+    ['adjust-shadows', 50],
+  ] as const)
+    await setSlider(page, testId, value)
+  await page.getByTestId('step-effects').click()
+  for (const [testId, value] of [
+    ['post-bloom-intensity', 60],
+    ['post-lens-aberration', 60],
+    ['post-lens-vignette', -40],
+    ['post-grain-amount', 40],
+  ] as const)
+    await setSlider(page, testId, value)
+  await page.waitForTimeout(1500)
+  const whole = await exportPixels(page)
+
+  // 同一个工程按 128 像素分块导出
+  await page.waitForTimeout(1500)
+  await page.goto(`/?${query}exportTile=128`)
+  await page.getByTestId('resume-project').click()
+  await settle(page)
+  const tiled = await exportPixels(page)
+  expect([tiled.width, tiled.height]).toEqual([W, H])
+  // 去掉块的扩展边距时接缝处相差 50 以上
+  expect(diffStats(whole, tiled, 4).max).toBeLessThanOrEqual(4)
+})
+
+test('a background beyond the texture limit is exported at its original resolution', async ({ page }, info) => {
+  const [BW, BH] = [1500, 300]
+  const wide = renderScene(BW, BH, {
+    direction: pixelToRay({ x: 0.7 * BW, y: 0.1 * BH }, { width: BW, height: BH }, 60),
+    color: [0.9, 0.8, 0.65],
+    ambient: [0.15, 0.17, 0.2],
+    sunInView: true,
+  })
+  const source = new Uint8Array(wide.rgba.buffer)
+  await page.goto(`/?${rendererQuery(info.project.metadata.renderer)}textureLimit=1024`)
+  await importAndStart(page, [['drop-background', 'wide.png', encodePng(BW, BH, source)]])
+  // 关闭景深后没有任何处理，导出的结果就是原图
+  await page.getByTestId('step-focus').click()
+  await page.getByTestId('focus-dof-enabled').click()
+  await expect.poll(() => page.getByTestId('focus-dof-enabled').evaluate((el) => (el as HTMLInputElement).checked)).toBe(false)
+  await page.getByTestId('step-export').click()
+  await expect(page.getByTestId('export-resolution')).toContainText('1500 × 300')
+  const png = await exportPixels(page)
+  expect(png.name).toMatch(/\.png$/)
+  expect([png.width, png.height]).toEqual([BW, BH])
+  expect(diffStats(png, { ...png, data: Array.from(source) }, 1).max).toBeLessThanOrEqual(1)
+
+  await page.locator('[data-testid="export-format"] mdui-segmented-button[value="jpeg"]').click()
+  const jpeg = await exportPixels(page)
+  expect(jpeg.name).toMatch(/\.jpg$/)
+  expect(jpeg.magic.slice(0, 2)).toEqual([0xff, 0xd8])
+  expect([jpeg.width, jpeg.height]).toEqual([BW, BH])
+  expect(diffStats(jpeg, png, 8).mean).toBeLessThan(2)
+})

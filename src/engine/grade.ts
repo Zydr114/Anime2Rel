@@ -3,8 +3,8 @@
  * 背景层、立绘层、全局各用一套统一量；输入输出都是线性 sRGB。
  *
  * 局部调整（高光、阴影、清晰度、锐化）先把这一级的输入画成 log2 亮度的 mip 金字塔（tone），
- * 再在 1/4 分辨率上算出两个尺度的快速引导滤波系数（toneCoef），调整 pass 据此重建基底。
- * 三级依次渲染，共用这两张纹理。
+ * 再在 1/4 分辨率上算出两个尺度的快速引导滤波系数（coef），调整 pass 据此重建基底。
+ * 三级依次渲染，共用 tone，各用一张 coef。分块导出时 coef 取自预览分辨率的整幅渲染，tone 逐块渲染（锐化使用）。
  */
 import * as THREE from 'three/webgpu'
 import { abs, atan, cos, dot, exp2, float, floor, length, log2, max, mix, screenUV, select, sin, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
@@ -90,19 +90,24 @@ export function createAdjustUniforms() {
 
 export type AdjustUniforms = ReturnType<typeof createAdjustUniforms>
 
-/** 局部调整共用的纹理和输出尺寸 */
+/** 局部调整使用的纹理和尺寸 */
 export interface LocalTone {
-  /** 输出尺寸（像素）与长边 */
+  /** 当前渲染目标的尺寸（像素）、输出图像的尺寸与长边 */
   size: THREE.UniformNode<'vec2', THREE.Vector2>
+  outSize: THREE.UniformNode<'vec2', THREE.Vector2>
   long: THREE.UniformNode<'float', number>
-  /** (y·a, y²·a, a)，y 为 log2 亮度，a 为不透明度（立绘层以外为 1），带 mip */
+  /** log2(输出长边 / coef 的长边)：不分块时 coef 为 1/4 分辨率，即 2 */
+  coefShift: THREE.UniformNode<'float', number>
+  /** 输出图像的 UV，coef 按它采样 */
+  uv: Vec2Node
+  /** (y·a, y²·a, a)，y 为 log2 亮度，a 为不透明度（立绘层以外为 1），与渲染目标同尺寸，带 mip */
   tone: TextureNode
-  /** 两个尺度的引导滤波系数 (a, b)：基底 = a·y + b。1/4 分辨率，带 mip */
+  /** 两个尺度的引导滤波系数 (a, b)：基底 = a·y + b。整幅图像，带 mip */
   coef: TextureNode
 }
 
 export function createLocalUniforms() {
-  return { size: uniform(new THREE.Vector2(1, 1)), long: uniform(1) }
+  return { size: uniform(new THREE.Vector2(1, 1)), outSize: uniform(new THREE.Vector2(1, 1)), long: uniform(1), coefShift: uniform(2) }
 }
 
 const logLuma = (c: Vec3Node): FloatNode => log2(max(dot(c, vec3(...LUMA)), LOG_FLOOR))
@@ -110,10 +115,10 @@ const logLuma = (c: Vec3Node): FloatNode => log2(max(dot(c, vec3(...LUMA)), LOG_
 /** 边长约为 2 × 半径（相对长边）的盒式均值对应的 mip 层级 */
 const boxLod = (lt: LocalTone, radius: number): FloatNode => log2(max(lt.long.mul(2 * radius), 1))
 
-/** 盒式均值：在 lod 层级上取四个对角的样本，平滑 mip 的块状边界。offsetLod 为全分辨率下的层级，决定采样间距。 */
-function boxMean(lt: LocalTone, t: TextureNode, offsetLod: FloatNode, lod: FloatNode): Vec4Node {
-  const d = vec2(exp2(offsetLod).mul(0.5)).div(lt.size)
-  const at = (x: number, y: number) => sampleAt(t, screenUV.add(d.mul(vec2(x, y))), lod)
+/** 盒式均值：在 lod 层级上取 uv 周围四个对角的样本，平滑 mip 的块状边界。offsetLod 为 size 像素下的层级，决定采样间距。 */
+function boxMean(t: TextureNode, uv: Vec2Node, size: Vec2Node, offsetLod: FloatNode, lod: FloatNode): Vec4Node {
+  const d = vec2(exp2(offsetLod).mul(0.5)).div(size)
+  const at = (x: number, y: number) => sampleAt(t, uv.add(d.mul(vec2(x, y))), lod)
   return at(-1, -1).add(at(1, -1)).add(at(-1, 1)).add(at(1, 1)).mul(0.25)
 }
 
@@ -127,7 +132,7 @@ export function createTonePass(u: AdjustUniforms, color: Vec3Node, alpha: FloatN
 export function createToneCoefPass(lt: LocalTone) {
   const coef = (radius: number, eps: number): Vec2Node => {
     const lod = boxLod(lt, radius)
-    const m = boxMean(lt, lt.tone, lod, lod)
+    const m = boxMean(lt.tone, screenUV, lt.size, lod, lod)
     const w = max(m.z, 1e-4)
     const mean = m.x.div(w)
     const variance = max(m.y.div(w).sub(mean.mul(mean)), 0)
@@ -142,11 +147,11 @@ export function createToneCoefPass(lt: LocalTone) {
 function localShift(u: AdjustUniforms, lt: LocalTone, c: Vec3Node): FloatNode {
   const y = logLuma(c)
   const mid = Math.log2(MID_GRAY)
-  // 系数纹理是 1/4 分辨率，层级比全分辨率低 2
+  // 系数纹理的层级比输出分辨率低 coefShift
   const toneLod = boxLod(lt, TONE_RADIUS)
   const clarityLod = boxLod(lt, CLARITY_RADIUS)
-  const toneCoef = boxMean(lt, lt.coef, toneLod, toneLod.sub(2))
-  const clarityCoef = boxMean(lt, lt.coef, clarityLod, clarityLod.sub(2))
+  const toneCoef = boxMean(lt.coef, lt.uv, lt.outSize, toneLod, toneLod.sub(lt.coefShift))
+  const clarityCoef = boxMean(lt.coef, lt.uv, lt.outSize, clarityLod, clarityLod.sub(lt.coefShift))
   const toneBase = toneCoef.x.mul(y).add(toneCoef.y)
   const clarityBase = clarityCoef.z.mul(y).add(clarityCoef.w)
 

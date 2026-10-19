@@ -4,7 +4,7 @@ import { abs, cos, dot, exp, float, fract, fwidth, length, log2, max, mix, satur
 import { isMode, MODE, occlusionStyles, refraction, sampleLevel, waterDepth, waterEdge, waterWave, type DofUniforms } from './dof'
 import { createFusionNode } from './fusion'
 import type { ShadowUniforms } from './shadow'
-import { evalSh, material, srgbDecode, srgbEncode, type FloatNode, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
+import { evalSh, material, srgbDecode, srgbEncode, type FloatNode, type TileMapping, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
 
 /** 立绘预处理：sRGB 直通 alpha → 线性预乘 alpha，写入带 mipmap 的半精度纹理。 */
 export function createCharPrepPass(placeholder: THREE.Texture) {
@@ -74,7 +74,7 @@ function luma(c: Vec3Node): FloatNode {
 }
 
 /** 立绘在文档中的摆放：文档像素坐标、立绘纹理坐标、是否在立绘矩形内。各个 pass 共用同一组统一量。 */
-export function createPlacement() {
+export function createPlacement(tile: TileMapping) {
   const u = {
     docSize: uniform(new THREE.Vector2(1, 1)),
     charCenter: uniform(new THREE.Vector2(0, 0)),
@@ -84,7 +84,7 @@ export function createPlacement() {
     charSize: uniform(new THREE.Vector2(1, 1)),
     hasChar: uniform(0),
   }
-  const p = screenUV.mul(u.docSize)
+  const p = tile.uv.mul(u.docSize)
   /** 文档像素坐标 → 立绘 UV，与 src/algo/geometry.ts 的 docToLayerUV 一致 */
   const toCharUV = (q: Vec2Node) => {
     const d = q.sub(u.charCenter)
@@ -96,7 +96,7 @@ export function createPlacement() {
   }
   const charUV = toCharUV(p)
   const inside = step(0, charUV.x).mul(step(charUV.x, 1)).mul(step(0, charUV.y)).mul(step(charUV.y, 1)).mul(u.hasChar)
-  return { uniforms: u, p, charUV, inside, toCharUV }
+  return { uniforms: u, tile, p, charUV, inside, toCharUV }
 }
 
 export type Placement = ReturnType<typeof createPlacement>
@@ -107,9 +107,10 @@ export type Placement = ReturnType<typeof createPlacement>
  */
 export function createDepthNodes(placement: Placement, background: TextureNode, character: TextureNode, placeholder: { background: DepthTextures; character: DepthTextures }) {
   const u = { edgeAlign: uniform(1), hasBgDepth: uniform(0), hasCharDepth: uniform(0) }
-  const bgCoef = texture(placeholder.background.coef, screenUV)
-  const bgAux = texture(placeholder.background.aux, screenUV)
-  const bgNormal = texture(placeholder.background.normal, screenUV)
+  const uv = placement.tile.uv
+  const bgCoef = texture(placeholder.background.coef, uv)
+  const bgAux = texture(placeholder.background.aux, uv)
+  const bgNormal = texture(placeholder.background.normal, uv)
   const bgDepth = saturate(mix(bgAux.r, dot(bgCoef.rgb, srgbEncode(saturate(background.rgb))).add(bgCoef.a), u.edgeAlign))
 
   const straight = character.rgb.div(max(character.a, 1e-4))
@@ -140,6 +141,7 @@ export function createCharacterPass(placement: Placement, character: TextureNode
     character,
     background,
     normalPlaceholder,
+    tile: placement.tile,
     docSize: u.docSize,
     charSize: u.charSize,
     charRotation: u.charRotation,
@@ -186,7 +188,7 @@ export function createCompositePass(input: { placement: Placement; background: T
   const occ = sampleLevel(layers.occlusion, screenUV).mul(dof.occlusion)
 
   // 按区域把各遮挡方式的权重和参数累加起来；水体的波纹取水体区域的加权平均
-  const styles = occlusionStyles(dof)
+  const styles = occlusionStyles(dof, placement.tile.uv)
   const sum = (f: (s: (typeof styles)[number]) => FloatNode) => styles.reduce<FloatNode>((acc, s) => acc.add(f(s).mul(s.weight)), float(0))
   const water = sum((s) => isMode(s.mode, MODE.water)).mul(dof.occlusion)
   const ripple = sum((s) => isMode(s.mode, MODE.water).mul(s.ripple)).div(max(water, 1e-4))
@@ -201,11 +203,11 @@ export function createCompositePass(input: { placement: Placement; background: T
   const darkenWeight = sum((s) => isMode(s.mode, MODE.darken))
   const multiplyWeight = sum((s) => isMode(s.mode, MODE.multiply))
 
-  // 水下部分的立绘按折射偏移采样
+  // 水下部分的立绘按折射偏移采样（偏移是文档像素，换算到渲染目标的 UV）
   const p = placement.p
   const h = waterDepth(dof, p, waterWave(dof, p), ripple)
   const below = smoothstep(waterEdge(dof).negate(), waterEdge(dof), h).mul(water)
-  const chUV = screenUV.add(refraction(dof, p, ripple).mul(below).div(placement.uniforms.docSize))
+  const chUV = screenUV.add(refraction(dof, p, ripple).mul(below).div(placement.uniforms.docSize).div(placement.tile.uniforms.scale))
   const ch = mix(sampleLevel(layers.characterDof, chUV), sampleLevel(layers.characterAdjusted, chUV), dof.bypass)
 
   // 遮挡：不透明、透明介质、水体为普通覆盖；变暗与正片叠底只改变立绘自身的像素（遮挡层在立绘外就是背景本身）
@@ -273,8 +275,8 @@ export function createDisplayPass(input: { placement: Placement; depth: DepthNod
  * 8 位量化前的抖动：加上 ±0.5 级的 R2 低差异序列（近似蓝噪声），防止平滑渐变出现色带。e 为 sRGB 编码值。
  * 未经处理的 8 位原图像素正好落在量化级上，抖动后不变。
  */
-function dither(e: Vec3Node, amount: FloatNode): Vec3Node {
-  const n = fract(screenCoordinate.x.mul(0.7548776662).add(screenCoordinate.y.mul(0.56984029)).add(0.5))
+function dither(e: Vec3Node, amount: FloatNode, px: Vec2Node = screenCoordinate.xy): Vec3Node {
+  const n = fract(px.x.mul(0.7548776662).add(px.y.mul(0.56984029)).add(0.5))
   return e.add(n.sub(0.5).mul(amount.div(255)))
 }
 
@@ -298,9 +300,9 @@ export function createPresentPass(docTexture: THREE.Texture) {
   return { uniforms: u, document: doc, material: material(vec4(dithered, 1)) }
 }
 
-/** 导出编码：线性 → sRGB，裁剪到 [0,1]，（需要时）抖动后写入 8 位渲染目标。 */
-export function createEncodePass(placeholder: THREE.Texture) {
+/** 导出编码：线性 → sRGB，裁剪到 [0,1]，（需要时）抖动后写入 8 位渲染目标。抖动按输出图像的像素坐标取值 */
+export function createEncodePass(placeholder: THREE.Texture, tile: TileMapping) {
   const src = texture(placeholder, screenUV)
   const ditherAmount = uniform(0)
-  return { source: src, dither: ditherAmount, material: material(vec4(dither(srgbEncode(saturate(src.rgb)), ditherAmount), 1)) }
+  return { source: src, dither: ditherAmount, material: material(vec4(dither(srgbEncode(saturate(src.rgb)), ditherAmount, tile.pixel), 1)) }
 }

@@ -1,6 +1,6 @@
 // 各个 TSL 材质共用的节点函数。
 import * as THREE from 'three/webgpu'
-import { abs, dot, float, mix, pow, sign, step, texture, vec3 } from 'three/tsl'
+import { abs, dot, float, mix, pow, screenCoordinate, screenUV, sign, step, texture, uniform, vec3 } from 'three/tsl'
 import { OKLAB_M1, OKLAB_M1_INV, OKLAB_M2, OKLAB_M2_INV } from '@/algo/oklab'
 
 export type Vec2Node = THREE.Node<'vec2'>
@@ -64,3 +64,34 @@ export function fromOklab(lab: Vec3Node): Vec3Node {
   const l = rows(OKLAB_M2_INV, lab)
   return rows(OKLAB_M1_INV, l.mul(l).mul(l))
 }
+
+/**
+ * 当前渲染目标在输出图像中的位置。分块导出时每块各渲染一次（见 Engine.renderExport），不分块时为整幅图像，uv 即 screenUV。
+ * 整幅图像的纹理（背景、深度、区域遮罩、局部调整系数、Bloom 与光束）按 uv 采样；与渲染目标同尺寸的中间图层仍按 screenUV 采样。
+ */
+export function createTileMapping() {
+  const u = {
+    /** 渲染目标的左上角和尺寸（相对输出图像），左上角的像素坐标 */
+    offset: uniform(new THREE.Vector2(0, 0)),
+    scale: uniform(new THREE.Vector2(1, 1)),
+    pixel: uniform(new THREE.Vector2(0, 0)),
+    /** 背景纹理覆盖的范围（相对输出图像）：从原图裁剪时与渲染目标一致 */
+    bgOffset: uniform(new THREE.Vector2(0, 0)),
+    bgScale: uniform(new THREE.Vector2(1, 1)),
+    /** 背景纹理像素 / 文档像素 */
+    bgTexel: uniform(1),
+  }
+  return {
+    uniforms: u,
+    /** 输出图像的 UV（与文档 UV 相同） */
+    uv: screenUV.mul(u.scale).add(u.offset),
+    /** 输出图像的像素坐标，噪声和抖动按它取值，分块的接缝处连续 */
+    pixel: screenCoordinate.xy.add(u.pixel),
+    /** 输出图像 UV → 渲染目标 UV */
+    toTarget: (q: Vec2Node): Vec2Node => q.sub(u.offset).div(u.scale),
+    /** 输出图像 UV → 背景纹理 UV */
+    toBackground: (q: Vec2Node): Vec2Node => q.sub(u.bgOffset).div(u.bgScale),
+  }
+}
+
+export type TileMapping = ReturnType<typeof createTileMapping>

@@ -32,7 +32,7 @@ function emptyRegions(): THREE.DataTexture {
 
 export function createDofUniforms() {
   return {
-    /** 当前渲染目标与弥散圆统计块纹理的尺寸 */
+    /** 当前渲染目标与弥散圆统计块纹理的尺寸、输出图像的长边（弥散圆按它换算） */
     targetSize: uniform(new THREE.Vector2(1, 1)),
     tileSize: uniform(new THREE.Vector2(1, 1)),
     targetLong: uniform(1),
@@ -114,9 +114,9 @@ export interface StyleNodes {
   ripple: FloatNode
 }
 
-/** 当前像素（文档空间）的各遮挡方式：第 0 项为区域外，后面的区域覆盖前面的 */
-export function occlusionStyles(u: DofUniforms): StyleNodes[] {
-  const r = sampleLevel(u.regions, screenUV)
+/** 文档 UV 处的各遮挡方式：第 0 项为区域外，后面的区域覆盖前面的 */
+export function occlusionStyles(u: DofUniforms, uv: Vec2Node): StyleNodes[] {
+  const r = sampleLevel(u.regions, uv)
   const cover = [r.r, r.g, r.b, r.a]
   const weights: FloatNode[] = []
   let rest: FloatNode = float(1)
@@ -247,7 +247,10 @@ export function createBackgroundDofPass(u: DofUniforms, prep: TextureNode, tiles
  * 透明介质与水体的遮挡强度是介质的不透明度：交界处为 1 − 清澈度，越深越接近 1。
  * 介质按深度测试划定、按深度差加深；水体是水线以下的部分、按离水线的距离加深，与深度无关。
  */
-export function createCharacterDepthPass(u: DofUniforms, input: { p: Vec2Node; alpha: FloatNode; inside: FloatNode; relief: FloatNode; hasRelief: FloatNode; background: FloatNode }) {
+export function createCharacterDepthPass(
+  u: DofUniforms,
+  input: { p: Vec2Node; uv: Vec2Node; alpha: FloatNode; inside: FloatNode; relief: FloatNode; hasRelief: FloatNode; background: FloatNode },
+) {
   const plane = float(1).div(u.planeZ).sub(DEPTH_SHIFT)
   const depth = select(input.alpha.greaterThan(0.004), mix(plane, reliefDepthNode(u, input.relief), input.hasRelief), plane)
   const delta = input.background.sub(depth)
@@ -255,7 +258,7 @@ export function createCharacterDepthPass(u: DofUniforms, input: { p: Vec2Node; a
   const inMedium = max(delta.sub(u.tolerance), 0)
   const wave = waterWave(u, input.p)
   let mask: FloatNode = float(0)
-  for (const s of occlusionStyles(u)) {
+  for (const s of occlusionStyles(u, input.uv)) {
     const medium = behind.mul(float(1).sub(s.clarity.mul(exp(s.density.mul(-MEDIUM_FALLOFF).mul(inMedium)))))
     const h = waterDepth(u, input.p, wave, s.ripple)
     const below = smoothstep(waterEdge(u).negate(), waterEdge(u), h)

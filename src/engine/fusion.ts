@@ -4,9 +4,9 @@
  * 输入输出都是线性预乘 alpha。
  */
 import * as THREE from 'three/webgpu'
-import { atan, cos, dot, float, hash, length, log2, max, min, mix, normalize, pow, saturate, screenCoordinate, select, sin, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { atan, cos, dot, float, hash, length, log2, max, min, mix, normalize, pow, saturate, select, sin, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { FUSION_LIGHTS, type FusionParams } from '@/fusion/params'
-import { evalSh, fromOklab, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type Vec3Node, type Vec4Node } from './nodes'
+import { evalSh, fromOklab, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type TileMapping, type Vec3Node, type Vec4Node } from './nodes'
 
 type Vec2Node = THREE.Node<'vec2'>
 
@@ -36,9 +36,9 @@ function evalCurve(x: FloatNode, xs: Vec3Node, ys: Vec3Node, ms: Vec3Node): Floa
   return select(x.lessThan(xs.x), below, select(x.lessThan(xs.y), first, select(x.lessThan(xs.z), second, above)))
 }
 
-/** 近似单位方差的三角分布噪声；种子保持在 2^24 以内，避免浮点精度造成相邻像素重复 */
-function pixelNoise(channel: number): FloatNode {
-  const px = screenCoordinate.floor()
+/** 近似单位方差的三角分布噪声，按输出图像的像素坐标取值；种子保持在 2^24 以内，避免浮点精度造成相邻像素重复 */
+function pixelNoise(pixel: Vec2Node, channel: number): FloatNode {
+  const px = pixel.floor()
   const row = hash(px.y.mul(3).add(channel)).mul(8388608).floor()
   const h1 = hash(row.add(px.x))
   const h2 = hash(h1.mul(8388608).floor())
@@ -51,9 +51,10 @@ export interface FusionNodeInput {
   /** 立绘纹理坐标与采样节点（线性预乘，带 mipmap） */
   charUV: Vec2Node
   character: TextureNode
-  /** 背景采样节点（带 mipmap，与文档同尺寸） */
+  /** 背景采样节点（带 mipmap），按 tile.toBackground 换算坐标 */
   background: TextureNode
   normalPlaceholder: THREE.Texture
+  tile: TileMapping
   docSize: THREE.UniformNode<'vec2', THREE.Vector2>
   charSize: THREE.UniformNode<'vec2', THREE.Vector2>
   charRotation: THREE.UniformNode<'float', number>
@@ -94,10 +95,10 @@ export function createFusionNode(input: FusionNodeInput) {
     wrapRadius: uniform(1),
     feather: uniform(0),
     noise: v3(),
-    /** 渲染目标像素 / 文档像素，用于把噪声换算到当前分辨率 */
+    /** 输出图像像素 / 文档像素，用于把噪声换算到当前分辨率 */
     targetScale: uniform(1),
   }
-  const { p, charUV, character, background, docSize, charSize, charScale } = input
+  const { p, charUV, character, background, tile, docSize, charSize, charScale } = input
   const texel = vec2(1).div(charSize).div(charScale)
 
   // 边缘羽化：alpha 有变化的地方用十字五点平均
@@ -165,7 +166,7 @@ export function createFusionNode(input: FusionNodeInput) {
   // 边缘带 = alpha × (1 − 模糊 alpha)，轮廓光与 Light Wrap 共用
   const radius = u.wrapRadius
   const charLod = log2(max(radius.div(charScale), 1)).sub(1)
-  const bgLod = log2(max(radius, 1)).sub(1)
+  const bgLod = log2(max(radius.mul(tile.uniforms.bgTexel), 1)).sub(1)
   const half = radius.mul(0.5)
   const diagonal = [vec2(1, 1), vec2(-1, 1), vec2(1, -1), vec2(-1, -1)]
   const blurredAlpha = diagonal
@@ -174,8 +175,8 @@ export function createFusionNode(input: FusionNodeInput) {
     .div(5)
   const docUV = p.div(docSize)
   const blurredBg = diagonal
-    .map((d) => sampleAt(background, docUV.add(d.mul(half).div(docSize)), bgLod).rgb)
-    .reduce<Vec3Node>((acc, v) => acc.add(v), sampleAt(background, docUV, bgLod).rgb)
+    .map((d) => sampleAt(background, tile.toBackground(docUV.add(d.mul(half).div(docSize))), bgLod).rgb)
+    .reduce<Vec3Node>((acc, v) => acc.add(v), sampleAt(background, tile.toBackground(docUV), bgLod).rgb)
     .div(5)
   // 平方让混合集中在最外侧，避免整条边缘带发灰
   const edge = saturate(alpha.mul(float(1).sub(blurredAlpha)).mul(2)).pow(2)
@@ -206,7 +207,7 @@ export function createFusionNode(input: FusionNodeInput) {
   const sigma = u.noise.mul(u.targetScale)
   const base = saturate(wrapped)
   const encoded = srgbEncode(base)
-  const noisy = srgbDecode(saturate(encoded.add(vec3(pixelNoise(0), pixelNoise(1), pixelNoise(2)).mul(sigma))))
+  const noisy = srgbDecode(saturate(encoded.add(vec3(pixelNoise(tile.pixel, 0), pixelNoise(tile.pixel, 1), pixelNoise(tile.pixel, 2)).mul(sigma))))
   const fused = max(wrapped.add(noisy.sub(base)), vec3(0))
 
   const color = mix(center, vec4(fused.mul(alpha), alpha), u.enabled)
