@@ -95,6 +95,7 @@ CHROME_PATH=/usr/bin/chromium pnpm test:e2e
 - M2、M3：[`src/analysis/synthetic.ts`](../src/analysis/synthetic.ts) 光线追踪生成的晴天、阴天和夜景。
 - M3–M5：[`tests/e2e/figure.ts`](../tests/e2e/figure.ts) 绘制的简笔人物作为立绘。
 - M5：LUT 也在测试中生成。
+- M8：边缘混入白色底色的立绘也在测试中生成。
 
 ## 部署
 
