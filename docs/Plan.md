@@ -93,7 +93,7 @@
 | Brotli/Gzip | 减小 JS 体积 | 自带 | 需要开启（ONNX 文件不必压缩） |
 | 单文件大小 | 模型 19.1 MB | 上限 25 MiB，满足 | 无限制 |
 
-仓库提供 `public/_headers`、`deploy/nginx.conf` 和 `deploy/Caddyfile`。
+仓库提供 `public/_headers`、`deploy/nginx.conf` 和 `deploy/Caddyfile`。维护者的站点部署在 <https://tool.talium.site/Anime2Real/>（Caddy 子路径），由 `scripts/deploy.sh` 发布，说明见 `docs/Development.md`。
 
 ---
 
