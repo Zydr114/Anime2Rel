@@ -7,10 +7,11 @@ import type { Vec3 } from '@/algo/sh'
 import type { AnalysisResult } from '@/analysis/protocol'
 import { reanalyze } from '@/analysis/service'
 import { t } from '@/i18n'
-import { MAX_LIGHTS, newDirectionalLight, type Light } from '@/lighting/model'
+import { MAX_LIGHTS, newDirectionalLight, type Light, type LightType } from '@/lighting/model'
 import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useFusion } from '@/state/fusion'
+import { useHints } from '@/state/hints'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { ColorSwatch } from '@/ui/ColorSwatch'
@@ -30,12 +31,16 @@ const formatDegrees = (v: number) => `${Math.round(v)}°`
 const formatIntensity = (v: number) => v.toFixed(2)
 const formatMs = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`)
 const percent = (v: number) => `${Math.round(v * 100)}%`
+/** 自动识别的光源在列表中只显示置信度的高低，具体数值在分析详情中 */
+const confidenceLevel = (c: number) => t.light.confidence[c >= 0.6 ? 'high' : c >= 0.3 ? 'medium' : 'low']
+const INTRO_HINT = 'light-intro'
 
 export function LightPanel() {
   const background = useApp((s) => s.doc.background)
   if (!background) return <p className="px-1 text-sm text-on-surface-variant">{t.light.noBackground}</p>
   return (
     <div className="flex flex-col gap-4">
+      <IntroSection />
       <AnalysisSection assetId={background.id} />
       <LightsSection />
       <SphereSection />
@@ -50,6 +55,35 @@ function Section({ title, children, testId }: { title: string; children: ReactNo
     <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3 text-sm" data-testid={testId}>
       <h3 className="font-medium">{title}</h3>
       {children}
+    </section>
+  )
+}
+
+function LightIcon({ type, className }: { type: LightType; className?: string }) {
+  return type === 'directional' ? <mdui-icon-wb-sunny--outlined className={className} /> : <mdui-icon-lightbulb--outlined className={className} />
+}
+
+/** 初次使用的说明：两种光源的区别和光照方向球的用法，关闭后不再显示 */
+function IntroSection() {
+  const dismissed = useHints((s) => s.dismissed.includes(INTRO_HINT))
+  if (dismissed) return null
+  return (
+    <section className="flex flex-col gap-2 rounded-2xl bg-primary/10 p-3 text-xs leading-5" data-testid="light-intro">
+      <h3 className="text-sm font-medium">{t.light.intro.title}</h3>
+      {(['directional', 'point'] as const).map((type) => (
+        <div key={type} className="flex gap-2">
+          <LightIcon type={type} className="size-5 shrink-0 text-primary" />
+          <div>
+            <span className="font-medium">{t.light.types[type]}</span>
+            <span className="text-on-surface-variant">：{t.light.typeHints[type]}</span>
+          </div>
+        </div>
+      ))}
+      <p className="text-on-surface-variant">{t.light.intro.sphere}</p>
+      <p className="text-on-surface-variant">{t.light.intro.ball}</p>
+      <mdui-button variant="text" className="self-end" onClick={() => useHints.getState().dismiss(INTRO_HINT)} data-testid="light-intro-dismiss">
+        {t.light.intro.dismiss}
+      </mdui-button>
     </section>
   )
 }
@@ -86,6 +120,7 @@ function AnalysisSection({ assetId }: { assetId: string }) {
 }
 
 function AnalysisReport({ result }: { result: AnalysisResult }) {
+  const lights = useApp((s) => s.doc.lighting.lights)
   const r = result.report
   const sh = r.sh && toAngles(r.sh.direction)
   return (
@@ -106,6 +141,9 @@ function AnalysisReport({ result }: { result: AnalysisResult }) {
           <li>{r.skyGradient ? t.light.report.sky(formatDegrees(r.skyGradient.angle * DEG), percent(r.skyGradient.confidence)) : t.light.report.noSky}</li>
           <li>{t.light.report.stats(percent(r.skyFraction), r.skyVariation.toFixed(2), r.contrast.toFixed(1))}</li>
           <li>{t.light.angleHint}</li>
+          {lights.map(
+            (l) => l.origin && <li key={l.id}>{t.light.report.light(lightName(lights, l), l.origin.sources.map((s) => t.light.sources[s]).join('、'), percent(l.origin.confidence))}</li>,
+          )}
         </ul>
       </details>
     </div>
@@ -159,7 +197,7 @@ function LightRow({ light, name, active }: { light: Light; name: string; active:
     if (e.target === el) useApp.getState().updateLight(light.id, { enabled: el.checked })
   })
   const color = linearToHex(light.color)
-  const origin = light.origin ? `${light.origin.sources.map((s) => t.light.sources[s]).join('+')} · ${percent(light.origin.confidence)}` : t.light.manual
+  const origin = light.origin ? `${t.light.auto} · ${confidenceLevel(light.origin.confidence)}` : t.light.manual
 
   return (
     <li
@@ -170,7 +208,7 @@ function LightRow({ light, name, active }: { light: Light; name: string; active:
       data-enabled={light.enabled}
     >
       <span className={cn('flex size-5 shrink-0', !light.enabled && 'opacity-40')} style={{ color }}>
-        {light.type === 'directional' ? <mdui-icon-wb-sunny--outlined className="size-5" /> : <mdui-icon-lightbulb--outlined className="size-5" />}
+        <LightIcon type={light.type} className="size-5" />
       </span>
       <div className={cn('min-w-0 flex-1', !light.enabled && 'opacity-60')}>
         <div className="truncate">{name}</div>
@@ -273,6 +311,9 @@ function LightEditor({ light }: { light: Light }) {
 
   return (
     <div className="flex flex-col gap-3">
+      <p className="text-xs leading-5 text-on-surface-variant" data-testid="light-type-hint">
+        {t.light.typeHints[light.type]}
+      </p>
       {light.type === 'directional' ? (
         <>
           <SliderField label={t.light.azimuth} value={azimuth * DEG} min={-180} max={180} format={formatDegrees} onChange={onAzimuth} testId="light-azimuth" />

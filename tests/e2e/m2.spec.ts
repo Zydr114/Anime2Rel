@@ -109,7 +109,7 @@ test('visible sun becomes an editable light; lights can be dragged, added, recol
   const pointHandle = page.getByTestId(`light-handle-${pointId}`)
   await expect(pointHandle).toHaveAttribute('data-kind', 'point')
   expectNear(await center(pointHandle), groundAt, 4)
-  await expect(page.getByTestId('light-selected')).toContainText('点光源')
+  await expect(page.getByTestId('light-selected')).toContainText('灯')
 
   // 改色：取色器设置后颜色生效，色温显示为自定义
   await page.getByTestId('light-color').click()
