@@ -1,9 +1,9 @@
-# Anime2Rel 的 Caddy 示例配置（见 docs/Plan.md §1.4）。
+# Anime2Real 的 Caddy 示例配置（见 docs/Plan.md §1.4）。
 # Caddy 会自动申请 HTTPS 证书；把 `pnpm build` 生成的 dist/ 目录内容放到 root
 # 指向的位置，再把域名改成自己的即可。
 
-anime2rel.example.com {
-	root * /var/www/anime2rel
+anime2real.example.com {
+	root * /var/www/anime2real
 	# ONNX 模型压缩率很低，Caddy 默认只压缩文本类型，无需特殊处理。
 	encode zstd gzip
 

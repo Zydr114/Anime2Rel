@@ -25,6 +25,8 @@ describe('preset files', () => {
   it('rejects other files and clamps or drops invalid fields', () => {
     expect(() => parsePreset('{', 'x')).toThrow(PresetError)
     expect(() => parsePreset('{"format":"other"}', 'x')).toThrow(PresetError)
+    // 改名前导出的文件仍可导入
+    expect(parsePreset('{"format":"anime2rel-preset","version":1}', '旧').name).toBe('旧')
     const preset = parsePreset(
       JSON.stringify({
         format: PRESET_FORMAT,

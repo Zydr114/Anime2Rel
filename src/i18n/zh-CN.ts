@@ -9,7 +9,7 @@ import type { BrushTool } from '@/state/regions'
 
 export const zhCN = {
   app: {
-    name: 'Anime2Rel',
+    name: 'Anime2Real',
     tagline: '把二次元立绘融入真实照片',
     description: '上传一张背景照片和一张透明背景的立绘，在浏览器本地完成光照、颜色与景深的融合。图片不会上传到任何服务器。',
   },
@@ -471,7 +471,7 @@ export const zhCN = {
     downscaled: (w: number, h: number, max: number) => `图片 ${w} × ${h} 超过 GPU 纹理上限 ${max}，已等比缩小。`,
   },
   about: {
-    title: '关于 Anime2Rel',
+    title: '关于 Anime2Real',
     version: (v: string, commit: string) => `版本 ${v}（${commit}）`,
     license: '本程序是自由软件，以 GNU Affero 通用公共许可证第 3 版或更新版本（AGPL-3.0-or-later）发布。',
     source: '源代码',

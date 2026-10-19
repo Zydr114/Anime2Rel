@@ -10,7 +10,7 @@ export async function exportPng(): Promise<void> {
   try {
     const img = await engine.renderFullResolution()
     const blob = await encodePng(img.pixels, img.width, img.height)
-    downloadBlob(blob, timestampedName('anime2rel', 'png'))
+    downloadBlob(blob, timestampedName('anime2real', 'png'))
     notify(t.export.done)
   } catch (e) {
     notify(`${t.export.failed}：${e instanceof Error ? e.message : String(e)}`)

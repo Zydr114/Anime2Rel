@@ -63,7 +63,7 @@ const ort = ortRuntime()
 function legalFiles(): Plugin {
   const licenseText = readFileSync(new URL('./LICENSE', import.meta.url), 'utf8')
   return {
-    name: 'anime2rel-legal-files',
+    name: 'anime2real-legal-files',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const path = req.url?.split('?')[0]
@@ -109,8 +109,8 @@ export default defineConfig({
               file: fileURLToPath(new URL('./dist/THIRD_PARTY_NOTICES.txt', import.meta.url)),
               template(dependencies) {
                 const header =
-                  'Anime2Rel 使用了以下第三方组件。每个组件按其各自的许可证分发。\n' +
-                  'Anime2Rel uses the following third-party components, each distributed under its own license.\n'
+                  'Anime2Real 使用了以下第三方组件。每个组件按其各自的许可证分发。\n' +
+                  'Anime2Real uses the following third-party components, each distributed under its own license.\n'
                 const npm = dependencies.map((d) =>
                   [
                     `== ${d.name}@${d.version}`,

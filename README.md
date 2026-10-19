@@ -1,4 +1,4 @@
-# Anime2Rel
+# Anime2Real
 
 在浏览器本地把二次元立绘融入真实背景照片，生成“溶图”（Anime in Real）。
 

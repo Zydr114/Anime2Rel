@@ -36,7 +36,9 @@ export interface Preset {
   post: PostDoc
 }
 
-export const PRESET_FORMAT = 'anime2rel-preset'
+export const PRESET_FORMAT = 'anime2real-preset'
+/** 改名前（Anime2Rel）导出的预设文件使用的格式标识，内容相同 */
+const LEGACY_PRESET_FORMATS = ['anime2rel-preset']
 export const PRESET_VERSION = 1
 const MAX_NAME_LENGTH = 60
 /** 曲线控制点数的上限 */
@@ -223,7 +225,7 @@ export function parsePreset(text: string, fallbackName: string): Preset {
     throw new PresetError('不是有效的 JSON 文件')
   }
   const o = record(raw)
-  if (o.format !== PRESET_FORMAT) throw new PresetError('不是 Anime2Rel 的预设文件')
+  if (o.format !== PRESET_FORMAT && !LEGACY_PRESET_FORMATS.includes(o.format as string)) throw new PresetError('不是 Anime2Real 的预设文件')
   if (typeof o.version !== 'number' || o.version > PRESET_VERSION) throw new PresetError('预设来自更新的版本，请更新页面后再试')
   const luts = new Map((Array.isArray(o.luts) ? o.luts : []).map(embeddedLut))
   const lut = (ref: Json): LutRef | null => {
