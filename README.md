@@ -1,106 +1,93 @@
-# Anime2Real
+<p align="center">
+  <img src="public/icon.png" width="160" alt="Anime2Real">
+</p>
 
-在浏览器本地把二次元立绘融入真实背景照片，生成“溶图”（Anime in Real）。
+<h1 align="center">Anime2Real</h1>
 
-上传一张背景照片和一张带透明通道的立绘，摆放好位置后按原图分辨率导出。所有计算都在本地完成，图片不会上传。项目计划见 [`docs/Plan.md`](docs/Plan.md)。
+<p align="center">在浏览器本地把二次元立绘融入真实照片</p>
 
-## 进度
+<p align="center">
+  <a href="https://tool.talium.site/Anime2Real/"><b>在线使用</b></a> ·
+  <a href="docs/Development.md">开发与部署</a> ·
+  <a href="docs/Plan.md">设计文档</a> ·
+  <a href="LICENSE">AGPL-3.0</a>
+</p>
 
-M0–M5 已完成，M6 打磨进行中（工程保存与恢复、分块导出、液态玻璃；中英双语暂缓）。
+---
 
-## 功能
+把立绘直接贴到照片上，一眼就能看出是贴上去的：光从哪边来对不上，颜色比周围鲜艳，边缘太锐利，该被前景挡住的地方也没有挡住。
 
-- **素材与画布**：拖拽、粘贴或选择背景和立绘；摆放、缩放、翻转立绘；视口缩放平移；撤销重做。
-- **深度**：基于 Depth Anything V2 Small 估计深度，生成法线和天空遮罩，可切换调试视图查看。
-- **光源**：自动分析候选方向光和点光源，识别阴天；可在画布和光照方向球上编辑，用灰球预览光照。
-- **立绘融合**：白平衡与影调、色调、饱和度匹配；三种风格的增量重光照与轮廓光；Light Wrap、边缘羽化和噪声匹配；移动立绘时自动更新。
-- **景深与遮挡**：分层景深（点击对焦，可调光圈与散景形状，立绘边缘无光晕）；可拖动的接地点与站立阴影；前景遮挡（深度遮挡、透明介质、水体和画笔划定的多区域遮挡）。
-- **调色**：全局、背景、立绘三级基础调整（曝光、对比度、高光阴影、白色黑色、色温色调、HSL、饱和度、曲线、清晰度、锐化）；色轮、分离色调、`.cube` LUT 和混色层。
-- **后期**：Bloom、胶片红晕、丁达尔光束、色差、暗角、颗粒和可选的色调映射。
-- **预设**：四个内置预设；当前参数可导出为预设文件分享，文件内嵌所用的 LUT。
-- **前后对比**：调色和后期步骤中显示调色前的结果，其他步骤显示直接贴上去的效果。
-- **导出**：按背景原图的分辨率导出 PNG、JPEG 或 WebP；原图超出显卡纹理上限时分块渲染。
-- **工程**：浏览器自动保存当前工程，首页可以继续上次的工程；也可以保存为 `.a2r` 工程文件（包含原图、全部参数和所用的 LUT）。导入的预设保存在浏览器本地。
-- **界面**：面板、工具栏、对话框、菜单和提示使用液态玻璃（Chromium 中有边缘折射，其他浏览器为毛玻璃）；“关于”对话框中可以开启“减少特效”，改为不透明面板。
+Anime2Real 先分析照片的深度和光源，再按立绘所在的位置给它重新打光、匹配颜色和噪点，然后加上景深、遮挡、阴影、调色和胶片效果，让立绘看起来真的处在照片的场景里。这种作品通常称为“溶图”（Anime in Real）。
 
-本项目不提供抠图功能，立绘需要自带透明背景。
+所有计算都在浏览器中完成，图片不会上传到任何服务器。
 
-## 浏览器要求
+## 特性
 
-- 推荐使用支持 WebGPU 的桌面浏览器（Chrome / Edge 113+）。不支持 WebGPU 时会自动回退到 WebGL2。
-- 在地址后加 `?renderer=webgl` 可以强制使用 WebGL2，用于测试回退路径。`?textureLimit=<像素>` 把纹理尺寸上限限制得更小，`?exportTile=<像素>` 让导出总是分块渲染，用于测试分块导出。`?glass=liquid|frosted|solid` 强制指定玻璃效果，用于在 Chromium 中查看其他浏览器的效果。
-- 必须通过 HTTPS 或 `localhost` 访问，否则 WebGPU 不可用。
-- 深度估计优先使用 WebGPU 推理，不可用时回退到 WebAssembly（CPU）。WebAssembly 多线程需要跨源隔离响应头（COOP/COEP），本仓库的部署配置均已包含。
+- **本地运行**：深度模型在浏览器中推理（WebGPU，不支持时用 WebAssembly）。站点是纯静态网页，没有后端。
+- **自动分析照片**：估计深度、法线和天空区域，自动给出候选光源，并识别阴天的漫射光。结果都可以手动修正。
+- **随位置更新的融合**：拖动立绘时，光照和颜色会按新位置周围的环境重新计算，轮廓光和 Light Wrap 也随之更新。
+- **空间感**：分层景深，点击即可对焦；站立阴影落在脚下，方向跟随主光源。树丛、玻璃、雾、水面这类前景可以挡住立绘。
+- **完整的调色**：背景、立绘、全局三级调整；曲线、色轮、分离色调、`.cube` LUT 和混色层。另有 Bloom、胶片红晕、丁达尔光束、颗粒等后期效果，以及四个内置预设。
+- **原图分辨率导出**：按背景照片的原始分辨率输出 PNG、JPEG 或 WebP。超出显卡纹理上限的大图分块渲染，接缝处看不出痕迹。
+- **工程随时保存**：编辑内容自动保存在浏览器中，下次打开可以接着做。也可以存成 `.a2r` 工程文件，换一台电脑继续。
+- **液态玻璃界面**：面板和弹出层的边缘会折射背后的画面（Chromium）。其他浏览器显示毛玻璃，也可以改用不透明面板。
 
-## 开发
+## 工作流程
 
-需要 Node.js 22.12 及以上版本和 pnpm。
+打开页面后，导入一张背景照片和一张带透明背景的立绘，再按左侧的八个步骤依次处理。每一步都可以随时回头修改，修改都能撤销。
+
+| 步骤 | 内容 |
+| --- | --- |
+| **素材** | 拖拽、粘贴或选择图片。带透明区域的图片作为立绘，其他图片作为背景；立绘没有透明通道时会提示。 |
+| **深度** | 用 [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2) 估计背景和立绘的深度，边缘按原图对齐。可以查看深度、法线和天空的调试视图，也可以切换模型源、推理方式和精度。 |
+| **光源** | 综合可见光源、球谐光照、物体轮廓和天空亮度变化，给出候选的方向光和点光源。光源可以在画布和光照方向球上拖动、增删、改颜色，并用灰球预览照明效果。 |
+| **立绘** | 摆放、缩放、旋转、翻转立绘，调整它的前后位置和接地点。可以调节的效果包括：<ul><li>颜色匹配：白平衡、影调、环境色调、饱和度收敛，并保护肤色。</li><li>三种风格的重光照（写实、柔和、赛璐璐），以及轮廓光、高光。</li><li>Light Wrap、边缘羽化、噪声匹配。</li><li>接触阴影和投影。</li></ul> |
+| **景深** | 点击画面对焦，调整光圈、合焦范围和散景形状。立绘有自身的厚度，对焦在脸上时手脚会适当离焦。遮挡有六种方式：不透明、变暗、正片叠底、透明介质、水体、不遮挡。也可以用画笔圈出区域，分别设置遮挡方式。 |
+| **调色** | 三级基础调整：曝光、对比度、高光阴影、白色黑色、色温色调、自然饱和度、HSL、曲线、清晰度、锐化。色彩风格：色轮、分离色调、LUT、最多四个混色层。预设：内置“阴天胶片”“黄昏逆光”“夜景霓虹”“日系清新”，也可以把当前参数导出为预设分享。 |
+| **后期** | 光晕（Bloom）、胶片红晕（Halation）、丁达尔光束（立绘会挡住光线）、色差、暗角、颗粒、色调映射（AgX / Neutral）。 |
+| **导出** | 按背景原图的分辨率导出 PNG、JPEG 或 WebP（可调质量），也可以保存工程文件。 |
+
+在调色和后期步骤中，按 `\` 可以和调色前的画面对比；在其他步骤中，对比的是直接贴上去的效果。
+
+### 快捷键
+
+| 按键 | 作用 |
+| --- | --- |
+| `Ctrl+Z` / `Ctrl+Shift+Z`（或 `Ctrl+Y`） | 撤销 / 重做 |
+| `Ctrl+S` / `Ctrl+O` | 保存 / 打开工程文件 |
+| `F` / `1` / `+` / `-` | 适应窗口 / 100% / 放大 / 缩小 |
+| 按住空格拖动 | 平移画布 |
+| 方向键 / `H` | 微调立绘位置 / 水平翻转 |
+| `V` | 切换调试视图 |
+| `\` | 前后对比 |
+
+## 使用要求
+
+- **浏览器**：推荐桌面版 Chrome 或 Edge 113 及以上版本，以使用 WebGPU 渲染和推理。不支持 WebGPU 的浏览器会自动改用 WebGL2 和 WebAssembly，速度慢一些。Firefox 做过基本测试，Safari 尚未测试。
+- **设备**：目前面向电脑的鼠标和键盘操作，还没有适配手机。
+- **素材**：立绘需要自带透明背景，本项目不提供抠图功能。
+- **首次使用**：深度模型（约 19 MB）默认从魔搭 ModelScope 下载，下载后缓存在浏览器中。下载失败时，可以在“深度”步骤的模型设置中切换到本站或 Hugging Face。
+
+## 本地运行
+
+需要 Node.js 22.12 及以上版本和 pnpm：
 
 ```sh
 pnpm install
-pnpm dev          # 开发服务器（首次运行会下载模型）
-pnpm build        # 下载模型 + 类型检查 + 生产构建，输出到 dist/
-pnpm models       # 只下载模型
-pnpm preview      # 本地预览构建结果（http://localhost:4173）
-pnpm lint         # ESLint
-pnpm typecheck    # TypeScript 类型检查
-pnpm test         # 单元测试（Vitest）
+pnpm dev
 ```
 
-### 深度模型
-
-深度估计使用 [Depth Anything V2 Small](https://huggingface.co/onnx-community/depth-anything-v2-small)（Apache-2.0）的 ONNX 版本，默认从魔搭 ModelScope 下载，站点也自托管一份作为备用源。`pnpm dev` 和 `pnpm build` 会先运行 `scripts/fetch-models.mjs`，把 [`src/depth/models.json`](src/depth/models.json) 中列出的模型下载到 `public/models/`（已在 `.gitignore` 中忽略），校验 SHA-256，并把超过 20 MiB 的文件切成分片。已下载且完整的文件会跳过。
-
-| 环境变量 | 说明 |
-| --- | --- |
-| `A2R_MODELS` | 要下载的精度，逗号分隔，默认全部（`q4f16,fp16,q4,int8`，共约 123 MB）；设为 `none` 跳过下载 |
-| `A2R_HF_ENDPOINT` | 下载源，默认 `https://huggingface.co`；构建机在国内时可设为 `https://hf-mirror.com` |
-
-不带模型构建（`A2R_MODELS=none`）时，站点仍可运行，只是“本站”这个模型源不可用。端到端测试通过浏览器存储把模型源设为“本站”，不依赖外网。
-
-ONNX Runtime 的 WebAssembly 运行时约 26 MB，构建时同样会被切成分片放到 `dist/assets/ort-<哈希>/`。模型和运行时下载后都会存入浏览器的 Cache API，可在“深度”面板中查看占用并清除。
-
-### 端到端测试
-
-端到端测试使用 Playwright，分别在 WebGPU 和 WebGL2 两种后端下运行。测试需要一个支持 WebGPU 的 Chromium 系浏览器，通过环境变量 `CHROME_PATH` 指定：
-
-```sh
-CHROME_PATH=/usr/bin/chromium pnpm test:e2e
-```
-
-不设置 `CHROME_PATH` 时使用 Playwright 自带的浏览器，需要先执行 `pnpm exec playwright install chromium` 下载与当前 Playwright 版本匹配的浏览器。WebGPU 用例需要能访问 GPU 的环境。`pnpm test:e2e` 会先下载模型。测试图像都在测试中程序生成（M1 用例是天空、透视地面和球体组成的合成场景；M2、M3 用例由 [`src/analysis/synthetic.ts`](src/analysis/synthetic.ts) 光线追踪生成晴天、阴天和夜景，M3–M5 的立绘是 [`tests/e2e/figure.ts`](tests/e2e/figure.ts) 绘制的简笔人物，M5 的 LUT 也在测试中生成），仓库不包含示例图片。
-
-测试会在 4173 端口启动预览服务器；如果本地已有其他服务占用这个端口，Playwright 会直接复用它，导致测试打开错误的页面，需要先停止该服务。
-
-## 部署
-
-`pnpm build` 生成的 `dist/` 是纯静态目录（含模型约 146 MB，单个文件均不超过 20 MiB），可以部署到 Cloudflare Pages 或自己的服务器。对服务器的要求见 [`docs/Plan.md` §1.4](docs/Plan.md#14-部署)。
-
-### Cloudflare Pages
-
-| 设置项 | 值 |
-| --- | --- |
-| 构建命令 | `pnpm build` |
-| 输出目录 | `dist` |
-| 环境变量 | `NODE_VERSION=24` |
-
-构建时会从 Hugging Face 下载模型。响应头由 [`public/_headers`](public/_headers) 配置，构建时会自动复制到 `dist/`。
-
-### 自有服务器
-
-- Nginx：参考 [`deploy/nginx.conf`](deploy/nginx.conf)
-- Caddy：参考 [`deploy/Caddyfile`](deploy/Caddyfile)
-
-在本地构建后，把 `dist/` 的内容复制到配置中 `root` 指向的目录，再修改域名和证书路径即可。构建机无法访问 Hugging Face 时，设置 `A2R_HF_ENDPOINT=https://hf-mirror.com`。
+构建、测试、部署到自己的服务器等内容见 [开发与部署](docs/Development.md)。
 
 ## 协议
 
-本项目以 [GNU Affero 通用公共许可证 v3.0 或更新版本](LICENSE)（AGPL-3.0-or-later）发布。
+本项目以 [GNU Affero 通用公共许可证 v3.0 或更新版本](LICENSE)（AGPL-3.0-or-later）发布。页面底部和“关于”对话框中提供源代码链接。如果你部署的是修改版，请按 [开发与部署](docs/Development.md#协议与源代码链接) 中的说明，把链接指向你自己的源码。
 
-根据 AGPL 第 13 条，通过网络向用户提供本程序（包括修改版）时，必须让用户能获取对应的源代码。页面底部和“关于”对话框中的“源代码”链接默认指向本仓库中构建时所用的提交。**如果你部署的是修改版**，请在构建时设置环境变量 `A2R_SOURCE_URL`，指向你自己的源码仓库：
+本项目使用的第三方组件及其协议，见构建产物中的 `THIRD_PARTY_NOTICES.txt`。这些组件包括：
 
-```sh
-A2R_SOURCE_URL=https://example.com/your/fork pnpm build
-```
-
-构建时会自动生成 `THIRD_PARTY_NOTICES.txt`（第三方依赖的协议声明，包括 ONNX Runtime Web 及其第三方声明、Depth Anything V2 Small 模型权重的 Apache-2.0 协议、首页标题字体 Instrument Serif 的 OFL-1.1 协议）和 `LICENSE.txt`，与站点一起发布。`src/ui/magicui/` 中的组件改编自 [Magic UI](https://github.com/magicuidesign/magicui)（MIT），原协议见该目录下的 `LICENSE`。
+- 深度模型 [Depth Anything V2 Small](https://huggingface.co/depth-anything/Depth-Anything-V2-Small)（Apache-2.0）
+- [ONNX Runtime Web](https://github.com/microsoft/onnxruntime)（MIT）
+- [three.js](https://threejs.org/)（MIT）
+- [mdui](https://www.mdui.org/)（MIT）
+- [Magic UI](https://magicui.design/)（MIT）
+- 字体 [Instrument Serif](https://github.com/Instrument/instrument-serif)（OFL-1.1）
