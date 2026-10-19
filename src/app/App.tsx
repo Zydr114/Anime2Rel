@@ -36,7 +36,7 @@ export function App() {
   if (status === 'error') {
     return (
       <div className="flex h-full items-center justify-center p-8" data-testid="gpu-error">
-        <div className="glass max-w-lg rounded-3xl p-8">
+        <div className="glass relative max-w-lg rounded-3xl p-8">
           <h1 className="mb-3 text-xl font-semibold">{t.errors.gpuTitle}</h1>
           <p className="text-sm leading-6 text-on-surface-variant">{t.errors.gpuBody}</p>
           {error && <pre className="mt-4 overflow-auto text-xs whitespace-pre-wrap text-on-surface-variant">{error}</pre>}

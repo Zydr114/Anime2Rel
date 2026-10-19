@@ -27,7 +27,7 @@ export function Toolbar({ onExport }: { onExport: () => void }) {
   const compare = useFusion((s) => s.compare)
 
   return (
-    <Dock className="glass" iconSize={40} iconMagnification={52} iconDistance={110}>
+    <Dock className="glass relative" iconSize={40} iconMagnification={52} iconDistance={110}>
       <DockIcon>
         <IconButton label={t.toolbar.zoomOut} onClick={() => zoomBy(1 / 1.25)}>
           <mdui-icon-zoom-out--outlined />

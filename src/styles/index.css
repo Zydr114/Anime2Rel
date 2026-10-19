@@ -104,27 +104,40 @@ body,
   font-family: var(--font-sans);
 }
 
-/* 玻璃面板：M0 先用毛玻璃，液态玻璃折射在 M6 实现。 */
+/* 玻璃面板：M0 先用毛玻璃，液态玻璃折射在 M6 实现。
+   模糊放在伪元素上：带 backdrop-filter 的元素会成为 fixed 子元素的包含块，面板里 mdui 下拉框（fixed 定位）的菜单会因此偏出窗口。
+   使用 glass 的元素需要自带定位（relative / absolute）。
+   -webkit- 前缀必须写在前面，否则构建压缩时会合并成只有前缀的写法，Chrome 不认。 */
 @utility glass {
-  background: rgb(27 26 24 / 0.74);
-  backdrop-filter: blur(22px) saturate(140%);
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  isolation: isolate;
   border: 1px solid rgb(255 255 255 / 0.08);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.05),
     0 12px 40px rgb(0 0 0 / 0.4);
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: rgb(27 26 24 / 0.74);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    backdrop-filter: blur(22px) saturate(140%);
+    pointer-events: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass::before {
+    background: rgb(27 26 24 / 0.97);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* 胶片颗粒：平铺的分形噪声，叠在首页背景上 */
 @utility film-grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .glass {
-    background: rgb(27 26 24 / 0.97);
-    backdrop-filter: none;
-  }
 }
 
 mdui-slider {
