@@ -161,7 +161,7 @@ test('a tiled export matches the whole-image render', async ({ page }, info) => 
     ['drop-character', 'figure.png', figure(240, 480)],
   ])
   await settle(page)
-  // 景深、局部调整、色差读取邻近的像素，Bloom、暗角和颗粒按整幅图像计算
+  // 景深、局部调整、色差读取邻近的像素，Bloom、轮廓光束、暗角和颗粒按整幅图像计算
   await page.getByTestId('step-focus').click()
   await setSlider(page, 'focus-dof-aperture', 3)
   await page.getByTestId('step-adjust').click()
@@ -174,6 +174,7 @@ test('a tiled export matches the whole-image render', async ({ page }, info) => 
   await page.getByTestId('step-effects').click()
   for (const [testId, value] of [
     ['post-bloom-intensity', 60],
+    ['post-rays-rim', 100],
     ['post-lens-aberration', 60],
     ['post-lens-vignette', -40],
     ['post-grain-amount', 40],

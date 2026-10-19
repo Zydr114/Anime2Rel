@@ -67,7 +67,7 @@ test('visible sun becomes an editable light; lights can be dragged, added, recol
   // 候选：太阳是来自可见光源（A）的方向光，画布上的控件就在太阳处
   const sunRow = rows(page).first()
   await expect(sunRow).toHaveAttribute('data-type', 'directional')
-  await expect(sunRow).toContainText('可见')
+  await expect(sunRow).toHaveAttribute('data-sources', /A/)
   const sunId = await lightId(sunRow)
   const sunHandle = page.getByTestId(`light-handle-${sunId}`)
   await expect(sunHandle).toHaveAttribute('data-kind', 'directional')
@@ -147,7 +147,7 @@ test('lamp at night becomes a point light at the lamp', async ({ page }, info) =
   await open(page, 'webgpu', night)
   await expect(page.getByTestId('light-diffuse')).toHaveCount(0)
   const row = page.locator('[data-testid^="light-row-"][data-type="point"]').first()
-  await expect(row).toContainText('可见')
+  await expect(row).toHaveAttribute('data-sources', /A/)
   const handle = page.getByTestId(`light-handle-${await lightId(row)}`)
   expectNear(await center(handle), (await docToPage(page))(LAMP), 10)
 })

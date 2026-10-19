@@ -205,6 +205,7 @@ function LightRow({ light, name, active }: { light: Light; name: string; active:
       onClick={() => useLighting.getState().select(light.id)}
       data-testid={`light-row-${light.id}`}
       data-type={light.type}
+      data-sources={light.origin?.sources.join(',')}
       data-enabled={light.enabled}
     >
       <span className={cn('flex size-5 shrink-0', !light.enabled && 'opacity-40')} style={{ color }}>
