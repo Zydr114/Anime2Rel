@@ -7,7 +7,8 @@ export type ModelSource = 'self' | 'hf' | 'modelscope'
 
 export const MODEL = manifest
 export const PRECISIONS = Object.keys(manifest.variants) as Precision[]
-export const MODEL_SOURCES: readonly ModelSource[] = ['self', 'hf', 'modelscope']
+/** 第一个为默认源：魔搭 ModelScope 国内外都能访问，本站自托管和 Hugging Face 作为备用 */
+export const MODEL_SOURCES: readonly ModelSource[] = ['modelscope', 'self', 'hf']
 
 /**
  * 远程源的下载地址。Hugging Face 固定到清单中的提交。

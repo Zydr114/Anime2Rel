@@ -46,14 +46,14 @@ pnpm test         # 单元测试（Vitest）
 
 ### 深度模型
 
-深度估计使用 [Depth Anything V2 Small](https://huggingface.co/onnx-community/depth-anything-v2-small)（Apache-2.0）的 ONNX 版本，默认随站点自托管。`pnpm dev` 和 `pnpm build` 会先运行 `scripts/fetch-models.mjs`，把 [`src/depth/models.json`](src/depth/models.json) 中列出的模型下载到 `public/models/`（已在 `.gitignore` 中忽略），校验 SHA-256，并把超过 20 MiB 的文件切成分片。已下载且完整的文件会跳过。
+深度估计使用 [Depth Anything V2 Small](https://huggingface.co/onnx-community/depth-anything-v2-small)（Apache-2.0）的 ONNX 版本，默认从魔搭 ModelScope 下载，站点也自托管一份作为备用源。`pnpm dev` 和 `pnpm build` 会先运行 `scripts/fetch-models.mjs`，把 [`src/depth/models.json`](src/depth/models.json) 中列出的模型下载到 `public/models/`（已在 `.gitignore` 中忽略），校验 SHA-256，并把超过 20 MiB 的文件切成分片。已下载且完整的文件会跳过。
 
 | 环境变量 | 说明 |
 | --- | --- |
 | `A2R_MODELS` | 要下载的精度，逗号分隔，默认全部（`q4f16,fp16,q4,int8`，共约 123 MB）；设为 `none` 跳过下载 |
 | `A2R_HF_ENDPOINT` | 下载源，默认 `https://huggingface.co`；构建机在国内时可设为 `https://hf-mirror.com` |
 
-不带模型构建（`A2R_MODELS=none`）时，站点仍可运行，但只能在设置中改用 Hugging Face 或魔搭 ModelScope 远程下载模型。
+不带模型构建（`A2R_MODELS=none`）时，站点仍可运行，只是“本站”这个模型源不可用。端到端测试通过浏览器存储把模型源设为“本站”，不依赖外网。
 
 ONNX Runtime 的 WebAssembly 运行时约 26 MB，构建时同样会被切成分片放到 `dist/assets/ort-<哈希>/`。模型和运行时下载后都会存入浏览器的 Cache API，可在“深度”面板中查看占用并清除。
 

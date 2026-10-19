@@ -14,6 +14,11 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: `http://localhost:${port}/`,
+    // 默认模型源是魔搭；测试使用构建时下载到站点的模型，不依赖外网
+    storageState: {
+      cookies: [],
+      origins: [{ origin: `http://localhost:${port}`, localStorage: [{ name: 'a2r.depth.settings', value: JSON.stringify({ version: 2, source: 'self', device: 'auto', precision: 'auto' }) }] }],
+    },
     viewport: { width: 1440, height: 900 },
     acceptDownloads: true,
     launchOptions: {

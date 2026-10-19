@@ -24,15 +24,18 @@ export type JobStatus =
   | { state: 'error'; message: string }
 
 const SETTINGS_KEY = 'a2r.depth.settings'
-const DEFAULT_SETTINGS: DepthSettings = { source: 'self', device: 'auto', precision: 'auto' }
+/** 设置格式的版本。版本 2 起默认模型源改为魔搭；更早版本保存时总会带上当时默认的“本站”，读取时不沿用 */
+const SETTINGS_VERSION = 2
+const DEFAULT_SETTINGS: DepthSettings = { source: MODEL_SOURCES[0], device: 'auto', precision: 'auto' }
 
 function loadSettings(): DepthSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    const saved = raw ? (JSON.parse(raw) as Partial<DepthSettings>) : {}
+    const saved = raw ? (JSON.parse(raw) as Partial<DepthSettings> & { version?: number }) : {}
     // 旧版本或手工修改的值不在可选范围内时回到默认值
+    const source = saved.version === SETTINGS_VERSION ? saved.source : undefined
     return {
-      source: MODEL_SOURCES.includes(saved.source as ModelSource) ? saved.source! : DEFAULT_SETTINGS.source,
+      source: MODEL_SOURCES.includes(source as ModelSource) ? source! : DEFAULT_SETTINGS.source,
       device: (['auto', 'webgpu', 'wasm'] as const).includes(saved.device as DepthSettings['device']) ? saved.device! : DEFAULT_SETTINGS.device,
       precision: saved.precision === 'auto' || PRECISIONS.includes(saved.precision as Precision) ? saved.precision! : DEFAULT_SETTINGS.precision,
     }
@@ -79,7 +82,7 @@ export const useDepth = create<DepthState>()((set) => ({
     set((s) => {
       const settings = { ...s.settings, ...update }
       try {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, version: SETTINGS_VERSION }))
       } catch {
         // 隐私模式等情况下无法持久化，忽略
       }

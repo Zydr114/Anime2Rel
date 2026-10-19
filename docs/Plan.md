@@ -64,7 +64,7 @@
 | — | DA V2/V3 Base 及以上、DA3 Large/Giant | — | CC-BY-NC-4.0 | ❌ 非商用，与 AGPL 冲突 |
 | — | Apple DepthPro | — | Apple ASCL | ❌ |
 
-**模型分发**：默认随站点自托管在 `/models/`（构建时由 `scripts/fetch-models.mjs` 下载，超过 20 MiB 的文件切片）。设置中提供备用源：Hugging Face 和魔搭 ModelScope。下载后校验 SHA-256，由 Cache API 持久缓存。hf-mirror.com 对带第三方 Referer 的请求返回防盗链页面，不适合网页直接下载，M1 起改用 ModelScope。
+**模型分发**：默认从魔搭 ModelScope 下载（2026-10-19 起；国内外都能访问）。站点同时自托管一份在 `/models/`（构建时由 `scripts/fetch-models.mjs` 下载，超过 20 MiB 的文件切片），与 Hugging Face 一起作为设置中的备用源。下载后校验 SHA-256，由 Cache API 持久缓存。hf-mirror.com 对带第三方 Referer 的请求返回防盗链页面，不适合网页直接下载，M1 起改用 ModelScope。
 
 **降级链**：WebGPU q4f16（需要 `shader-f16` 特性）→ WebGPU fp16 → WebGPU q4 → WASM q4。
 
@@ -521,7 +521,7 @@ M5 实现说明（与上文不同的地方）：
 | 颜色匹配过强会让立绘发灰、发暗，失去原画的鲜艳感 | 默认强度偏保守（真实立绘测试表明没有适用于所有素材的默认值）；各项可单独调节；提供前后对比 |
 | 大图显存压力 | 预览上限 2048 px，导出分块 |
 | 浏览器不支持 WebGPU | 渲染回退到 WebGL2，推理回退到 WASM q4，并提示耗时会变长 |
-| 国内访问 Hugging Face 不稳定 | 默认自托管模型，魔搭 ModelScope 作为备用 |
+| 国内访问 Hugging Face 不稳定 | 默认使用魔搭 ModelScope，本站自托管和 Hugging Face 作为备用 |
 | 液态玻璃的兼容性和性能 | Chromium 使用折射版，其他浏览器使用毛玻璃；提供“减少特效”开关 |
 | 三种设计语言混搭显得割裂 | 按 §6.2 分工，统一 token |
 
