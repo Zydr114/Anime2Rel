@@ -99,6 +99,37 @@ mdui-slider {
   --mdui-comp-slider-track-height: 4px;
 }
 
+/* Tailwind 的 preflight 把所有元素的 padding、margin、border 清零，也覆盖了 mdui 组件宿主自带的样式，这里恢复 mdui 的默认值。
+   导航栏失去内边距后导航项变成 80px 宽，悬停的状态层（56px，靠左）与居中的选中指示块错开。 */
+mdui-navigation-rail {
+  padding: 0.375rem 0.75rem;
+}
+mdui-menu {
+  padding-block: 0.5rem;
+}
+mdui-segmented-button {
+  border: 0.0625rem solid rgb(var(--mdui-color-outline-variant));
+}
+mdui-segmented-button:not(.mdui-segmented-button-first) {
+  margin-left: -0.0625rem;
+}
+
+/* 检查器只有 320px 宽：分段按钮允许收缩，并去掉选中时的对勾（会让按钮变宽、撑出面板），选中仍以底色区分 */
+mdui-segmented-button {
+  flex-shrink: 1;
+  min-width: 0;
+}
+mdui-segmented-button::part(button) {
+  padding-inline: 0.375rem;
+  white-space: nowrap;
+}
+mdui-segmented-button::part(selected-icon) {
+  display: none;
+}
+mdui-segmented-button::part(label) {
+  padding-left: 0;
+}
+
 /* 选项较多的下拉框（如 16 种混合模式）限制菜单高度并滚动，否则菜单超出窗口、末尾的选项无法选中 */
 mdui-select::part(menu) {
   max-height: min(60vh, 24rem);
