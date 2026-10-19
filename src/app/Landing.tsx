@@ -30,9 +30,9 @@ function DropZone({ role, title, hint, asset, optional }: { role: 'background' |
         if (e.dataTransfer.files.length) void importFiles(e.dataTransfer.files, role)
       }}
       className={cn(
-        'relative flex h-64 w-72 cursor-pointer flex-col items-center justify-center gap-3 overflow-hidden rounded-3xl border border-white/8 bg-[#1b1a18]/80 p-5 text-center transition',
-        'hover:-translate-y-0.5 hover:border-white/15 focus-visible:outline-2 focus-visible:outline-champagne',
-        over && 'scale-[1.02] bg-champagne/10',
+        'glass group relative flex h-64 w-72 cursor-pointer flex-col items-center justify-center gap-3 overflow-hidden rounded-3xl p-5 text-center transition',
+        'hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-champagne',
+        over && 'scale-[1.02] outline-2 outline-champagne/60',
       )}
     >
       {asset ? (
@@ -55,6 +55,7 @@ function DropZone({ role, title, hint, asset, optional }: { role: 'background' |
           {optional && <div className="text-xs text-taupe/70">{t.landing.optional}</div>}
         </>
       )}
+      <HoverLayer />
       <BorderBeam size={90} duration={role === 'background' ? 7 : 9} delay={role === 'background' ? 0 : 3} colorFrom="#ffb27a" colorTo="#8f7bff" borderWidth={1.5} />
     </button>
   )
@@ -62,9 +63,13 @@ function DropZone({ role, title, hint, asset, optional }: { role: 'background' |
 
 const start = () => useApp.getState().start()
 
+/** 玻璃按钮的悬停高亮：玻璃元素自身的背景会被当作玻璃后面的背景，所以另用一层叠在玻璃之上、内容之下（按钮需带 group 类） */
+function HoverLayer() {
+  return <span className="pointer-events-none absolute inset-0 -z-1 rounded-[inherit] transition-colors [corner-shape:inherit] group-hover:bg-white/5" />
+}
+
 /** 与“开始”按钮同高的胶囊按钮 */
-const PILL =
-  'flex h-12 cursor-pointer items-center rounded-full border border-white/10 bg-[#1b1a18]/80 transition hover:border-white/20 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-champagne'
+const PILL = 'glass group relative flex h-12 cursor-pointer items-center rounded-full focus-visible:outline-2 focus-visible:outline-champagne'
 
 /** 继续浏览器中自动保存的上一个工程，或打开工程文件 */
 function ProjectEntries() {
@@ -95,6 +100,7 @@ function ProjectEntries() {
   if (!last) {
     return (
       <button type="button" onClick={open} data-testid="open-project" className={cn(PILL, 'gap-2 px-6 text-sm text-ivory')}>
+        <HoverLayer />
         <mdui-icon-folder-open--outlined className="text-champagne" style={{ fontSize: 20 }} />
         {t.landing.openProject}
       </button>
@@ -103,6 +109,7 @@ function ProjectEntries() {
   return (
     <div className="flex flex-col items-center gap-1.5">
       <button type="button" onClick={resume} disabled={busy} data-testid="resume-project" className={cn(PILL, 'gap-3 py-1 pr-5 pl-1 text-left disabled:cursor-progress disabled:opacity-60')}>
+        <HoverLayer />
         {last.url ? (
           <img src={last.url} alt="" className="h-10 w-14 rounded-full object-cover" />
         ) : (

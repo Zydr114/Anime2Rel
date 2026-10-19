@@ -20,7 +20,7 @@ export function SelectField<T extends string>({ label, value, options, onChange,
     else (el as HTMLElement & { value: string }).value = value
   })
   return (
-    <mdui-select ref={ref} label={label} value={value} variant="outlined" data-testid={testId}>
+    <mdui-select ref={ref} label={label} value={value} variant="filled" data-testid={testId}>
       {options.map((o) => (
         <mdui-menu-item key={o.value} value={o.value}>
           {o.label}

@@ -54,9 +54,11 @@ export function BlurFade({
       filter: `blur(${blur})`,
     },
     visible: {
-      [direction === "left" || direction === "right" ? "x" : "y"]: 0,
+      ...(direction === "left" || direction === "right" ? { x: 0 } : { y: 0 }),
       opacity: 1,
       filter: `blur(0px)`,
+      // 结束后去掉滤镜：带 filter 的祖先会让里面的玻璃（backdrop-filter）看不到页面背景
+      transitionEnd: { filter: "none" },
     },
   }
   const combinedVariants = variant ?? defaultVariants

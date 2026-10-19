@@ -133,8 +133,8 @@ test('presets apply as one undo step and round-trip through a file with the LUT 
   await segment(page, 'grade-tab', 'presets')
   const download = page.waitForEvent('download')
   await page.getByTestId('preset-export').click()
-  await page.locator('mdui-dialog input').fill('交换红蓝')
-  await page.locator('mdui-dialog mdui-button', { hasText: '导出' }).click()
+  await page.locator('mdui-dialog[open] input').fill('交换红蓝')
+  await page.locator('mdui-dialog[open] mdui-button', { hasText: '导出' }).click()
   const file = await download
   expect(file.suggestedFilename()).toBe('交换红蓝.json')
   const path = info.outputPath('preset.json')

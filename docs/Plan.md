@@ -40,7 +40,7 @@
 | 样式 | Tailwind CSS v4 | MIT | Magic UI 依赖 |
 | 基础组件 | mdui 2（Material 3 Web Components） | MIT | 提供滑块、开关、分段按钮、导航栏、对话框等表单控件 |
 | 展示组件 | Magic UI（通过 shadcn CLI 复制进仓库）+ motion | MIT | Dock、BorderBeam、ShimmerButton、BlurFade、AnimatedBeam 等动效 |
-| 液态玻璃 | 自研 `<GlassSurface>`，算法参考 iyinchao/liquid-glass-studio | MIT | 见 §6.3 |
+| 液态玻璃 | 自研（`glass` 样式类 + `src/ui/glass` 的滤镜管理），算法参考 iyinchao/liquid-glass-studio | MIT | 见 §6.3 |
 | 渲染 | three.js r186 `WebGPURenderer` + TSL | MIT | WebGPU 不可用时自动回退到 WebGL2；内置 Bloom、DOF、Film、Lut3D、radialBlur、GaussianBlur、Sharpen 等节点 |
 | 推理 | onnxruntime-web 1.30（M1 起直接使用，不经过 transformers.js） | MIT | 在独立 Worker 中运行，优先 WebGPU，失败时回退 WASM。直接使用便于分片下载运行时与模型（Cloudflare Pages 单文件 25 MiB 上限）并自行控制缓存，包体积也更小 |
 | 状态 | Zustand + immer + zundo | MIT | 参数树可序列化，支持撤销/重做、预设和工程保存 |
@@ -478,9 +478,30 @@ M5 实现说明（与上文不同的地方）：
 
 ### 6.3 液态玻璃
 
-- **Chromium**：使用 SVG `feDisplacementMap` 配合 `backdrop-filter: url(#…)`。位移图在 canvas 上一次性生成：先求超椭圆圆角矩形的 SDF，再按 Snell 定律计算折射偏移，RGB 三通道使用不同偏移量以形成色散。数学参考 iyinchao/liquid-glass-studio（MIT）。
-- **Firefox / Safari**：回退为 `backdrop-filter: blur() saturate()`，加内高光描边和菲涅尔渐变边框。
-- **开关**：设置中提供“减少特效”，并遵循 `prefers-reduced-motion` 和 `prefers-reduced-transparency`。
+- **范围**：导航栏、检查器、工具栏、取色器浮层、首屏的上传卡片和胶囊按钮、GPU 错误提示，以及 mdui 的对话框面板、菜单（含下拉框的菜单）、提示和消息条。
+- **Chromium**：使用 SVG `feDisplacementMap` 配合 `backdrop-filter: url(#…)`。
+  - **位移图**：在 canvas 上生成。先求超椭圆圆角矩形的 SDF，再按 Snell 定律计算折射偏移，数学参考 iyinchao/liquid-glass-studio（MIT）。
+    - 圆角使用 CSS `corner-shape: squircle`（指数 4 的超椭圆），SDF 按表面实际的 `corner-shape` 与圆角半径生成，折射边缘与裁剪形状一致。胶囊形和提示保持 `round`。
+    - 边缘是一圈凸起，宽度为短边的 30%，限制在 4–24 px。高度剖面为 h(s) = (1 − (1 − s)⁴)^¼，厚度为凸起宽度的 1.6 倍，折射率 1.5。
+    - 视线从内侧取样，所以边缘处显示被压缩的内侧背景。R、G 通道编码 x、y 偏移，B 通道编码边缘高光：外沿约 1.5 px 的亮线加上凸起内侧的微光，按法线与左上方光源的夹角调制。
+  - **滤镜链**：先用 CSS 的 `blur(6px) saturate(140%)` 处理背景（边缘按镜像延伸，不会发暗），再进入 SVG 滤镜：
+    - 按位移图偏移；
+    - 叠加着色（#1b1a18，55%）；
+    - 叠加高光。着色放在滤镜里，高光才能盖在着色之上。
+  - **不做色散**：原计划让 RGB 三通道使用不同偏移量形成色散，但这要多偏移两次再按通道合成。实测预览中拖动立绘时每帧多花约 4 ms（headless Chromium，步进间隔约 17 ms → 21 ms），而 1–2 px 的色边几乎看不出，因此取消。
+  - **每个表面一个滤镜**：
+    - 由 `ResizeObserver` 跟踪尺寸。尺寸连续变化时（如工具栏的放大动画）先拉伸现有的位移图，停止变化 120 ms 后再重新生成。
+    - 位移图按尺寸缓存。
+    - 滤镜放在表面所在的文档或 shadow root 中，因为 shadow DOM 里的 `url(#id)` 只在本 root 内查找。
+  - **注意事项**：
+    - 玻璃画在 `::before` 上，因为带 `backdrop-filter` 的元素会成为 fixed 子元素的包含块。
+    - 玻璃元素自身不能设背景色，否则背景色会被当作玻璃后面的背景。悬停高亮用一层叠在玻璃之上、内容之下的元素实现。
+    - 祖先元素带 `opacity < 1` 或 `filter` 时，玻璃只能看到这个祖先内部的内容。弹出层淡入的过程中会短暂只显示着色。
+- **其他浏览器**：回退为 `backdrop-filter: blur(22px) saturate(140%)` 加 72% 着色，配内高光（上、左亮，下、右暗）和 135° 的菲涅尔渐变边框。
+- **不透明**：在“关于”对话框中开启“减少特效”（保存在浏览器本地）或系统开启“降低透明度”（`prefers-reduced-transparency`）时，面板改为不透明，不做折射和模糊。
+  - 玻璃本身没有动画。其他动效已遵循 `prefers-reduced-motion`。
+- **输入框**：输入框和下拉框改为填充样式，底色半透明。描边样式的浮动标签需要不透明底色遮住描边，在玻璃上会显出一块黑底。
+- **调试参数**：`?glass=liquid|frosted|solid` 可以强制指定模式。
 
 ---
 

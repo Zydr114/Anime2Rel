@@ -119,9 +119,10 @@ function Popover({ anchor, label, onClose, children }: { anchor: RefObject<HTMLE
         const to = e.relatedTarget
         if (to instanceof Node && !e.currentTarget.contains(to) && to !== anchor.current) closeRef.current()
       }}
-      className="fixed top-0 left-0 z-2100 animate-popover-in overflow-y-auto rounded-2xl bg-surface-container-high text-on-surface shadow-(--mdui-elevation-level3) ring-1 ring-white/8 outline-none motion-reduce:animate-none"
+      className="glass fixed top-0 left-0 z-2100 flex animate-popover-in flex-col rounded-2xl text-on-surface outline-none motion-reduce:animate-none"
     >
-      {children}
+      {/* 玻璃画在外层的伪元素上，滚动放在内层，玻璃才不会随内容滚走 */}
+      <div className="min-h-0 overflow-y-auto">{children}</div>
     </div>,
     document.body,
   )

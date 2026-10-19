@@ -222,3 +222,26 @@ test('a background beyond the texture limit is exported at its original resoluti
   expect([jpeg.width, jpeg.height]).toEqual([BW, BH])
   expect(diffStats(jpeg, png, 8).mean).toBeLessThan(2)
 })
+
+test('panels use liquid glass in Chromium and turn opaque with reduced effects', async ({ page }, info) => {
+  test.skip(info.project.metadata.renderer === 'webgl', '与渲染后端无关')
+  await page.goto('/')
+  await importAndStart(page, [['drop-background', 'scene.png', scene]])
+  const html = page.locator('html')
+  const nav = page.locator('nav.glass')
+  await expect(html).toHaveAttribute('data-glass', 'liquid')
+  // 每个面板有自己的滤镜；对话框的滤镜在它的 shadow root 里
+  await expect.poll(() => nav.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--glass-filter'))).toMatch(/url\(#a2r-glass-\d+\)/)
+  await page.getByTestId('about-button').click()
+  await expect(page.getByTestId('glass-mode')).toHaveAttribute('data-mode', 'liquid')
+  await expect.poll(() => page.getByTestId('about').evaluate((el) => el.shadowRoot!.querySelectorAll('filter[id^="a2r-glass-"]').length)).toBe(1)
+
+  await page.getByTestId('reduce-effects').click()
+  await expect(html).toHaveAttribute('data-glass', 'solid')
+  await expect(page.getByTestId('glass-mode')).toHaveAttribute('data-mode', 'solid')
+  expect(await nav.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--glass-filter'))).toBe('')
+  expect(await nav.evaluate((el) => getComputedStyle(el, '::before').backdropFilter)).toBe('none')
+  // 设置保存在浏览器中
+  await page.reload()
+  await expect(html).toHaveAttribute('data-glass', 'solid')
+})

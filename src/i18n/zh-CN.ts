@@ -526,6 +526,11 @@ export const zhCN = {
     close: '关闭',
     yes: '支持',
     no: '不支持',
+    display: '显示',
+    reduceEffects: '减少特效',
+    reduceEffectsHint: '面板改为不透明，不做液态玻璃的折射和背景模糊。系统开启“降低透明度”时也会这样显示。',
+    glass: (mode: string) => `当前面板：${mode}`,
+    glassModes: { liquid: '液态玻璃', frosted: '毛玻璃（当前浏览器不支持折射）', solid: '不透明' },
   },
   errors: {
     gpuTitle: '无法初始化图形渲染',

@@ -120,35 +120,115 @@ body,
   font-family: var(--font-sans);
 }
 
-/* 玻璃面板：M0 先用毛玻璃，液态玻璃折射在 M6 实现。
-   模糊放在伪元素上：带 backdrop-filter 的元素会成为 fixed 子元素的包含块，面板里 mdui 下拉框（fixed 定位）的菜单会因此偏出窗口。
-   使用 glass 的元素需要自带定位（relative / absolute）。
+/* 液态玻璃（docs/Plan.md §6.3）。src/ui/glass/liquid.ts 在 <html> 上用 data-glass 标记模式：
+   liquid  —— Chromium：脚本为每个表面生成 SVG 滤镜（折射、色散、着色、边缘高光），写入表面的 --glass-filter，并把 --glass-fill 设为透明；
+   frosted —— 其他浏览器：模糊 + 着色，加内高光和菲涅尔渐变边框；
+   solid   —— “减少特效”或系统要求降低透明度：不透明面板。
+   两个变量不继承，滤镜还没生成时回退到毛玻璃。圆角在支持的浏览器中为超椭圆（squircle），位移图按同样的形状生成。
    -webkit- 前缀必须写在前面，否则构建压缩时会合并成只有前缀的写法，Chrome 不认。 */
+@property --glass-filter {
+  syntax: '*';
+  inherits: false;
+}
+@property --glass-fill {
+  syntax: '*';
+  inherits: false;
+}
+
+:root {
+  --glass-frost: blur(22px) saturate(140%);
+  --glass-tint: rgb(27 26 24 / 0.72);
+  --glass-rim: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  --glass-shadow: 0 12px 40px rgb(0 0 0 / 0.4);
+}
+:root[data-glass='frosted'] {
+  /* 光从左上方来：上、左两边亮，下、右两边暗 */
+  --glass-rim: inset 1px 1px 0 rgb(255 255 255 / 0.14), inset -1px -1px 0 rgb(255 255 255 / 0.05);
+}
+:root[data-glass='solid'] {
+  --glass-frost: none;
+  --glass-tint: rgb(33 31 29);
+}
+
+/* 玻璃面板。玻璃画在伪元素上：带 backdrop-filter 的元素会成为 fixed 子元素的包含块，面板里 mdui 下拉框（fixed 定位）的菜单会因此偏出窗口。
+   使用 glass 的元素需要自带定位（relative / absolute），自身不要设背景色（会被当作玻璃后面的背景）。 */
 @utility glass {
   isolation: isolate;
-  border: 1px solid rgb(255 255 255 / 0.08);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.05),
-    0 12px 40px rgb(0 0 0 / 0.4);
+  corner-shape: squircle;
+  box-shadow: var(--glass-shadow);
   &::before {
+    --glass-filter: inherit;
+    --glass-fill: inherit;
     content: '';
     position: absolute;
     inset: 0;
     z-index: -1;
     border-radius: inherit;
-    background: rgb(27 26 24 / 0.74);
-    -webkit-backdrop-filter: blur(22px) saturate(140%);
-    backdrop-filter: blur(22px) saturate(140%);
+    corner-shape: inherit;
+    background: var(--glass-fill, var(--glass-tint));
+    box-shadow: var(--glass-rim);
+    -webkit-backdrop-filter: var(--glass-filter, var(--glass-frost));
+    backdrop-filter: var(--glass-filter, var(--glass-frost));
     pointer-events: none;
   }
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  .glass::before {
-    background: rgb(27 26 24 / 0.97);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
+/* 胶囊形保持圆形的两端：半径等于半高时超椭圆会显得方 */
+.glass.rounded-full {
+  corner-shape: round;
+}
+
+/* 毛玻璃的菲涅尔边框：边缘在掠射角反射更多光，按方向渐变 */
+:root[data-glass='frosted'] .glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  padding: 1px;
+  border-radius: inherit;
+  corner-shape: inherit;
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.3), rgb(255 255 255 / 0.05) 35%, rgb(255 255 255 / 0.02) 65%, rgb(255 255 255 / 0.16));
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* mdui 的弹出层：对话框、菜单（含下拉框的菜单）、提示、消息条。玻璃直接加在容器上，容器内没有 fixed 定位的子元素。 */
+mdui-dialog::part(panel),
+mdui-menu,
+mdui-select::part(menu),
+mdui-tooltip::part(popup),
+mdui-snackbar {
+  corner-shape: squircle;
+  background: var(--glass-fill, var(--glass-tint));
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter, var(--glass-frost));
+  backdrop-filter: var(--glass-filter, var(--glass-frost));
+}
+mdui-menu,
+mdui-select::part(menu),
+mdui-snackbar {
+  --shape-corner: 1rem;
+}
+/* 提示和消息条原本是反色（浅底深字），玻璃上改用正常的前景色 */
+mdui-tooltip {
+  --shape-corner-plain: 9999px;
+}
+mdui-tooltip::part(popup) {
+  padding-inline: 0.75rem;
+  corner-shape: round;
+}
+mdui-tooltip::part(content),
+mdui-snackbar {
+  color: rgb(var(--mdui-color-on-surface));
+}
+mdui-snackbar::part(action) {
+  color: rgb(var(--mdui-color-primary));
+}
+mdui-snackbar::part(close-button) {
+  color: rgb(var(--mdui-color-on-surface-variant));
 }
 
 /* 胶片颗粒：平铺的分形噪声，叠在首页背景上 */
@@ -189,6 +269,12 @@ mdui-segmented-button::part(selected-icon) {
 }
 mdui-segmented-button::part(label) {
   padding-left: 0;
+}
+
+/* 输入框和下拉框用填充样式，底色改为半透明：描边样式的浮动标签要用不透明底色遮住描边，在玻璃上会显出一块黑底 */
+mdui-text-field,
+mdui-select {
+  --mdui-color-surface-container-highest: 255 255 255 / 0.06;
 }
 
 /* 选项较多的下拉框（如 16 种混合模式）限制菜单高度并滚动，否则菜单超出窗口、末尾的选项无法选中 */

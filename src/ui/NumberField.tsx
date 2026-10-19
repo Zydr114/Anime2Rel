@@ -19,5 +19,5 @@ export function NumberField({ label, value, onCommit, testId }: Props) {
     if (Number.isFinite(v) && v !== value) onCommit(v)
     else el.value = String(value)
   })
-  return <mdui-text-field ref={ref} label={label} type="number" variant="outlined" value={String(value)} data-testid={testId} />
+  return <mdui-text-field ref={ref} label={label} type="number" variant="filled" value={String(value)} data-testid={testId} />
 }
