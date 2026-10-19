@@ -7,6 +7,7 @@ import { cn } from '@/ui/lib/cn'
 import { BlurFade } from '@/ui/magicui/blur-fade'
 import { BorderBeam } from '@/ui/magicui/border-beam'
 import { ShimmerButton } from '@/ui/magicui/shimmer-button'
+import { HeroMark } from './HeroMark'
 import { importFiles, pickFiles } from './importer'
 import { LegalLinks } from './LegalLinks'
 
@@ -68,18 +69,22 @@ export function Landing({ onStart }: { onStart: () => void }) {
       {/* 顶部一束很淡的香槟色光，叠一层胶片颗粒 */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_50%_at_50%_0%,rgba(201,169,110,0.09),transparent)]" />
       <div className="film-grain pointer-events-none absolute inset-0 opacity-[0.035]" />
-      <div className="relative flex min-h-full flex-col items-center justify-center gap-12 px-6 py-12">
-        <BlurFade delay={0.05}>
-          <div className="text-center">
-            {/* 名称中的“2”用香槟金斜体 */}
-            <h1 className="font-display text-7xl leading-none tracking-tight text-ivory sm:text-8xl">
-              {t.app.name.split(/(2)/).map((part, i) => (part === '2' ? <em key={i} className="px-1 text-champagne">2</em> : part))}
-            </h1>
-            <div className="mx-auto mt-6 h-px w-14 bg-champagne/60" />
-            <p className="mt-6 text-lg tracking-[0.3em] text-taupe">{t.app.tagline}</p>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-taupe/75">{t.app.description}</p>
-          </div>
-        </BlurFade>
+      <div className="relative flex min-h-full flex-col items-center justify-center gap-12 px-6 py-12 [@media(max-height:820px)]:gap-8 [@media(max-height:820px)]:py-6">
+        {/* 主视觉的高度随窗口高度收缩，矮屏幕上同时收紧间距，让“开始”按钮留在首屏内 */}
+        <div className="flex flex-col items-center gap-8 [@media(max-height:820px)]:gap-5">
+          <HeroMark className="h-[clamp(8rem,100dvh_-_47rem,13rem)] w-auto max-sm:h-44" />
+          <BlurFade delay={0.05}>
+            <div className="text-center">
+              {/* 名称中的“2”用香槟金斜体 */}
+              <h1 className="font-display text-7xl leading-none tracking-tight text-ivory sm:text-8xl">
+                {t.app.name.split(/(2)/).map((part, i) => (part === '2' ? <em key={i} className="px-1 text-champagne">2</em> : part))}
+              </h1>
+              <div className="mx-auto mt-6 h-px w-14 bg-champagne/60" />
+              <p className="mt-6 text-lg tracking-[0.3em] text-taupe">{t.app.tagline}</p>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-taupe/75">{t.app.description}</p>
+            </div>
+          </BlurFade>
+        </div>
         <BlurFade delay={0.15}>
           <div className="flex flex-wrap justify-center gap-6">
             <DropZone role="background" title={t.landing.background} hint={t.landing.backgroundHint} asset={background} />

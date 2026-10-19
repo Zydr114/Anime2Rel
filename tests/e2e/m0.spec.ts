@@ -31,6 +31,8 @@ test.beforeEach(async ({ page }, info) => {
 test('landing shows source link and requires a background', async ({ page }) => {
   await expect(page.getByTestId('source-link')).toHaveAttribute('href', /github\.com\/Zydr114\/Anime2Rel/)
   await expect(page.getByTestId('start')).toBeDisabled()
+  // 主视觉的金色线条由入场动画逐段画出，最外一环最后画完
+  await expect(page.getByTestId('hero-mark').locator('path[fill^="url(#hero-gold"]').last()).toHaveAttribute('d', /Z$/)
 })
 
 test('import, place, flip, undo and export', async ({ page }, info) => {
