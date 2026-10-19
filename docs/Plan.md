@@ -38,7 +38,7 @@
 | 构建 | Vite 8 + TypeScript | MIT | 产出静态文件，对 Worker 和 WASM 支持完善 |
 | 框架 | React 19 | MIT | Magic UI 只有 React 版本；React 19 原生支持 Web Components，可直接使用 mdui |
 | 样式 | Tailwind CSS v4 | MIT | Magic UI 依赖 |
-| 基础组件 | mdui 2（Material 3 Web Components） | MIT | 提供滑块、开关、分段按钮、导航栏、对话框等表单控件；`getColorFromImage` 和 `setColorScheme` 可从背景图生成动态主题色 |
+| 基础组件 | mdui 2（Material 3 Web Components） | MIT | 提供滑块、开关、分段按钮、导航栏、对话框等表单控件 |
 | 展示组件 | Magic UI（通过 shadcn CLI 复制进仓库）+ motion | MIT | Dock、BorderBeam、ShimmerButton、BlurFade、AnimatedBeam 等动效 |
 | 液态玻璃 | 自研 `<GlassSurface>`，算法参考 iyinchao/liquid-glass-studio | MIT | 见 §6.3 |
 | 渲染 | three.js r186 `WebGPURenderer` + TSL | MIT | WebGPU 不可用时自动回退到 WebGL2；内置 Bloom、DOF、Film、Lut3D、radialBlur、GaussianBlur、Sharpen 等节点 |
@@ -424,7 +424,7 @@ M5 实现说明（与上文不同的地方）：
 
 ## 4. 用户流程
 
-1. **素材**：拖拽、粘贴或选择背景和立绘。空状态只显示上传引导，不提供示例图。立绘没有透明区域时提示“请上传透明 PNG/WebP”。背景主色会驱动动态主题。
+1. **素材**：拖拽、粘贴或选择背景和立绘。空状态只显示上传引导，不提供示例图。立绘没有透明区域时提示“请上传透明 PNG/WebP”。
 2. **深度**：首次使用时加载模型（显示进度，可切换模型源），然后自动推理；可查看深度、法线和天空遮罩。
 3. **光源**：查看候选光源，用 Gizmo、方向球和灰球预览进行确认或修改。
 4. **立绘**：拖拽、缩放、旋转、翻转、调整前后位置；调节颜色匹配、重光照和边缘融合的强度，实时预览。
@@ -468,7 +468,7 @@ M5 实现说明（与上文不同的地方）：
 - **mdui**：负责所有交互控件，统一采用 Material 3 的行为和可访问性。
 - **液态玻璃**：作为面板容器的材质，替代 M3 的 surface container。
 - **Magic UI**：只用于动效和装饰，不承担表单交互。
-- **主题色**：把 mdui 的 `--mdui-color-*` 变量映射为 Tailwind v4 的 `@theme` token，让动态主题色同时作用于三者。
+- **主题色**：把 mdui 的 `--mdui-color-*` 变量映射为 Tailwind v4 的 `@theme` token，让同一套配色同时作用于三者。配色固定为暖灰底色配香槟金强调色，不随背景图变化（2026-10-19 决定取消动态主题）。
 
 ### 6.3 液态玻璃
 
@@ -490,7 +490,7 @@ M5 实现说明（与上文不同的地方）：
 | **M3 立绘融合** | 颜色匹配；法线生成；增量重光照（三种风格）；Light Wrap；噪声匹配；随位置自动更新 | 对照 `docs/example.png` 的风格主观评估违和感；移动立绘时光照和颜色会跟着更新；拖动流畅（参考目标：预览档不低于 30 fps） |
 | **M4 景深与遮挡** | 基线 DOF；分层 DOF；点击对焦；深度遮挡；接地点与站立阴影；透明介质与水体遮挡；多区域遮挡 | 立绘边缘没有光晕或渗色；对焦点准确；深度遮挡在开启和关闭两种状态下都正确；阴影落在脚下且方向与主光源一致；水线以下被水面覆盖；各区域按自己的方式遮挡 |
 | **M5 调色与后期** | §3.5 和 §3.6 的全部效果；`.cube` LUT 导入；四个预设 | 逐项检查参数是否生效；“阴天胶片”预设与示例风格接近；预览与导出结果一致 |
-| **M6 打磨** | 液态玻璃；动态主题；首屏动效；中英双语；分块导出；工程保存与恢复 | 桌面版 Chrome、Edge、Safari 26、Firefox 均可用（含降级路径）；超大图能导出；工程保存后能完整恢复（参考目标：Lighthouse 性能分不低于 85） |
+| **M6 打磨** | 液态玻璃；首屏动效；中英双语；分块导出；工程保存与恢复 | 桌面版 Chrome、Edge、Safari 26、Firefox 均可用（含降级路径）；超大图能导出；工程保存后能完整恢复（参考目标：Lighthouse 性能分不低于 85） |
 | **M7 移动端** | 底部抽屉和底部导航布局；触控手势；低分辨率预览档 | 在 iOS Safari 和 Android Chrome 上能完整走通流程 |
 | **M8 扩展** | 屏幕空间投影与接触阴影（以立绘高度场为遮挡体，参考 Bend Studio《Days Gone》）；水面倒影；多立绘；评估 DA3 升级 | 开始前单独确定范围 |
 
