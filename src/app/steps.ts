@@ -5,8 +5,6 @@ export interface StepDef {
   id: StepId
   label: string
   icon: string
-  /** 尚未实现的步骤所属里程碑 */
-  milestone?: string
 }
 
 export const steps: StepDef[] = [
@@ -16,7 +14,7 @@ export const steps: StepDef[] = [
   { id: 'character', label: t.steps.character, icon: 'face--outlined' },
   { id: 'focus', label: t.steps.focus, icon: 'center-focus-strong--outlined' },
   { id: 'adjust', label: t.steps.adjust, icon: 'tune--outlined' },
-  { id: 'effects', label: t.steps.effects, icon: 'auto-awesome--outlined', milestone: 'M5' },
+  { id: 'effects', label: t.steps.effects, icon: 'auto-awesome--outlined' },
   { id: 'export', label: t.steps.export, icon: 'download--outlined' },
 ]
 

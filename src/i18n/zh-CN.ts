@@ -2,6 +2,7 @@
 import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
 import type { BlendKind, BlendMode, CurveChannel, GradeLevel, HslBand, ToneKey, WheelKey } from '@/grade/model'
+import type { ToneMapping } from '@/grade/post'
 import type { GradeTab } from '@/state/grade'
 import type { BrushTool } from '@/state/regions'
 
@@ -30,10 +31,6 @@ export const zhCN = {
     adjust: '调色',
     effects: '后期',
     export: '导出',
-  },
-  placeholder: {
-    title: '尚未实现',
-    body: (milestone: string) => `该步骤将在 ${milestone} 中实现。`,
   },
   assets: {
     background: '背景照片',
@@ -383,6 +380,40 @@ export const zhCN = {
     maskLow: '亮度蒙版下限',
     maskHigh: '亮度蒙版上限',
     reset: '重置色彩风格',
+  },
+  effects: {
+    noBackground: '请先在“素材”步骤中导入背景照片。',
+    hint: '在调色之后作用于整个画面。光晕、光束的范围按画面比例计算，预览与导出一致。',
+    intensity: '强度',
+    threshold: '阈值',
+    radius: '半径',
+    bloom: '光晕（Bloom）',
+    bloomHint: '让亮部向周围扩散出柔和的光。阈值越低，参与发光的区域越多。',
+    halation: '胶片红晕（Halation）',
+    halationHint: '胶片上高光周围的红橙色光晕。',
+    halationColor: '颜色',
+    rays: '丁达尔光束',
+    raysHint: '从光源方向穿过亮部（如树叶间的天空）的光束，立绘会挡住光线。',
+    raysLength: '长度',
+    raysLight: '光源',
+    raysAuto: (name: string | null) => (name ? `自动（${name}）` : '自动'),
+    raysSkyOnly: '只让天空发光',
+    raysNoLight: '没有可用的光源：光源需要在相机前方（方向光朝向画面内），请在“光源”步骤中添加或调整。',
+    raysNoSky: '没有深度结果，暂时按亮度选取发光区域。',
+    lens: '镜头',
+    aberration: '色差',
+    vignette: '暗角',
+    midpoint: '暗角中点',
+    feather: '暗角羽化',
+    grain: '颗粒',
+    grainAmount: '强度',
+    grainSize: '尺寸',
+    grainColor: '彩色',
+    grainHint: '颗粒按画面比例生成：导出大图时颗粒随之变大，与预览的观感一致。',
+    toneMapping: '色调映射',
+    toneMappings: { none: '关闭', agx: 'AgX', neutral: 'Neutral' } as Record<ToneMapping, string>,
+    toneMappingHint: '把亮部平滑压缩到可显示的范围。背景照片已经是显示用的图像，开启后整体观感会变化，适合配合光晕使用。',
+    reset: '重置后期',
   },
   toolbar: {
     fit: '适应窗口 (F)',

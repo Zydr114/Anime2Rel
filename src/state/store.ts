@@ -18,6 +18,7 @@ import {
   type SplitToning,
   type WheelKey,
 } from '@/grade/model'
+import { DEFAULT_POST, type PostDoc, type PostSection, type ToneMapping } from '@/grade/post'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
 export type StepId = 'assets' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
@@ -31,6 +32,7 @@ export interface DocState {
   fusion: FusionDoc
   focus: FocusDoc
   grade: GradeDoc
+  post: PostDoc
 }
 
 const HISTORY_LIMIT = 100
@@ -45,6 +47,7 @@ export const initialDoc: DocState = {
   fusion: DEFAULT_FUSION,
   focus: DEFAULT_FOCUS,
   grade: DEFAULT_GRADE,
+  post: DEFAULT_POST,
 }
 
 interface AppState {
@@ -111,6 +114,10 @@ interface AppState {
   /** 把混色层上移（+1）或下移（−1）一层 */
   moveBlendLayer: (id: string, delta: 1 | -1) => void
   resetCreative: () => void
+
+  updatePost: <K extends PostSection>(section: K, update: Partial<PostDoc[K]>) => void
+  setToneMapping: (mode: ToneMapping) => void
+  resetPost: () => void
 
   setView: (view: ViewTransform) => void
   setViewport: (size: Size) => void
@@ -357,6 +364,23 @@ export const useApp = create<AppState>()((set, get) => ({
 
   resetCreative: () => {
     setCreative(get, () => DEFAULT_CREATIVE)
+  },
+
+  updatePost: (section, update) => {
+    get().setDoc((d) => {
+      const current = d.post[section]
+      // 下拉框、开关在撤销后被程序赋值时也会触发 change，值没有变化时不产生撤销记录
+      if ((Object.keys(update) as (keyof typeof update)[]).every((k) => current[k] === update[k])) return d
+      return { ...d, post: { ...d.post, [section]: { ...current, ...update } } }
+    })
+  },
+
+  setToneMapping: (toneMapping) => {
+    get().setDoc((d) => (d.post.toneMapping === toneMapping ? d : { ...d, post: { ...d.post, toneMapping } }))
+  },
+
+  resetPost: () => {
+    get().setDoc((d) => ({ ...d, post: DEFAULT_POST }))
   },
 
   setView: (view) => set({ view }),

@@ -12,10 +12,10 @@ import { AdjustPanel } from './panels/AdjustPanel'
 import { AssetsPanel } from './panels/AssetsPanel'
 import { CharacterPanel } from './panels/CharacterPanel'
 import { DepthPanel } from './panels/DepthPanel'
+import { EffectsPanel } from './panels/EffectsPanel'
 import { ExportPanel } from './panels/ExportPanel'
 import { FocusPanel } from './panels/FocusPanel'
 import { LightPanel } from './panels/LightPanel'
-import { PlaceholderPanel } from './panels/PlaceholderPanel'
 import { steps } from './steps'
 import { Toolbar } from './Toolbar'
 import { useShortcuts } from './useShortcuts'
@@ -27,9 +27,8 @@ function StepPanel({ step }: { step: StepId }) {
   if (step === 'character') return <CharacterPanel />
   if (step === 'focus') return <FocusPanel />
   if (step === 'adjust') return <AdjustPanel />
-  if (step === 'export') return <ExportPanel />
-  const def = steps.find((s) => s.id === step)
-  return <PlaceholderPanel milestone={def?.milestone ?? ''} />
+  if (step === 'effects') return <EffectsPanel />
+  return <ExportPanel />
 }
 
 /** 编辑器外框：左侧步骤导航、右侧检查器、底部工具栏。画布由 App 常驻渲染。 */

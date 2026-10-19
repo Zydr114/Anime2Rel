@@ -41,6 +41,7 @@ import {
   type DepthTextures,
   type LayerTextures,
 } from './passes'
+import { applyPostParams, createPostPasses, createPostUniforms, disposePostPasses, renderPost, resizePostPasses, BLOOM_SIZE } from './post'
 import { applyShadowParams, createShadowPass, createShadowUniforms } from './shadow'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
@@ -50,6 +51,7 @@ import type { FusionParams } from '@/fusion/params'
 import { GRADE_LEVELS, type GradeLevel } from '@/grade/model'
 import { getLut } from '@/grade/luts'
 import type { GradeParams } from '@/grade/params'
+import type { PostParams } from '@/grade/post'
 import type { NormalMap } from '@/fusion/protocol'
 import type { ShadowParams } from '@/fusion/shadow'
 import type { RegionMask } from '@/focus/regions'
@@ -153,6 +155,12 @@ interface Effects {
   grade: boolean
   /** 各级是否有局部调整 */
   local: Record<GradeLevel, boolean>
+  /** 后期效果，以及其中需要单独 pass 的 Bloom/Halation、光束 */
+  post: boolean
+  bloom: boolean
+  rays: boolean
+  /** 有调色或后期时，8 位输出前加抖动 */
+  dither: boolean
 }
 
 export interface DebugSettings {
@@ -190,8 +198,8 @@ type LayerTargets = Record<LayerKey | 'tiles' | 'toneCoef', THREE.RenderTarget>
 const tileCount = (n: number) => Math.max(1, Math.ceil(n / TILE))
 const coefSize = (n: number) => Math.max(1, Math.ceil(n / 4))
 
-/** 创建中间图层；skip 中的图层在这次渲染中用不到，只分配 1×1 */
-function layerTargets(width: number, height: number, skip: Partial<Record<LayerKey, boolean>> = {}): LayerTargets {
+/** 创建中间图层；skip 中的图层在这次渲染中用不到，只分配 1×1。Bloom 和光束从全局调整结果的 mipmap 采样 */
+function layerTargets(width: number, height: number, skip: Partial<Record<LayerKey, boolean>> = {}, adjustedMips = true): LayerTargets {
   const target = (key: LayerKey, mipmaps = false) => (skip[key] ? linearTarget(1, 1) : linearTarget(width, height, mipmaps))
   return {
     background: target('background'),
@@ -205,7 +213,7 @@ function layerTargets(width: number, height: number, skip: Partial<Record<LayerK
     occlusion: target('occlusion'),
     shadow: target('shadow', true),
     composited: target('composited'),
-    adjusted: target('adjusted'),
+    adjusted: target('adjusted', adjustedMips),
     graded: target('graded'),
     tone: target('tone', true),
     toneCoef: skip.tone ? linearTarget(1, 1) : linearTarget(coefSize(width), coefSize(height), true),
@@ -233,6 +241,7 @@ export class Engine {
   private shadowParams: ShadowParams | null = null
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
   private grade: GradeParams | null = null
+  private postParams: PostParams | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
   private readonly docRT = linearTarget(1, 1, true)
@@ -248,6 +257,8 @@ export class Engine {
   private readonly adjust = Object.fromEntries(GRADE_LEVELS.map((level) => [level, createAdjustUniforms()])) as Record<GradeLevel, AdjustUniforms>
   private readonly local = createLocalUniforms()
   private readonly finish = createFinishUniforms()
+  private readonly post = createPostUniforms()
+  private readonly postPasses
   private readonly charPrep
   private readonly character
   /** 预览时叠加在合成结果上的调试视图和灰球 */
@@ -326,6 +337,8 @@ export class Engine {
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder)
+    this.postPasses = createPostPasses(this.post, nodes.adjusted, this.depthNodes.background.sky, this.depthNodes.uniforms.hasBgDepth, nodes.character)
+    const finishInputs = { image: nodes.adjusted, bloom: this.postPasses.bloomResult, rays: this.postPasses.raysResult }
     const quad = (m: THREE.NodeMaterial) => new THREE.QuadMesh(m)
     this.quads = {
       charPrep: quad(this.charPrep.material),
@@ -351,7 +364,7 @@ export class Engine {
       shadow: quad(createShadowPass(this.shadow, placement, texture(this.charRT.texture), this.depthNodes.background)),
       composite: quad(createCompositePass({ placement, background: nodes.background, layers: nodes, dof, shadow: this.shadow })),
       globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt, nodes.composited)),
-      finish: quad(createFinishPass(this.finish, nodes.adjusted)),
+      finish: quad(createFinishPass(this.finish, this.post, finishInputs)),
       display: quad(this.debugView.material),
       present: quad(this.present.material),
       encode: quad(this.encode.material),
@@ -499,6 +512,12 @@ export class Engine {
     this.syncDisplay()
   }
 
+  /** 后期效果的参数；null 为没有后期 */
+  setPost(params: PostParams | null): void {
+    this.postParams = params
+    this.syncDisplay()
+  }
+
   setDisplay(display: FusionDisplay): void {
     // 退出对比或法线视图时，背景景深需要按最新参数重算
     if (display.compare !== this.display.compare || display.showNormals !== this.display.showNormals) this.backgroundDirty = true
@@ -509,13 +528,21 @@ export class Engine {
   /** 景深、遮挡和阴影是否生效：前后对比和法线视图显示未经处理的图层 */
   private effects(display: FusionDisplay): Effects {
     const raw = display.compare === 'raw' || display.showNormals
-    const grade = !raw && display.compare !== 'grade' && !!this.grade
+    const graded = !raw && display.compare !== 'grade'
+    const grade = graded && !!this.grade
+    const p = this.postParams
+    const post = graded && !!p?.active
+    const gradeActive = grade && (this.grade!.creative.active || GRADE_LEVELS.some((level) => this.grade!.levels[level].active))
     return {
       dof: !raw && !!this.focus?.dof,
       occlusion: !raw && !!this.focus?.occlusion.enabled,
       shadow: !raw && !!this.shadowParams,
       grade,
       local: Object.fromEntries(GRADE_LEVELS.map((level) => [level, grade && !!this.grade?.levels[level].local])) as Record<GradeLevel, boolean>,
+      post,
+      bloom: post && (p!.bloom > 0 || p!.halation > 0),
+      rays: post && p!.rays > 0 && !!p!.raysLight,
+      dither: gradeActive || post,
     }
   }
 
@@ -534,6 +561,9 @@ export class Engine {
       else this.adjust[level].enabled.value = 0
     }
     applyFinishParams(this.finish, this.grade?.creative ?? null, effects.grade)
+    applyPostParams(this.post, this.postParams, effects.post)
+    this.present.uniforms.dither.value = effects.dither ? 1 : 0
+    this.encode.dither.value = effects.dither ? 1 : 0
     this.docDirty = true
     this.schedule()
   }
@@ -566,6 +596,7 @@ export class Engine {
         else rt.setSize(preview.width, preview.height)
       this.placement.uniforms.docSize.value.set(asset.width, asset.height)
       this.present.uniforms.docSize.value.set(asset.width, asset.height)
+      resizePostPasses(this.postPasses, this.docSize)
     } else {
       this.docSize = null
     }
@@ -607,7 +638,8 @@ export class Engine {
   }
 
   /**
-   * 渲染文档：背景层调整、背景预处理与景深（需要时）→ 立绘层、立绘层调整、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成 → 全局调整 → 终处理到 out。
+   * 渲染文档：背景层调整、背景预处理与景深（需要时）→ 立绘层、立绘层调整、立绘深度 → 立绘景深 → 遮挡层 → 站立阴影 → 合成 → 全局调整
+   * → Bloom 金字塔与光束（需要时）→ 终处理到 out。
    * 每一级有局部调整时，先在它的调整 pass 之前算出 log2 亮度和引导滤波系数。
    * 预览（preview 为 true）时先合成到中间图层，再叠加调试视图和灰球。
    * 尺寸由 out 决定，弥散圆和噪声按 out 相对文档的比例换算。
@@ -621,8 +653,12 @@ export class Engine {
     u.targetLong.value = Math.max(width, height)
     u.tileSize.value.set(targets.tiles.width, targets.tiles.height)
     this.character.fusion.targetScale.value = width / this.docSize.width
+    const long = Math.max(width, height)
     this.local.size.value.set(width, height)
-    this.local.long.value = Math.max(width, height)
+    this.local.long.value = long
+    this.post.long.value = long
+    this.post.aspect.value.set(width / long, height / long)
+    this.post.sourceLod.value = Math.log2(long / BLOOM_SIZE)
     const pass = (quad: THREE.QuadMesh, target: THREE.RenderTarget) => {
       r.setRenderTarget(target)
       quad.render(r)
@@ -649,6 +685,7 @@ export class Engine {
     pass(this.quads.composite, targets.composited)
     tone('global')
     pass(this.quads.globalAdjust, targets.adjusted)
+    renderPost(r, this.postPasses, effects)
     if (!preview) return pass(this.quads.finish, out)
     pass(this.quads.finish, targets.graded)
     pass(this.quads.display, out)
@@ -679,14 +716,19 @@ export class Engine {
     // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
     const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false }
     const effects = this.effects(display)
-    const targets = layerTargets(width, height, {
-      backgroundDof: !effects.dof,
-      characterDof: !effects.dof,
-      occlusion: !effects.occlusion,
-      shadow: !effects.shadow,
-      graded: true,
-      tone: !GRADE_LEVELS.some((level) => effects.local[level]),
-    })
+    const targets = layerTargets(
+      width,
+      height,
+      {
+        backgroundDof: !effects.dof,
+        characterDof: !effects.dof,
+        occlusion: !effects.occlusion,
+        shadow: !effects.shadow,
+        graded: true,
+        tone: !GRADE_LEVELS.some((level) => effects.local[level]),
+      },
+      effects.bloom || effects.rays,
+    )
     const linear = linearTarget(width, height)
     const out = new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
     this.syncDisplay(display)
@@ -727,6 +769,7 @@ export class Engine {
     this.regions?.texture.dispose()
     for (const u of Object.values(this.adjust)) u.curveMap.dispose()
     disposeFinish(this.finish)
+    disposePostPasses(this.postPasses)
     for (const set of Object.values(this.depthPlaceholder)) for (const t of Object.values(set)) t.dispose()
     for (const layer of Object.values(this.depth)) if (layer) for (const t of Object.values(layer.textures)) t.dispose()
     for (const q of [...Object.values(this.quads), ...Object.values(this.toneQuads)]) (q.material as THREE.Material).dispose()

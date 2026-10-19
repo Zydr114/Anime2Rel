@@ -16,6 +16,7 @@ import { useApp } from '@/state/store'
 import { cn } from '@/ui/lib/cn'
 import { SliderField } from '@/ui/SliderField'
 import { useDomEvent } from '@/ui/useDomEvent'
+import { lightName } from '../lightName'
 import { notify } from '../notify'
 import { useGestureChange } from '../useGestureChange'
 import { DirectionSphere } from './DirectionSphere'
@@ -28,12 +29,6 @@ const formatDegrees = (v: number) => `${Math.round(v)}°`
 const formatIntensity = (v: number) => v.toFixed(2)
 const formatMs = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`)
 const percent = (v: number) => `${Math.round(v * 100)}%`
-
-/** 光源在列表中的名称：同类型按出现顺序编号 */
-function lightName(lights: readonly Light[], light: Light): string {
-  const n = lights.filter((l) => l.type === light.type).indexOf(light) + 1
-  return `${t.light.types[light.type]} ${n}`
-}
 
 export function LightPanel() {
   const background = useApp((s) => s.doc.background)

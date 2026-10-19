@@ -1,6 +1,6 @@
 // 渲染各阶段使用的 TSL 材质。所有中间结果都是线性 sRGB；立绘使用预乘 alpha。
 import * as THREE from 'three/webgpu'
-import { abs, cos, dot, exp, float, fwidth, length, log2, max, mix, saturate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, cos, dot, exp, float, fract, fwidth, length, log2, max, mix, saturate, screenCoordinate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { isMode, MODE, occlusionStyles, refraction, sampleLevel, waterDepth, waterEdge, waterWave, type DofUniforms } from './dof'
 import { createFusionNode } from './fusion'
 import type { ShadowUniforms } from './shadow'
@@ -269,13 +269,23 @@ export function createDisplayPass(input: { placement: Placement; depth: DepthNod
   return { uniforms: u, ball: ball.uniforms, material: material(vec4(ball.color, 1)) }
 }
 
-/** 视口显示：把文档渲染结果按缩放和平移画到画布上，文档外填充中性深灰。 */
+/**
+ * 8 位量化前的抖动：加上 ±0.5 级的 R2 低差异序列（近似蓝噪声），防止平滑渐变出现色带。e 为 sRGB 编码值。
+ * 未经处理的 8 位原图像素正好落在量化级上，抖动后不变。
+ */
+function dither(e: Vec3Node, amount: FloatNode): Vec3Node {
+  const n = fract(screenCoordinate.x.mul(0.7548776662).add(screenCoordinate.y.mul(0.56984029)).add(0.5))
+  return e.add(n.sub(0.5).mul(amount.div(255)))
+}
+
+/** 视口显示：把文档渲染结果按缩放和平移画到画布上，文档外填充中性深灰。画布的 sRGB 编码由渲染器完成，这里抖动后再解码。 */
 export function createPresentPass(docTexture: THREE.Texture) {
   const u = {
     viewport: uniform(new THREE.Vector2(1, 1)),
     zoom: uniform(1),
     pan: uniform(new THREE.Vector2(0, 0)),
     docSize: uniform(new THREE.Vector2(1, 1)),
+    dither: uniform(0),
   }
   const docPx = screenUV.mul(u.viewport).sub(u.pan).div(u.zoom)
   const uv = docPx.div(u.docSize)
@@ -283,11 +293,14 @@ export function createPresentPass(docTexture: THREE.Texture) {
   const doc = texture(docTexture, uv)
   const surround = vec3(0.0103) // sRGB #1a1a1a
   const rgb = surround.add(doc.rgb.sub(surround).mul(inside))
-  return { uniforms: u, document: doc, material: material(vec4(rgb, 1)) }
+  // 抖动量为 0 时编码再解码，与原值的差别远小于一个量化级
+  const dithered = srgbDecode(saturate(dither(srgbEncode(saturate(rgb)), u.dither.mul(inside))))
+  return { uniforms: u, document: doc, material: material(vec4(dithered, 1)) }
 }
 
-/** 导出编码：线性 → sRGB，裁剪到 [0,1]，写入 8 位渲染目标。 */
+/** 导出编码：线性 → sRGB，裁剪到 [0,1]，（需要时）抖动后写入 8 位渲染目标。 */
 export function createEncodePass(placeholder: THREE.Texture) {
   const src = texture(placeholder, screenUV)
-  return { source: src, material: material(vec4(srgbEncode(saturate(src.rgb)), 1)) }
+  const ditherAmount = uniform(0)
+  return { source: src, dither: ditherAmount, material: material(vec4(dither(srgbEncode(saturate(src.rgb)), ditherAmount), 1)) }
 }

@@ -1,16 +1,45 @@
 /**
- * 终处理 pass：全局基础调整之后的显示空间处理（docs/Plan.md M5 实现方案）。
- * 目前包括色轮、分离色调、LUT 和混色层，公式与 src/grade/creative.ts 一致。输入输出都是线性 sRGB。
+ * 终处理 pass：全局基础调整之后的处理（docs/Plan.md M5 实现方案）。依次为：
+ * 色差 → 叠加 Bloom、Halation、光束（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
+ * 全局调色的公式与 src/grade/creative.ts 一致，后期参数见 src/grade/post.ts。输入输出都是线性 sRGB。
  */
 import * as THREE from 'three/webgpu'
-import { clamp, float, max, mix, pow, select, smoothstep, texture, texture3D, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import {
+  agxToneMapping,
+  clamp,
+  dot,
+  exp2,
+  float,
+  floor,
+  Fn,
+  fract,
+  hash,
+  If,
+  length,
+  max,
+  min,
+  mix,
+  neutralToneMapping,
+  pow,
+  screenUV,
+  select,
+  smoothstep,
+  sqrt,
+  texture,
+  texture3D,
+  uniform,
+  vec2,
+  vec3,
+  vec4,
+} from 'three/tsl'
 import { toHalf } from '@/algo/half'
 import type { CubeLut } from '@/grade/cube'
 import { MASK_FEATHER, RAMP_SIZE, SPLIT_BLACK, SPLIT_WIDTH, type CreativeParams } from '@/grade/creative'
 import type { RegisteredLut } from '@/grade/luts'
 import { MAX_BLEND_LAYERS } from '@/grade/model'
 import { blend, blendLuma } from './blend'
-import { fromOklab, material, sampleAt, srgbDecode, srgbEncode, toOklab, type Vec3Node, type Vec4Node } from './nodes'
+import { fromOklab, material, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type Vec3Node } from './nodes'
+import type { PostUniforms } from './post'
 
 /** LUT → RGBA 半精度三维纹理，线性插值 */
 function lutTexture(lut: Pick<CubeLut, 'size' | 'data'>): THREE.Data3DTexture {
@@ -110,8 +139,103 @@ function blendLayers(u: FinishUniforms, e: Vec3Node): Vec3Node {
   return base
 }
 
-export function createFinishPass(u: FinishUniforms, input: Vec4Node) {
-  return material(vec4(select(u.creative.greaterThan(0.5), creative(u, input.rgb), input.rgb), 1))
+/** 色差的采样数；各通道的权重沿径向从蓝到红过渡，每个通道的权重之和为 1，强度为 0 时与原图一致 */
+const ABERRATION_TAPS = 7
+const ABERRATION_WEIGHTS = (() => {
+  const raw = Array.from({ length: ABERRATION_TAPS }, (_, i) => {
+    const x = i / (ABERRATION_TAPS - 1)
+    return [Math.max(0, 2 * x - 1), 1 - Math.abs(2 * x - 1), Math.max(0, 1 - 2 * x)]
+  })
+  const sums = [0, 1, 2].map((c) => raw.reduce((a, w) => a + w[c], 0))
+  return raw.map((w) => w.map((v, c) => v / sums[c]))
+})()
+
+/** 色差：各通道按到画面中心的距离做不同的缩放 */
+function aberration(post: PostUniforms, image: TextureNode): Vec3Node {
+  const d = screenUV.sub(0.5)
+  let sum: Vec3Node = vec3(0)
+  ABERRATION_WEIGHTS.forEach(([r, g, b], i) => {
+    const t = (2 * i) / (ABERRATION_TAPS - 1) - 1
+    sum = sum.add(sampleAt(image, d.mul(post.aberration.mul(t).add(1)).add(0.5), float(0)).rgb.mul(vec3(r, g, b)))
+  })
+  return sum
+}
+
+/** 颗粒满格时的幅度（编码值） */
+const GRAIN_AMPLITUDE = 0.15
+const LUMA = vec3(0.2126, 0.7152, 0.0722)
+
+/**
+ * 胶片颗粒：按文档坐标划分网格（尺寸相对长边），每个格点三个通道各取一个随机数，在格点间平滑插值并保持方差不变。
+ * 颗粒小于一个像素时按尺寸减弱，使缩小的预览与导出图缩小后的观感一致。中间调最明显，在编码值上叠加。
+ */
+function grain(post: PostUniforms, c: Vec3Node): Vec3Node {
+  const e = srgbEncode(clamp(c, 0, 1))
+  const q = screenUV.mul(post.aspect).div(post.grainCell)
+  const i = floor(q)
+  const f = fract(q)
+  const s = f.mul(f).mul(f.mul(-2).add(3))
+  const corners = [
+    { x: 0, y: 0, w: float(1).sub(s.x).mul(float(1).sub(s.y)) },
+    { x: 1, y: 0, w: s.x.mul(float(1).sub(s.y)) },
+    { x: 0, y: 1, w: float(1).sub(s.x).mul(s.y) },
+    { x: 1, y: 1, w: s.x.mul(s.y) },
+  ]
+  const norm = sqrt(corners.reduce<FloatNode>((acc, k) => acc.add(k.w.mul(k.w)), float(0)))
+  const channel = (ch: number) =>
+    corners.reduce<FloatNode>((acc, k) => {
+      const seed = i.x.add(k.x).toUint().mul(1973).add(i.y.add(k.y).toUint().mul(9277)).add(ch * 26699)
+      return acc.add(hash(seed).sub(0.5).mul(k.w))
+    }, float(0)).div(norm)
+  const g = channel(1)
+  const n = mix(vec3(g), vec3(channel(0), g, channel(2)), post.grainColor)
+  const l = dot(e, LUMA)
+  const weight = mix(0.35, 1, l.mul(float(1).sub(l)).mul(4))
+  const amplitude = post.grain.mul(GRAIN_AMPLITUDE).mul(min(1, post.grainCell.mul(post.long)))
+  return srgbDecode(max(e.add(n.mul(amplitude.mul(weight))), vec3(0)))
+}
+
+export interface FinishInputs {
+  /** 全局调整后的线性图像 */
+  image: TextureNode
+  /** Bloom 金字塔（rgb 为 Bloom，a 为 Halation 的亮度）与光束的结果 */
+  bloom: THREE.Texture
+  rays: THREE.Texture
+}
+
+/**
+ * 各阶段写成依次赋值的语句，关闭的阶段整段跳过。
+ * 注意不要把共用子表达式的节点放进 select：select 会生成 if/else，子表达式只在先构建的分支里求值，另一分支读到的是未赋值的变量。
+ */
+export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: FinishInputs) {
+  const bloomMap = texture(inputs.bloom)
+  const raysMap = texture(inputs.rays)
+  const node = Fn(() => {
+    const c = aberration(post, inputs.image).toVar()
+    If(post.bloom.add(post.halation).greaterThan(0), () => {
+      const bloom = sampleAt(bloomMap, screenUV, float(0))
+      c.addAssign(bloom.rgb.mul(post.bloom).add(post.halationColor.mul(bloom.a.mul(post.halation))))
+    })
+    If(post.rays.greaterThan(0), () => {
+      c.addAssign(sampleAt(raysMap, screenUV, float(0)).rgb.mul(post.rays))
+    })
+    // 暗角：椭圆形，画面角落处半径为 1
+    const r = length(screenUV.sub(0.5)).mul(Math.SQRT2)
+    c.mulAssign(exp2(post.vignette.mul(smoothstep(post.vignetteRange.x, post.vignetteRange.y, r))))
+    If(post.toneMapping.equal(1), () => {
+      c.assign(agxToneMapping(c, float(1)))
+    }).ElseIf(post.toneMapping.equal(2), () => {
+      c.assign(neutralToneMapping(c, float(1)))
+    })
+    If(u.creative.greaterThan(0.5), () => {
+      c.assign(creative(u, c))
+    })
+    If(post.grain.greaterThan(0), () => {
+      c.assign(grain(post, c))
+    })
+    return vec4(c, 1)
+  })
+  return material(node())
 }
 
 export function applyFinishParams(u: FinishUniforms, p: CreativeParams | null, enabled: boolean): void {
