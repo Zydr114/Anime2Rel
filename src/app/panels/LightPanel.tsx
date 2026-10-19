@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useCallback, useMemo, useRef, type ReactNode } from 'react'
 import type { Switch } from 'mdui/components/switch.js'
 import { toAngles, fromAngles } from '@/algo/camera'
 import { hexToLinear, linearToHex, normalizeColor } from '@/algo/color'
@@ -13,6 +13,7 @@ import { getDepthResult, useDepth } from '@/state/depth'
 import { useFusion } from '@/state/fusion'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
+import { ColorSwatch } from '@/ui/ColorSwatch'
 import { cn } from '@/ui/lib/cn'
 import { SliderField } from '@/ui/SliderField'
 import { useDomEvent } from '@/ui/useDomEvent'
@@ -264,26 +265,11 @@ function LightEditor({ light }: { light: Light }) {
     if (el.checked !== d[2] < 0) update({ direction: [d[0], d[1], -d[2]] })
   })
 
-  // 取色器只决定色相和饱和度（颜色按最大分量归一化，亮度由强度控制）。
-  // 选色过程中 input 连续触发并合并为一次撤销记录；为了不让取色器跳动，选色期间不回写归一化后的颜色。
-  const colorRef = useRef<HTMLInputElement>(null)
-  const hex = linearToHex(light.color)
-  useEffect(() => {
-    const el = colorRef.current
-    if (el && document.activeElement !== el) el.value = hex
-  }, [hex])
-  useDomEvent(colorRef, 'input', (_e, el) => {
-    const c = hexToLinear(el.value)
-    if (!c) return
-    useApp.getState().beginGesture()
-    update({ color: normalizeColor(c), kelvin: null })
-  })
-  const endColor = (el: HTMLInputElement) => {
-    useApp.getState().endGesture()
-    el.value = linearToHex(currentLight(id)?.color ?? [1, 1, 1])
+  // 取色器只决定色相和饱和度：颜色按最大分量归一化，亮度由强度控制
+  const onColor = (hex: string) => {
+    const c = hexToLinear(hex)
+    if (c) update({ color: normalizeColor(c), kelvin: null })
   }
-  useDomEvent(colorRef, 'change', (_e, el) => endColor(el))
-  useDomEvent(colorRef, 'blur', (_e, el) => endColor(el))
 
   return (
     <div className="flex flex-col gap-3">
@@ -305,14 +291,7 @@ function LightEditor({ light }: { light: Light }) {
 
       <div className="flex items-center gap-2">
         <span className="flex-1 text-on-surface-variant">{t.light.color}</span>
-        <input
-          ref={colorRef}
-          type="color"
-          defaultValue={hex}
-          className="h-8 w-12 cursor-pointer rounded-lg border border-white/15 bg-transparent p-0.5"
-          aria-label={t.light.color}
-          data-testid="light-color"
-        />
+        <ColorSwatch value={linearToHex(light.color)} label={t.light.color} onBegin={useApp.getState().beginGesture} onChange={onColor} onEnd={useApp.getState().endGesture} testId="light-color" />
         <mdui-button-icon
           selectable
           selected={tool === 'pick' || undefined}

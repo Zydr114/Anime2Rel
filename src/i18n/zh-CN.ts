@@ -446,6 +446,14 @@ export const zhCN = {
     toneMappingHint: '把亮部平滑压缩到可显示的范围。背景照片已经是显示用的图像，开启后整体观感会变化，适合配合光晕使用。',
     reset: '重置后期',
   },
+  colorPicker: {
+    area: '饱和度与明度',
+    areaValue: (s: number, v: number) => `饱和度 ${s}%，明度 ${v}%`,
+    hue: '色相',
+    hex: '十六进制颜色',
+    eyedropper: '从屏幕取色',
+    swatch: (hex: string) => `使用 ${hex}`,
+  },
   toolbar: {
     fit: '适应窗口 (F)',
     actual: '100% (1)',

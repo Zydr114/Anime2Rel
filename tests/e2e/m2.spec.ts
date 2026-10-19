@@ -112,7 +112,10 @@ test('visible sun becomes an editable light; lights can be dragged, added, recol
   await expect(page.getByTestId('light-selected')).toContainText('点光源')
 
   // 改色：取色器设置后颜色生效，色温显示为自定义
-  await page.getByTestId('light-color').fill('#3366ff')
+  await page.getByTestId('light-color').click()
+  await page.getByTestId('light-color-hex').fill('3366ff')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('light-color-picker')).toHaveCount(0)
   await expect(pointHandle.locator('circle').last()).toHaveAttribute('fill', '#3366ff')
   await expect(page.getByTestId('light-selected')).toContainText('自定义')
   // 色温滑块改回自然光

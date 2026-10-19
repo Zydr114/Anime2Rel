@@ -7,6 +7,7 @@
   --color-on-primary: rgb(var(--mdui-color-on-primary));
   --color-surface: rgb(var(--mdui-color-surface));
   --color-on-surface: rgb(var(--mdui-color-on-surface));
+  --color-surface-container-high: rgb(var(--mdui-color-surface-container-high));
   --color-on-surface-variant: rgb(var(--mdui-color-on-surface-variant));
   --color-outline: rgb(var(--mdui-color-outline));
   --color-outline-variant: rgb(var(--mdui-color-outline-variant));
@@ -16,7 +17,14 @@
   --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
   --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
   --animate-aurora: aurora 8s ease-in-out infinite alternate;
+  --animate-popover-in: popover-in var(--mdui-motion-duration-short4) var(--mdui-motion-easing-emphasized-decelerate);
 
+  @keyframes popover-in {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+  }
   @keyframes shimmer-slide {
     to {
       transform: translate(calc(100cqw - 100%), 0);
