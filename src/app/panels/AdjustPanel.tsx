@@ -8,6 +8,7 @@ import { Segmented } from '@/ui/Segmented'
 import { SliderField } from '@/ui/SliderField'
 import { useGestureChange } from '../useGestureChange'
 import { Hint, Section } from './FusionSections'
+import { PresetSections } from './PresetSections'
 import { StyleSections } from './StyleSections'
 
 type ScalarField = { [K in keyof BasicAdjust]: BasicAdjust[K] extends number ? K : never }[keyof BasicAdjust]
@@ -39,7 +40,7 @@ export function AdjustPanel() {
   return (
     <div className="flex flex-col gap-4">
       <Segmented value={tab} options={GRADE_TABS} label={(v) => t.adjust.tabs[v]} onChange={useGradeUi.getState().setTab} testId="grade-tab" />
-      {tab === 'basic' ? <BasicSections /> : <StyleSections />}
+      {tab === 'basic' ? <BasicSections /> : tab === 'style' ? <StyleSections /> : <PresetSections />}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
 import type { BlendKind, BlendMode, CurveChannel, GradeLevel, HslBand, ToneKey, WheelKey } from '@/grade/model'
 import type { ToneMapping } from '@/grade/post'
+import type { BuiltinPresetId } from '@/grade/preset'
 import type { GradeTab } from '@/state/grade'
 import type { BrushTool } from '@/state/regions'
 
@@ -289,7 +290,7 @@ export const zhCN = {
     failed: '导出失败',
   },
   adjust: {
-    tabs: { basic: '基础调整', style: '色彩风格' } as Record<GradeTab, string>,
+    tabs: { basic: '基础调整', style: '色彩风格', presets: '预设' } as Record<GradeTab, string>,
     noBackground: '请先在“素材”步骤中导入背景照片。',
     noCharacter: '还没有立绘，请先在“素材”步骤中添加。',
     levels: { global: '全局', background: '背景', character: '立绘' } as Record<GradeLevel, string>,
@@ -380,6 +381,36 @@ export const zhCN = {
     maskLow: '亮度蒙版下限',
     maskHigh: '亮度蒙版上限',
     reset: '重置色彩风格',
+  },
+  presets: {
+    hint: '预设包含三级基础调整、色彩风格和后期的全部参数。套用后可以继续微调，也可以撤销。',
+    builtin: '内置预设',
+    names: {
+      'overcast-film': '阴天胶片',
+      'golden-backlight': '黄昏逆光',
+      'night-neon': '夜景霓虹',
+      fresh: '日系清新',
+    } as Record<BuiltinPresetId, string>,
+    descriptions: {
+      'overcast-film': '暖褐色调，压暗绿色和黑位，带颗粒和暗角，适合阴天的照片。',
+      'golden-backlight': '橙色亮部、紫色暗部，加强光晕和光束，适合有太阳的逆光照片。',
+      'night-neon': '青色暗部、品红亮部，强光晕和色差，适合有灯光的夜景。',
+      fresh: '提亮、降低对比度，黑位发灰，绿色偏青，画面通透。',
+    } as Record<BuiltinPresetId, string>,
+    imported: '已导入',
+    importedHint: '导入的预设只在本次打开页面期间保留。',
+    file: '预设文件',
+    import: '导入预设',
+    export: '导出当前参数',
+    fileHint: '导出为 JSON 文件，包含当前的调色与后期参数；使用中的 LUT 会一并保存，可以单独分享。光束的光源与画面有关，不随预设保存。',
+    exportName: '预设名称',
+    exportConfirm: '导出',
+    cancel: '取消',
+    defaultName: '自定义预设',
+    applied: (name: string) => `已套用预设“${name}”`,
+    importError: (file: string, reason: string) => `无法导入预设“${file}”：${reason}`,
+    unreadable: '文件无法读取',
+    clear: '清除调色与后期',
   },
   effects: {
     noBackground: '请先在“素材”步骤中导入背景照片。',

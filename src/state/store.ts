@@ -19,6 +19,7 @@ import {
   type WheelKey,
 } from '@/grade/model'
 import { DEFAULT_POST, type PostDoc, type PostSection, type ToneMapping } from '@/grade/post'
+import { matchesPreset, type Preset } from '@/grade/preset'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
 export type StepId = 'assets' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
@@ -118,6 +119,8 @@ interface AppState {
   updatePost: <K extends PostSection>(section: K, update: Partial<PostDoc[K]>) => void
   setToneMapping: (mode: ToneMapping) => void
   resetPost: () => void
+  /** 套用预设（一次撤销记录）：替换三级调整、全局调色和后期参数，保留光束所选的光源 */
+  applyPreset: (preset: Pick<Preset, 'grade' | 'post'>) => void
 
   setView: (view: ViewTransform) => void
   setViewport: (size: Size) => void
@@ -381,6 +384,12 @@ export const useApp = create<AppState>()((set, get) => ({
 
   resetPost: () => {
     get().setDoc((d) => ({ ...d, post: DEFAULT_POST }))
+  },
+
+  applyPreset: (preset) => {
+    get().setDoc((d) =>
+      matchesPreset(d.grade, d.post, preset) ? d : { ...d, grade: preset.grade, post: { ...preset.post, rays: { ...preset.post.rays, light: d.post.rays.light } } },
+    )
   },
 
   setView: (view) => set({ view }),

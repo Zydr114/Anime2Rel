@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import type { CurveChannel, GradeLevel, ToneKey, WheelKey } from '@/grade/model'
 
-/** 调色步骤的两个页面：三级基础调整、全局的色彩风格 */
-export type GradeTab = 'basic' | 'style'
-export const GRADE_TABS: readonly GradeTab[] = ['basic', 'style']
+/** 调色步骤的页面：三级基础调整、全局的色彩风格、预设 */
+export type GradeTab = 'basic' | 'style' | 'presets'
+export const GRADE_TABS: readonly GradeTab[] = ['basic', 'style', 'presets']
 
 /** 调色步骤的界面状态。不参与撤销。 */
 interface GradeUiState {
