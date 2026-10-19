@@ -16,8 +16,8 @@ export interface PostDoc {
   bloom: { intensity: number; threshold: number; radius: number }
   /** 胶片红晕：color 为 #rrggbb */
   halation: { intensity: number; threshold: number; radius: number; color: string }
-  /** 丁达尔光束：light 为光源 id，null 为自动选择；skyOnly 为只让天空发光（有深度时） */
-  rays: { intensity: number; threshold: number; length: number; light: string | null; skyOnly: boolean }
+  /** 丁达尔光束：light 为光源 id，null 为自动选择；skyOnly 为只让天空发光（有深度时）；rim 为轮廓光束的强度 */
+  rays: { intensity: number; threshold: number; length: number; light: string | null; skyOnly: boolean; rim: number }
   /** 色差 [0,1]；暗角 [-1,1]，负值压暗；中点、羽化 [0,1] */
   lens: { aberration: number; vignette: number; midpoint: number; feather: number }
   /** 颗粒强度、尺寸、彩色程度 [0,1] */
@@ -30,7 +30,7 @@ export type PostSection = Exclude<keyof PostDoc, 'toneMapping'>
 export const DEFAULT_POST: PostDoc = {
   bloom: { intensity: 0, threshold: 0.75, radius: 0.5 },
   halation: { intensity: 0, threshold: 0.85, radius: 0.3, color: '#ff5a1f' },
-  rays: { intensity: 0, threshold: 0.8, length: 0.5, light: null, skyOnly: true },
+  rays: { intensity: 0, threshold: 0.8, length: 0.5, light: null, skyOnly: true, rim: 0 },
   lens: { aberration: 0, vignette: 0, midpoint: 0.5, feather: 0.5 },
   grain: { amount: 0, size: 0.3, color: 0.3 },
   toneMapping: 'none',
@@ -41,6 +41,7 @@ export function isNeutralPost(p: PostDoc): boolean {
     p.bloom.intensity === 0 &&
     p.halation.intensity === 0 &&
     p.rays.intensity === 0 &&
+    p.rays.rim === 0 &&
     p.lens.aberration === 0 &&
     p.lens.vignette === 0 &&
     p.grain.amount === 0 &&
@@ -71,10 +72,12 @@ export interface PostParams {
   halationScatter: number
   halationColor: Vec3
   rays: number
+  /** 轮廓光束 */
+  raysRim: number
   raysThreshold: number
   /** 光束长度（相对长边） */
   raysLength: number
-  /** 光源在画面上的位置（文档 UV，可在画面外）；没有可用光源时为 null，此时 rays 为 0 */
+  /** 光源在画面上的位置（文档 UV，可在画面外）；没有可用光源时为 null，此时 rays、raysRim 为 0 */
   raysLight: Point | null
   skyOnly: boolean
   aberration: number
@@ -114,7 +117,7 @@ export function raysLight(lighting: LightingDoc, id: string | null, size: Size):
 
 export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null): PostParams {
   const scatter = (radius: number) => SCATTER_MIN + (SCATTER_MAX - SCATTER_MIN) * radius
-  const light = size && p.rays.intensity > 0 ? raysLight(lighting, p.rays.light, size) : null
+  const light = size && (p.rays.intensity > 0 || p.rays.rim > 0) ? raysLight(lighting, p.rays.light, size) : null
   const mid = 0.3 + 0.6 * p.lens.midpoint
   const width = 0.05 + 0.9 * p.lens.feather
   return {
@@ -127,6 +130,7 @@ export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null)
     halationScatter: scatter(p.halation.radius),
     halationColor: hexToLinear(p.halation.color) ?? [1, 0.1, 0.01],
     rays: light ? p.rays.intensity : 0,
+    raysRim: light ? p.rays.rim : 0,
     raysThreshold: srgbToLinear(p.rays.threshold),
     raysLength: p.rays.length,
     raysLight: light?.uv ?? null,

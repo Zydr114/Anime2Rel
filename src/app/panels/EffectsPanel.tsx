@@ -87,6 +87,7 @@ function RaysSection() {
   const rays = useApp((s) => s.doc.post.rays)
   const lighting = useApp((s) => s.doc.lighting)
   const background = useApp((s) => s.doc.background)
+  const fusionRim = useApp((s) => s.doc.fusion.relight.rim)
   // 深度结果存在模块级缓存里，结果更新时 resultsVersion 变化会让选择器重新读取
   const hasDepth = useDepth(() => !!getDepthResult(background?.id))
   const used = background ? raysLight(lighting, rays.light, background) : null
@@ -99,6 +100,7 @@ function RaysSection() {
   return (
     <Section title={t.effects.rays} testId="post-rays">
       <PostSlider section="rays" field="intensity" label={t.effects.intensity} />
+      <PostSlider section="rays" field="rim" label={t.effects.raysRim} />
       <PostSlider section="rays" field="threshold" label={t.effects.threshold} />
       <PostSlider section="rays" field="length" label={t.effects.raysLength} />
       <SelectField
@@ -111,6 +113,7 @@ function RaysSection() {
       <ToggleRow label={t.effects.raysSkyOnly} checked={rays.skyOnly} onChange={(skyOnly) => useApp.getState().updatePost('rays', { skyOnly })} testId="post-rays-sky" />
       <Hint>{t.effects.raysHint}</Hint>
       {!used && <Hint>{t.effects.raysNoLight}</Hint>}
+      {rays.rim > 0 && fusionRim === 0 && <Hint>{t.effects.raysNoRim}</Hint>}
       {rays.skyOnly && !hasDepth && <Hint>{t.effects.raysNoSky}</Hint>}
     </Section>
   )

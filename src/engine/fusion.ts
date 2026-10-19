@@ -229,7 +229,9 @@ export function createFusionNode(input: FusionNodeInput) {
   const color = mix(center, vec4(fused.mul(alpha), alpha), u.enabled)
   const normalView = srgbDecode(normalTex.rgb).mul(color.a)
   const output = mix(color, vec4(normalView, color.a), u.showNormals)
-  return { uniforms: u, normal: normalTex, rim: rimTex, output }
+  // 轮廓光本身（预乘 alpha），后期的轮廓光束用它作为发光区域
+  const rimGlow = vec4(rim.mul(alpha).mul(u.enabled), 1)
+  return { uniforms: u, normal: normalTex, rim: rimTex, output, rimGlow }
 }
 
 export type FusionUniforms = ReturnType<typeof createFusionNode>['uniforms']

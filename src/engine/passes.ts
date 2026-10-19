@@ -174,7 +174,13 @@ export function createCharacterPass(placement: Placement, character: TextureNode
     charScale: u.charScale,
     charFlip: u.charFlip,
   })
-  return { fusion: fusion.uniforms, characterNormal: fusion.normal, characterRim: fusion.rim, material: material(fusion.output.mul(placement.inside)) }
+  return {
+    fusion: fusion.uniforms,
+    characterNormal: fusion.normal,
+    characterRim: fusion.rim,
+    material: material(fusion.output.mul(placement.inside)),
+    rimGlow: fusion.rimGlow.mul(placement.inside),
+  }
 }
 
 /** 合成使用的各图层纹理（均与渲染目标同尺寸） */

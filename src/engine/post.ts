@@ -1,5 +1,6 @@
 /**
  * 后期效果中需要多个 pass 的部分（docs/Plan.md M5 实现方案）：Bloom 与 Halation 共用一个 mip 金字塔，光束为低分辨率的径向模糊。
+ * 轮廓光束（M8.1）在光束遮罩中加入立绘的轮廓光，轮廓光由融合节点在光束的分辨率上单独渲染一次。
  * 金字塔第 0 级的长边固定为 BLOOM_SIZE，与渲染分辨率无关，所以预览与导出的光晕相同；第 0 级由全分辨率图像的 mip 预滤波得到。
  * 结果在终处理 pass（src/engine/finish.ts）中叠加。
  */
@@ -18,6 +19,8 @@ const RAYS_SAMPLES = 8
 const RAYS_PASSES = 3
 /** 光束强度满格时的倍数 */
 const RAYS_GAIN = 1
+/** 轮廓光束强度满格时的倍数：轮廓光只是一条窄带，径向模糊后比大片的天空弱得多 */
+const RIM_RAYS_GAIN = 32
 /** 光束的发光区域按到光源的距离（相对长边）衰减：1 / (1 + (d / R)²)，近似前向散射的相函数 */
 const RAYS_PHASE_RADIUS = 0.3
 /** Halation 强度满格时的倍数（只取扩散到高光外的部分，比 Bloom 弱） */
@@ -58,6 +61,9 @@ export function createPostUniforms() {
     raysLight: uniform(new THREE.Vector2(0.5, 0)),
     /** 1 为只让天空发光（且有深度） */
     skyOnly: uniform(0),
+    /** 光束遮罩中亮部与轮廓光的权重 */
+    raysSky: uniform(0),
+    raysRim: uniform(0),
 
     // 以下由终处理 pass 使用；强度为 0 时不叠加
     bloom: uniform(0),
@@ -80,7 +86,7 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   const on = enabled && !!p?.active
   u.bloom.value = on ? p!.bloom : 0
   u.halation.value = on ? p!.halation * HALATION_GAIN : 0
-  u.rays.value = on && p!.raysLight ? p!.rays * RAYS_GAIN : 0
+  u.rays.value = on && p!.raysLight && (p!.rays > 0 || p!.raysRim > 0) ? RAYS_GAIN : 0
   u.aberration.value = on ? p!.aberration : 0
   u.vignette.value = on ? p!.vignette : 0
   u.toneMapping.value = on ? p!.toneMapping : 0
@@ -92,6 +98,8 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   u.halationColor.value.set(...p.halationColor)
   u.raysThreshold.value = p.raysThreshold
   u.raysLength.value = p.raysLength
+  u.raysSky.value = p.rays
+  u.raysRim.value = p.raysRim * RIM_RAYS_GAIN
   if (p.raysLight) u.raysLight.value.set(p.raysLight.x, p.raysLight.y)
   u.skyOnly.value = p.skyOnly ? 1 : 0
   u.vignetteRange.value.set(p.vignetteInner, p.vignetteOuter)
@@ -129,6 +137,8 @@ export interface PostTargets {
   up: THREE.RenderTarget[]
   /** 光束：遮罩与两张交替使用的模糊结果 */
   rays: THREE.RenderTarget[]
+  /** 轮廓光束的发光区域 */
+  rim: THREE.RenderTarget
 }
 
 export function createPostTargets(): PostTargets {
@@ -136,6 +146,7 @@ export function createPostTargets(): PostTargets {
     down: Array.from({ length: BLOOM_LEVELS }, halfTarget),
     up: Array.from({ length: BLOOM_LEVELS - 1 }, halfTarget),
     rays: Array.from({ length: 3 }, halfTarget),
+    rim: halfTarget(),
   }
 }
 
@@ -145,6 +156,7 @@ export interface PostPasses {
   texels: THREE.UniformNode<'vec2', THREE.Vector2>[]
   bloom: { target: THREE.RenderTarget; quad: THREE.QuadMesh }[]
   rays: { target: THREE.RenderTarget; quad: THREE.QuadMesh }[]
+  rim: { target: THREE.RenderTarget; quad: THREE.QuadMesh }
   /** 叠加用的结果 */
   bloomResult: THREE.Texture
   raysResult: THREE.Texture
@@ -152,9 +164,9 @@ export interface PostPasses {
 
 /**
  * 创建 Bloom 与光束的 pass。image 为全局调整后的线性图像（需有 mipmap），
- * sky 为背景的天空遮罩（hasSky 为 0 时不可用），character 为立绘层（预乘 alpha，需有 mipmap）。
+ * sky 为背景的天空遮罩（hasSky 为 0 时不可用），character 为立绘层（预乘 alpha，需有 mipmap），rimGlow 为融合节点输出的轮廓光。
  */
-export function createPostPasses(u: PostUniforms, image: TextureNode, sky: FloatNode, hasSky: FloatNode, character: TextureNode): PostPasses {
+export function createPostPasses(u: PostUniforms, image: TextureNode, sky: FloatNode, hasSky: FloatNode, character: TextureNode, rimGlow: Vec4Node): PostPasses {
   const targets = createPostTargets()
   const { down, up, rays } = targets
   const texels = Array.from({ length: BLOOM_LEVELS }, () => uniform(new THREE.Vector2(1, 1)))
@@ -178,17 +190,21 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, sky: Float
     bloom.push({ target: up[k], quad: quad(vec4(rgb, k === 0 ? max(t.a.sub(d.a), 0) : mix(d.a, t.a, u.scatter.y))) })
   }
 
-  // 光束遮罩：亮度超过阈值的像素（可限制为天空），离光源越远越弱，立绘挡住的部分不发光
+  // 光束遮罩：亮度超过阈值的像素（可限制为天空），离光源越远越弱，立绘挡住的部分不发光；
+  // 再加上立绘的轮廓光（不受阈值和距离影响），光束从立绘边缘向外散开
   const raysPasses: PostPasses['rays'] = []
   const toLight = u.raysLight.sub(screenUV)
   const distance = length(toLight.mul(u.aspect))
+  const rim = { target: targets.rim, quad: quad(rimGlow) }
   {
     const lod = max(u.sourceLod, 0)
     const c = sampleAt(image, screenUV, lod).rgb
     const skyWeight = mix(float(1), sky, u.skyOnly.mul(hasSky))
     const visible = float(1).sub(sampleAt(character, screenUV, lod).a)
     const phase = float(1).div(distance.div(RAYS_PHASE_RADIUS).pow(2).add(1))
-    raysPasses.push({ target: rays[0], quad: quad(vec4(c.mul(softThreshold(dot(c, LUMA), u.raysThreshold).mul(skyWeight).mul(visible).mul(phase)), 1)) })
+    const bright = c.mul(softThreshold(dot(c, LUMA), u.raysThreshold).mul(skyWeight).mul(visible).mul(phase))
+    const glow = sampleAt(texture(targets.rim.texture), screenUV, float(0)).rgb
+    raysPasses.push({ target: rays[0], quad: quad(vec4(bright.mul(u.raysSky).add(glow.mul(u.raysRim)), 1)) })
   }
   // 径向模糊：采样点 p + (光源 − p)·(1 − σ)，σ 在对数空间均匀分布；三个 pass 的步长依次乘以 RAYS_SAMPLES，合起来是均匀的 RAYS_SAMPLES^3 个采样。
   // 各 pass 按走过的距离指数衰减，几个 pass 的距离近似相加，合起来仍是按总距离衰减
@@ -208,7 +224,7 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, sky: Float
     raysPasses.push({ target: blurTarget(j), quad: quad(vec4(sum.div(RAYS_SAMPLES), 1)) })
   }
 
-  return { targets, texels, bloom, rays: raysPasses, bloomResult: up[0].texture, raysResult: blurTarget(RAYS_PASSES - 1).texture }
+  return { targets, texels, bloom, rays: raysPasses, rim, bloomResult: up[0].texture, raysResult: blurTarget(RAYS_PASSES - 1).texture }
 }
 
 /** 按文档尺寸设置金字塔和光束的尺寸 */
@@ -219,10 +235,11 @@ export function resizePostPasses(p: PostPasses, doc: Size): void {
     if (k < BLOOM_LEVELS - 1) p.targets.up[k].setSize(s.width, s.height)
     p.texels[k].value.set(1 / s.width, 1 / s.height)
   })
-  for (const rt of p.targets.rays) rt.setSize(sizes[0].width, sizes[0].height)
+  for (const rt of [...p.targets.rays, p.targets.rim]) rt.setSize(sizes[0].width, sizes[0].height)
 }
 
-export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloom: boolean; rays: boolean }): void {
+/** rim 为是否需要轮廓光束：不需要时遮罩中的权重为 0，不必更新轮廓光 */
+export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloom: boolean; rays: boolean; rim: boolean }): void {
   const run = (passes: PostPasses['bloom']) => {
     for (const { target, quad } of passes) {
       r.setRenderTarget(target)
@@ -230,10 +247,11 @@ export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloo
     }
   }
   if (which.bloom) run(p.bloom)
+  if (which.rays && which.rim) run([p.rim])
   if (which.rays) run(p.rays)
 }
 
 export function disposePostPasses(p: PostPasses): void {
-  for (const rt of [...p.targets.down, ...p.targets.up, ...p.targets.rays]) rt.dispose()
-  for (const { quad } of [...p.bloom, ...p.rays]) (quad.material as THREE.Material).dispose()
+  for (const rt of [...p.targets.down, ...p.targets.up, ...p.targets.rays, p.targets.rim]) rt.dispose()
+  for (const { quad } of [...p.bloom, ...p.rays, p.rim]) (quad.material as THREE.Material).dispose()
 }

@@ -24,8 +24,9 @@ describe('raysLight', () => {
 describe('postParams', () => {
   it('is inactive by default and disables rays without a usable light', () => {
     expect(postParams(DEFAULT_POST, DEFAULT_LIGHTING, size).active).toBe(false)
-    const p = postParams({ ...DEFAULT_POST, rays: { ...DEFAULT_POST.rays, intensity: 0.5 } }, DEFAULT_LIGHTING, size)
+    const p = postParams({ ...DEFAULT_POST, rays: { ...DEFAULT_POST.rays, intensity: 0.5, rim: 0.5 } }, DEFAULT_LIGHTING, size)
     expect(p.active).toBe(true)
     expect(p.rays).toBe(0)
+    expect(p.raysRim).toBe(0)
   })
 })
