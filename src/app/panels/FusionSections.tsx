@@ -198,9 +198,18 @@ function RelightSection() {
 
 function EdgeSection() {
   const noise = useFusion((s) => s.background?.info.noise)
+  const decontaminate = useApp((s) => s.doc.fusion.edge.decontaminate)
   const sigma = noise ? ((noise[0] + noise[1] + noise[2]) / 3) * 255 : null
   return (
     <Section title={t.fusion.edge} testId="fusion-edge">
+      <ToggleRow
+        label={t.fusion.decontaminate}
+        checked={decontaminate}
+        onChange={(v) => useApp.getState().updateFusion('edge', { decontaminate: v })}
+        testId="fusion-edge-decontaminate"
+      />
+      <FusionSlider section="edge" field="shrink" label={t.fusion.shrink} min={0} max={2} step={0.1} scale={1} format={formatPx} />
+      <Hint>{t.fusion.decontaminateHint}</Hint>
       <FusionSlider section="edge" field="lightWrap" label={t.fusion.lightWrap} min={0} max={100} />
       <FusionSlider section="edge" field="wrapRadius" label={t.fusion.wrapRadius} min={0.1} max={3} step={0.1} format={formatRelative} />
       <FusionSlider section="edge" field="feather" label={t.fusion.feather} min={0} max={3} step={0.1} scale={1} format={formatPx} />

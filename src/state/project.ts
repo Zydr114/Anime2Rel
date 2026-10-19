@@ -199,7 +199,7 @@ function conformFusion(v: unknown, hasCharacter: boolean): FusionDoc {
     colorMatch: fields(o.colorMatch, d.colorMatch),
     relight: fields(o.relight, d.relight, { celThreshold: [-0.5, 0.5], celSoftness: [0, 0.3], rim: [0, 2] }, { style: RELIGHT_STYLES }),
     normals: fields(o.normals, d.normals, { inflateRadius: [0.01, 0.2] }),
-    edge: fields(o.edge, d.edge, { wrapRadius: [0.001, 0.03], feather: [0, 3], noise: [0, 2] }),
+    edge: fields(o.edge, d.edge, { wrapRadius: [0.001, 0.03], feather: [0, 3], noise: [0, 2], shrink: [0, 2] }),
     shadow: fields(o.shadow, d.shadow, { contactSize: [0.3, 3] }),
     depth: typeof o.depth === 'number' ? num(o.depth, 0.5, 0, 1) : null,
     ground: hasCharacter ? uv(o.ground) : null,

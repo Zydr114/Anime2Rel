@@ -107,6 +107,8 @@ export interface FusionParams {
   feather: number
   /** 文档分辨率下的噪声标准差（sRGB 编码值，已乘以强度） */
   noise: Vec3
+  decontaminate: boolean
+  shrink: number
 }
 
 /** 余弦加权的正面半球采样（Fibonacci 螺旋），用于 S_ref */
@@ -209,5 +211,7 @@ export function fusionParams(input: FusionInputs): FusionParams {
     wrapRadius: edge.wrapRadius * Math.min(size.width, size.height),
     feather: edge.feather,
     noise: (background?.noise ?? [0, 0, 0]).map((v) => v * edge.noise) as Vec3,
+    decontaminate: edge.decontaminate,
+    shrink: edge.shrink,
   }
 }

@@ -63,6 +63,14 @@ export interface NormalMap {
   rim: Uint8Array
 }
 
+/** 去除残留底色时估计的前景色与背景色（引导分辨率，RGBA8，sRGB 编码值，a = 255），见 src/fusion/matte.ts */
+export interface MatteMap {
+  width: number
+  height: number
+  foreground: Uint8Array
+  background: Uint8Array
+}
+
 export interface StatsRequest {
   backgroundId: string
   characterId: string
@@ -87,5 +95,6 @@ export interface FusionWorkerApi {
   setBackground(input: BackgroundInput): Promise<BackgroundInfo>
   setCharacter(input: CharacterInput): Promise<CharacterInfo>
   normals(request: NormalRequest): Promise<NormalMap>
+  matte(id: string): Promise<MatteMap>
   stats(request: StatsRequest): Promise<FusionStats>
 }

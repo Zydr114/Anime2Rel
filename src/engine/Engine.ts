@@ -54,7 +54,7 @@ import { GRADE_LEVELS, type GradeLevel } from '@/grade/model'
 import { getLut } from '@/grade/luts'
 import type { GradeParams } from '@/grade/params'
 import type { PostParams } from '@/grade/post'
-import type { NormalMap } from '@/fusion/protocol'
+import type { MatteMap, NormalMap } from '@/fusion/protocol'
 import type { ShadowParams } from '@/fusion/shadow'
 import type { RegionMask } from '@/focus/regions'
 import { decodeOriginal } from '@/io/decode'
@@ -284,6 +284,11 @@ export class Engine {
   private readonly rimPlaceholder = dataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.UnsignedByteType)
   private charNormal: { map: NormalMap; texture: THREE.DataTexture; rim: THREE.DataTexture } | null = null
   private fusionReady = false
+  /** 去除残留底色：参数是否开启、Worker 的估计结果、立绘预处理当前是否用上了它 */
+  private decontaminate = false
+  private matte: { map: MatteMap; foreground: THREE.DataTexture; background: THREE.DataTexture } | null = null
+  private matteApplied = false
+  private readonly mattePlaceholders = [makePlaceholder(), makePlaceholder()] as const
   private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
@@ -363,7 +368,7 @@ export class Engine {
     this.exportTile = options.exportTile
     this.previewMaxEdge = Math.min(options.previewMaxEdge ?? 2048, this.textureLimit)
 
-    this.charPrep = createCharPrepPass(this.placeholder)
+    this.charPrep = createCharPrepPass(this.placeholder, this.mattePlaceholders)
     const placement = this.placement
     this.backgroundNode = texture(this.placeholder, this.tile.toBackground(this.tile.uv))
     const characterNode = texture(this.charRT.texture, placement.charUV)
@@ -534,6 +539,7 @@ export class Engine {
   setFusion(params: FusionParams | null): void {
     this.fusionReady = !!params
     if (params) applyFusionParams(this.character.fusion, params)
+    this.decontaminate = params?.decontaminate ?? false
     this.syncDisplay()
   }
 
@@ -608,6 +614,12 @@ export class Engine {
   private syncDisplay(display = this.display): void {
     const fusion = this.character.fusion
     fusion.enabled.value = this.fusionReady && display.compare !== 'raw' ? 1 : 0
+    // 对比直接贴上去的效果时，立绘保留原来的边缘
+    const matte = !!this.matte && this.decontaminate && fusion.enabled.value === 1
+    if (matte !== this.matteApplied) {
+      this.matteApplied = matte
+      this.prepCharacter()
+    }
     fusion.showNormals.value = display.showNormals ? 1 : 0
     const effects = this.effects(display)
     this.dof.bypass.value = effects.dof ? 0 : 1
@@ -625,6 +637,41 @@ export class Engine {
     this.encode.dither.value = effects.dither ? 1 : 0
     this.docDirty = true
     this.schedule()
+  }
+
+  /** 设置去除残留底色用的前景色与背景色；同一个对象不会重复上传。 */
+  setCharacterMatte(map: MatteMap | null): void {
+    if ((this.matte?.map ?? null) === map) return
+    this.disposeMatte()
+    if (map) {
+      // 存的是 sRGB 编码值，着色器在编码空间中求解，不做解码
+      const raw = (data: Uint8Array) => dataTexture(data, map.width, map.height, THREE.UnsignedByteType)
+      this.matte = { map, foreground: raw(map.foreground), background: raw(map.background) }
+    }
+    // 先恢复原来的边缘，有新数据时 syncDisplay 再按参数处理
+    const applied = this.matteApplied
+    this.matteApplied = false
+    if (applied) this.prepCharacter()
+    this.syncDisplay()
+  }
+
+  private disposeMatte(): void {
+    this.matte?.foreground.dispose()
+    this.matte?.background.dispose()
+    this.matte = null
+  }
+
+  /** 立绘预处理：转为线性预乘 alpha，按需去除残留底色 */
+  private prepCharacter(): void {
+    if (!this.charSource) return
+    const u = this.charPrep.uniforms
+    u.matte.value = this.matteApplied ? 1 : 0
+    this.charPrep.foreground.value = this.matte?.foreground ?? this.mattePlaceholders[0]
+    this.charPrep.background.value = this.matte?.background ?? this.mattePlaceholders[1]
+    this.renderer.setRenderTarget(this.charRT)
+    this.quads.charPrep.render(this.renderer)
+    this.renderer.setRenderTarget(null)
+    this.docDirty = true
   }
 
   /** 设置立绘的融合法线；同一个对象不会重复上传。 */
@@ -671,6 +718,9 @@ export class Engine {
     this.charAssetId = id
     this.charSource?.dispose()
     this.charSource = null
+    // 前景色估计属于上一张立绘
+    this.disposeMatte()
+    this.matteApplied = false
     const asset = id ? getAsset(id) : undefined
     if (!asset) return
     this.charSource = bitmapTexture(asset.bitmap)
@@ -680,9 +730,8 @@ export class Engine {
     this.charRT.setSize(asset.width, asset.height)
     this.placement.uniforms.charSize.value.set(asset.width, asset.height)
     this.charPrep.source.value = this.charSource
-    this.renderer.setRenderTarget(this.charRT)
-    this.quads.charPrep.render(this.renderer)
-    this.renderer.setRenderTarget(null)
+    this.charPrep.uniforms.texel.value.set(1 / asset.width, 1 / asset.height)
+    this.prepCharacter()
   }
 
   private schedule(): void {
@@ -961,8 +1010,10 @@ export class Engine {
     this.colormap.dispose()
     this.normalPlaceholder.dispose()
     this.rimPlaceholder.dispose()
+    for (const t of this.mattePlaceholders) t.dispose()
     this.charNormal?.texture.dispose()
     this.charNormal?.rim.dispose()
+    this.disposeMatte()
     this.regions?.texture.dispose()
     for (const u of Object.values(this.adjust)) u.curveMap.dispose()
     disposeFinish(this.finish)

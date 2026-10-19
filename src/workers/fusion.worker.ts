@@ -9,8 +9,9 @@ import { fitWithin } from '@/algo/geometry'
 import { oklabImage } from '@/algo/oklab'
 import { quantiles, resizeBilinear } from '@/algo/raster'
 import type { Vec3 } from '@/algo/sh'
+import { estimateForeground } from '@/fusion/matte'
 import { characterNormals, rimMap } from '@/fusion/normals'
-import { ROW_BINS, type BackgroundInfo, type BackgroundInput, type CharacterInfo, type CharacterInput, type FusionStats, type FusionWorkerApi, type NormalMap, type NormalRequest, type StatsRequest } from '@/fusion/protocol'
+import { ROW_BINS, type BackgroundInfo, type BackgroundInput, type CharacterInfo, type CharacterInput, type FusionStats, type FusionWorkerApi, type MatteMap, type NormalMap, type NormalRequest, type StatsRequest } from '@/fusion/protocol'
 import { labStats, noiseSigma, whitePoint } from '@/fusion/stats'
 
 /** 统计用的分辨率（长边） */
@@ -47,6 +48,7 @@ interface Character {
   small: { linear: Float32Array; alpha: Float32Array }
   /** 轮廓光的边缘带，只与立绘本身有关，首次求法线时计算 */
   rim: Uint8Array | null
+  matte: Omit<MatteMap, 'width' | 'height'> | null
 }
 
 let background: Background | null = null
@@ -136,7 +138,13 @@ const api: FusionWorkerApi = {
     const sp = resizeBilinear(premul, width, height, small.width, small.height, 3)
     const sa = resizeBilinear(alpha, width, height, small.width, small.height)
     for (let i = 0; i < sa.length; i++) for (let c = 0; c < 3; c++) sp[i * 3 + c] = sa[i] > 1e-3 ? sp[i * 3 + c] / sa[i] : 0
-    character = { id: input.id, width, height, rgb, alpha, depthNormal: input.depthNormal, small: { linear: sp, alpha: sa }, rim: null }
+    const previous = character
+    character = { id: input.id, width, height, rgb, alpha, depthNormal: input.depthNormal, small: { linear: sp, alpha: sa }, rim: null, matte: null }
+    // 同一张立绘只是深度结果更新时，沿用只与像素有关的结果
+    if (previous?.id === input.id && previous.width === width && previous.height === height) {
+      character.rim = previous.rim
+      character.matte = previous.matte
+    }
 
     let x0 = width
     let y0 = height
@@ -182,6 +190,27 @@ const api: FusionWorkerApi = {
     ch.rim ??= rimMap(ch)
     const rim = ch.rim.slice()
     return Comlink.transfer({ width: ch.width, height: ch.height, data, rim }, [data.buffer, rim.buffer])
+  },
+
+  async matte(id: string): Promise<MatteMap> {
+    const ch = character
+    if (!ch || ch.id !== id) throw new Error('立绘数据尚未就绪')
+    if (!ch.matte) {
+      const n = ch.width * ch.height
+      const { foreground, background } = estimateForeground(ch.rgb, ch.alpha, ch.width, ch.height)
+      const encode = (rgb: Float32Array) => {
+        const out = new Uint8Array(n * 4)
+        for (let i = 0; i < n; i++) {
+          for (let c = 0; c < 3; c++) out[i * 4 + c] = Math.round(rgb[i * 3 + c] * 255)
+          out[i * 4 + 3] = 255
+        }
+        return out
+      }
+      ch.matte = { foreground: encode(foreground), background: encode(background) }
+    }
+    const foreground = ch.matte.foreground.slice()
+    const background = ch.matte.background.slice()
+    return Comlink.transfer({ width: ch.width, height: ch.height, foreground, background }, [foreground.buffer, background.buffer])
   },
 
   async stats(request: StatsRequest): Promise<FusionStats> {

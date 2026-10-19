@@ -4,14 +4,39 @@ import { abs, cos, dot, exp, float, fract, fwidth, length, log2, max, mix, satur
 import { isMode, MODE, occlusionStyles, refraction, sampleLevel, waterDepth, waterEdge, waterWave, type DofUniforms } from './dof'
 import { createFusionNode } from './fusion'
 import type { ShadowUniforms } from './shadow'
-import { evalSh, material, srgbDecode, srgbEncode, type FloatNode, type TileMapping, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
+import { evalSh, material, sampleAt, srgbDecode, srgbEncode, type FloatNode, type TileMapping, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
 
-/** 立绘预处理：sRGB 直通 alpha → 线性预乘 alpha，写入带 mipmap 的半精度纹理。 */
-export function createCharPrepPass(placeholder: THREE.Texture) {
+/**
+ * 立绘预处理：sRGB 直通 alpha → 线性预乘 alpha，写入带 mipmap 的半精度纹理。
+ * 去除残留底色时，半透明像素在原分辨率上按 I = αF + (1 − α)B 再解一次前景色（sRGB 编码空间）：
+ * 邻域的 F、B 取 Worker 在引导分辨率上的估计（src/fusion/matte.ts），权重随 alpha 梯度增大。
+ */
+export function createCharPrepPass(placeholder: THREE.Texture, mattePlaceholders: readonly [THREE.Texture, THREE.Texture]) {
   const src = texture(placeholder, screenUV)
+  // 各用一张占位纹理：参数完全相同的纹理节点在编译时会合并成同一个绑定
+  const foreground = texture(mattePlaceholders[0], screenUV)
+  const background = texture(mattePlaceholders[1], screenUV)
+  const u = { texel: uniform(new THREE.Vector2(1, 1)), matte: uniform(0) }
+  const a = src.a
+  const a1 = float(1).sub(a)
+  const w = [vec2(1, 0), vec2(-1, 0), vec2(0, 1), vec2(0, -1)]
+    .map((o) => abs(sampleAt(src, screenUV.add(o.mul(u.texel))).a.sub(a)))
+    .reduce<FloatNode>((acc, v) => acc.add(v), float(4e-5))
+  const a00 = a.mul(a).add(w)
+  const a01 = a.mul(a1)
+  const a11 = a1.mul(a1).add(w)
+  const I = srgbEncode(src.rgb)
+  const b0 = I.mul(a).add(foreground.rgb.mul(w))
+  const b1 = I.mul(a1).add(background.rgb.mul(w))
+  const solved = srgbDecode(saturate(b0.mul(a11).sub(b1.mul(a01)).div(a00.mul(a11).sub(a01.mul(a01)))))
+  // 完全不透明的像素保持原色
+  const rgb = mix(src.rgb, select(a.lessThan(0.999), solved, src.rgb), u.matte)
   return {
     source: src,
-    material: material(vec4(src.rgb.mul(src.a), src.a)),
+    foreground,
+    background,
+    uniforms: u,
+    material: material(vec4(rgb.mul(a), a)),
   }
 }
 

@@ -12,7 +12,7 @@ import { getAnalysis } from '@/state/lighting'
 import { useApp, type DocState } from '@/state/store'
 import { fusionParams, whiteAdaptation, type FusionParams } from './params'
 import { characterBox, characterDepth } from './placement'
-import type { FusionWorkerApi, NormalMap } from './protocol'
+import type { FusionWorkerApi, MatteMap, NormalMap } from './protocol'
 import { shadowParams, type ShadowParams } from './shadow'
 
 /** 法线参数变化后的防抖时间 */
@@ -65,6 +65,7 @@ async function syncCharacter(): Promise<void> {
     const fusion = useFusion.getState()
     fusion.setCharacter(null)
     fusion.setNormals(null)
+    fusion.setMatte(null)
   }
   const asset = ch && getAsset(ch.id)
   if (!asset) {
@@ -79,6 +80,7 @@ async function syncCharacter(): Promise<void> {
   if (sentCharacter !== sent) return
   useFusion.getState().setCharacter({ id: asset.id, info })
   void runNormals()
+  if (useFusion.getState().matte?.id !== asset.id) void runMatte(asset.id)
   requestStats()
 }
 
@@ -94,6 +96,15 @@ async function runNormals(): Promise<void> {
   try {
     const map = await remote().normals({ id: character.id, weights, inflateRadius })
     if (run === normalsRun && useFusion.getState().character?.id === character.id) useFusion.getState().setNormals({ id: character.id, map })
+  } catch (e) {
+    report(e)
+  }
+}
+
+async function runMatte(id: string): Promise<void> {
+  try {
+    const map = await remote().matte(id)
+    if (useFusion.getState().character?.id === id) useFusion.getState().setMatte({ id, map })
   } catch (e) {
     report(e)
   }
@@ -201,6 +212,12 @@ export function currentShadowParams(doc: DocState): ShadowParams | null {
   const character = useFusion.getState().character
   if (!bg || !character || character.id !== doc.character?.id) return null
   return shadowParams({ doc, background: getDepthResult(bg.id), info: character.info, ambient: getAnalysis(bg.id)?.ambient })
+}
+
+/** 当前立绘去除残留底色用的数据 */
+export function currentMatte(doc: DocState): MatteMap | null {
+  const matte = useFusion.getState().matte
+  return matte && matte.id === doc.character?.id ? matte.map : null
 }
 
 /** 当前立绘的融合法线 */

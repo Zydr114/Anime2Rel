@@ -43,6 +43,10 @@ export interface FusionDoc {
     feather: number
     /** 噪声匹配：1 为与背景噪声等量 */
     noise: number
+    /** 去除抠图边缘残留的底色（src/fusion/matte.ts） */
+    decontaminate: boolean
+    /** 边缘收缩（背景像素）：alpha 向内收缩，残留底色较宽时的保底手段 */
+    shrink: number
   }
   shadow: {
     /** 接触阴影强度 */
@@ -68,7 +72,7 @@ export const DEFAULT_FUSION: FusionDoc = {
   colorMatch: { whiteBalance: 0.7, tone: 0.4, chroma: 0.3, saturation: 0.3, skinProtect: true },
   relight: { style: 'realistic', strength: 0.6, celThreshold: 0.1, celSoftness: 0.05, rim: 0.6, specular: 0 },
   normals: { ...DEFAULT_NORMAL_WEIGHTS, inflateRadius: DEFAULT_INFLATE_RADIUS },
-  edge: { lightWrap: 0.15, wrapRadius: 0.008, feather: 0.5, noise: 1 },
+  edge: { lightWrap: 0.15, wrapRadius: 0.008, feather: 0.5, noise: 1, decontaminate: true, shrink: 0 },
   shadow: { contact: 0.5, contactSize: 1, contactSoftness: 0.6, cast: 0.6, castSoftness: 0.3 },
   depth: null,
   ground: null,

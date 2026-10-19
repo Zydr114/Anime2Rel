@@ -96,6 +96,7 @@ export function createFusionNode(input: FusionNodeInput) {
     lightWrap: uniform(0),
     wrapRadius: uniform(1),
     feather: uniform(0),
+    shrink: uniform(0),
     noise: v3(),
     /** 输出图像像素 / 文档像素，用于把噪声换算到当前分辨率 */
     targetScale: uniform(1),
@@ -110,7 +111,12 @@ export function createFusionNode(input: FusionNodeInput) {
   const average = taps.reduce<Vec4Node>((acc, t) => acc.add(t.mul(0.15)), center.mul(0.4))
   const alphas = taps.map((t) => t.a)
   const spread = alphas.reduce<FloatNode>((acc, a) => max(acc, a), center.a).sub(alphas.reduce<FloatNode>((acc, a) => min(acc, a), center.a))
-  const feathered = mix(center, average, saturate(spread.mul(8)))
+  // 边缘收缩：alpha 取半径内八个方向的最小值，颜色不变
+  const sr = texel.mul(u.shrink)
+  const eroded = [vec2(1, 0), vec2(-1, 0), vec2(0, 1), vec2(0, -1), vec2(0.7071, 0.7071), vec2(-0.7071, 0.7071), vec2(0.7071, -0.7071), vec2(-0.7071, -0.7071)]
+    .map((d) => sampleAt(character, charUV.add(d.mul(sr))).a)
+    .reduce<FloatNode>((acc, a) => min(acc, a), center.a)
+  const feathered = mix(center, average, saturate(spread.mul(8))).mul(saturate(eroded.div(max(center.a, 1e-4))))
   const alpha = feathered.a
   const straight = feathered.rgb.div(max(alpha, 1e-4))
 
@@ -263,5 +269,6 @@ export function applyFusionParams(u: FusionUniforms, params: FusionParams): void
   u.lightWrap.value = params.lightWrap
   u.wrapRadius.value = Math.max(params.wrapRadius, 1)
   u.feather.value = params.feather
+  u.shrink.value = params.shrink
   u.noise.value.set(...params.noise)
 }

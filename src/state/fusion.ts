@@ -1,11 +1,13 @@
 import { create } from 'zustand'
-import type { BackgroundInfo, CharacterInfo, FusionStats, NormalMap } from '@/fusion/protocol'
+import type { BackgroundInfo, CharacterInfo, FusionStats, MatteMap, NormalMap } from '@/fusion/protocol'
 
 /** 融合 Worker 的计算结果与立绘步骤的界面状态。不参与撤销。 */
 interface FusionState {
   background: { id: string; info: BackgroundInfo } | null
   character: { id: string; info: CharacterInfo } | null
   normals: { id: string; map: NormalMap } | null
+  /** 去除残留底色用的前景色与背景色 */
+  matte: { id: string; map: MatteMap } | null
   stats: FusionStats | null
   /** 前后对比：显示直接贴上去的立绘（不做融合、景深和遮挡） */
   compare: boolean
@@ -17,6 +19,7 @@ interface FusionState {
   setBackground: (v: FusionState['background']) => void
   setCharacter: (v: FusionState['character']) => void
   setNormals: (v: FusionState['normals']) => void
+  setMatte: (v: FusionState['matte']) => void
   setStats: (v: FusionStats | null) => void
   setCompare: (on: boolean) => void
   setShowNormals: (on: boolean) => void
@@ -27,6 +30,7 @@ export const useFusion = create<FusionState>()((set) => ({
   background: null,
   character: null,
   normals: null,
+  matte: null,
   stats: null,
   compare: false,
   showNormals: false,
@@ -35,6 +39,7 @@ export const useFusion = create<FusionState>()((set) => ({
   setBackground: (background) => set({ background }),
   setCharacter: (character) => set({ character }),
   setNormals: (normals) => set({ normals }),
+  setMatte: (matte) => set({ matte }),
   setStats: (stats) => set({ stats }),
   setCompare: (compare) => set({ compare }),
   setShowNormals: (showNormals) => set({ showNormals }),

@@ -4,7 +4,7 @@ import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
 import { isGradeStep } from '@/app/steps'
 import { currentFocusParams, currentRegionMask } from '@/focus/service'
-import { currentFusionParams, currentNormals, currentShadowParams } from '@/fusion/service'
+import { currentFusionParams, currentMatte, currentNormals, currentShadowParams } from '@/fusion/service'
 import { gradeParams } from '@/grade/params'
 import { postParams } from '@/grade/post'
 import { t } from '@/i18n'
@@ -84,6 +84,7 @@ export function Viewport() {
           const { doc, step } = useApp.getState()
           const f = useFusion.getState()
           e.setCharacterNormals(currentNormals(doc))
+          e.setCharacterMatte(currentMatte(doc))
           e.setFusion(currentFusionParams(doc))
           e.setOcclusionRegions(currentRegionMask(doc))
           e.setFocus(currentFocusParams(doc))
