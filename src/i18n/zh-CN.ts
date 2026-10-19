@@ -22,6 +22,29 @@ export const zhCN = {
     start: '开始溶图',
     needBackground: '请先选择背景照片',
     loaded: '已载入',
+    resume: '继续上次的工程',
+    openProject: '打开工程文件',
+  },
+  project: {
+    title: '工程',
+    hint: '工程文件（.a2r）包含素材原图、全部参数和使用中的 LUT，深度和光源分析会在打开后重新计算。编辑内容也会自动保存在本机浏览器中，下次打开页面时可以继续。',
+    save: '保存工程文件',
+    open: '打开工程文件',
+    saved: '工程文件已保存',
+    saveFailed: '保存工程失败',
+    opening: '正在打开工程…',
+    openFailed: '无法打开工程',
+    replaceTitle: '打开工程',
+    replaceBody: '打开的工程会替换当前的编辑内容，撤销记录也会清空。',
+    replaceConfirm: '打开',
+    cancel: '取消',
+    autosaveFailed: '自动保存失败',
+    savedAt: (date: Date) => {
+      const now = new Date()
+      const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      if (date.toDateString() === now.toDateString()) return `今天 ${time}`
+      return `${date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' })} ${time}`
+    },
   },
   steps: {
     assets: '素材',
@@ -398,7 +421,7 @@ export const zhCN = {
       fresh: '提亮、降低对比度，黑位发灰，绿色偏青，画面通透。',
     } as Record<BuiltinPresetId, string>,
     imported: '已导入',
-    importedHint: '导入的预设只在本次打开页面期间保留。',
+    importedHint: '导入的预设保存在本机浏览器中。',
     file: '预设文件',
     import: '导入预设',
     export: '导出当前参数',

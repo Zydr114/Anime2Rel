@@ -28,6 +28,7 @@
     "@mdui/icons": "^1.0.4",
     "clsx": "^2.1.1",
     "comlink": "4.4.2",
+    "idb-keyval": "^6.3.0",
     "mdui": "^2.1.5",
     "motion": "^14.3.0",
     "onnxruntime-web": "1.30.0",

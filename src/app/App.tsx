@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Viewport } from '@/canvas/Viewport'
 import { t } from '@/i18n'
 import { useEngine } from '@/state/engine'
@@ -10,7 +10,7 @@ import { Landing } from './Landing'
 const EDITOR_INSETS = { left: 112, right: 352, top: 16, bottom: 88 }
 
 export function App() {
-  const [started, setStarted] = useState(false)
+  const started = useApp((s) => s.started)
   const status = useEngine((s) => s.status)
   const error = useEngine((s) => s.error)
 
@@ -26,12 +26,12 @@ export function App() {
     return () => window.removeEventListener('paste', onPaste)
   }, [])
 
-  const start = () => {
-    setStarted(true)
-    // 编辑器的浮动面板：左侧导航、右侧检查器、底部工具栏
+  // 编辑器的浮动面板：左侧导航、右侧检查器、底部工具栏
+  useEffect(() => {
+    if (!started) return
     useApp.getState().setViewInsets(EDITOR_INSETS)
     useApp.getState().fitToView()
-  }
+  }, [started])
 
   if (status === 'error') {
     return (
@@ -50,7 +50,7 @@ export function App() {
       <div className={started ? 'absolute inset-0' : 'invisible absolute inset-0'}>
         <Viewport />
       </div>
-      {started ? <Editor /> : <Landing onStart={start} />}
+      {started ? <Editor /> : <Landing />}
       {status === 'loading' && started && (
         <div className="absolute inset-0 flex items-center justify-center">
           <mdui-circular-progress />

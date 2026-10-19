@@ -3,6 +3,7 @@
  * 文件是 JSON，导入的 LUT 以 base64（float32，小端）内嵌，可以单独分享。
  * 导入的内容不可信：逐字段检查类型并限制在界面允许的范围内，缺少或无效的字段取默认值。内置预设也经过同样的处理。
  */
+import { bool, hex, hue, num, oneOf, record, text, type Json } from '@/io/conform'
 import { MAX_CUBE_SIZE, type CubeLut } from './cube'
 import { getLut, registerLut } from './luts'
 import {
@@ -46,17 +47,7 @@ const MAX_CURVE_POINTS = 32
 
 export class PresetError extends Error {}
 
-// ── 字段检查 ──
-
-type Json = Record<string, unknown>
-const record = (v: unknown): Json => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Json) : {})
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
-const num = (v: unknown, fallback: number, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : fallback)
-const hue = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? ((v % 360) + 360) % 360 : fallback)
-const bool = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback)
-const HEX = /^#[0-9a-f]{6}$/i
-const hex = (v: unknown, fallback: string) => (typeof v === 'string' && HEX.test(v) ? v.toLowerCase() : fallback)
-const oneOf = <T extends string>(v: unknown, options: readonly T[], fallback: T): T => (options.includes(v as T) ? (v as T) : fallback)
+const conformName = (v: unknown, fallback: string) => text(v, fallback, MAX_NAME_LENGTH)
 
 /** 曲线：首尾在 x = 0、1，x 严格递增；不满足时恢复为直线 */
 function conformCurve(v: unknown): CurvePoints {
@@ -123,7 +114,7 @@ function conformCreative(v: unknown, lut: (ref: Json) => LutRef | null): Creativ
   }
 }
 
-function conformGrade(v: unknown, lut: (ref: Json) => LutRef | null): GradeDoc {
+export function conformGrade(v: unknown, lut: (ref: Json) => LutRef | null): GradeDoc {
   const o = record(v)
   const levels = record(o.levels)
   return {
@@ -132,8 +123,8 @@ function conformGrade(v: unknown, lut: (ref: Json) => LutRef | null): GradeDoc {
   }
 }
 
-/** 后期参数：除暗角外都是 [0,1]；光束的光源与画面有关，预设中一律为自动 */
-function conformPost(v: unknown): PostDoc {
+/** 后期参数：除暗角外都是 [0,1]。光束的光源与画面有关，light 把文件中的光源 id 换成文档中的，预设中一律为自动 */
+export function conformPost(v: unknown, light: (id: unknown) => string | null = () => null): PostDoc {
   const o = record(v)
   const section = <K extends PostSection>(key: K): PostDoc[K] => {
     const src = record(o[key])
@@ -142,7 +133,7 @@ function conformPost(v: unknown): PostDoc {
       if (typeof fallback === 'number') out[field] = num(src[field], fallback, field === 'vignette' ? -1 : 0, 1)
       else if (typeof fallback === 'boolean') out[field] = bool(src[field], fallback)
       else if (typeof fallback === 'string') out[field] = hex(src[field], fallback)
-      else out[field] = null
+      else out[field] = light(src[field])
     }
     return out as PostDoc[K]
   }
@@ -155,8 +146,6 @@ function conformPost(v: unknown): PostDoc {
     toneMapping: oneOf(o.toneMapping, TONE_MAPPINGS, 'none'),
   }
 }
-
-const conformName = (v: unknown, fallback: string) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, MAX_NAME_LENGTH) : fallback)
 
 // ── 文件 ──
 
@@ -204,16 +193,34 @@ function embeddedLut(v: unknown): [string, LutRef] {
   return [o.id, registerLut(lut, conformName(o.name, 'LUT'))]
 }
 
+/** 参数中使用的 LUT → 内嵌到文件中的数据（预设和工程文件共用） */
+export function embedLuts(grade: GradeDoc): Json[] {
+  const ref = grade.creative.lut
+  const lut = ref && getLut(ref.id)
+  return lut ? [{ id: lut.id, name: ref.name, title: lut.title, size: lut.size, domainMin: lut.domainMin, domainMax: lut.domainMax, data: toBase64(lut.data) }] : []
+}
+
+/** 登记文件中内嵌的 LUT，返回把文件中的 LUT 引用换成已登记引用的函数（供 conformGrade 使用）；数据无效时抛出 PresetError */
+export function lutResolver(embedded: unknown): (ref: Json) => LutRef | null {
+  const luts = new Map((Array.isArray(embedded) ? embedded : []).map(embeddedLut))
+  return (ref) => {
+    if (typeof ref.id !== 'string') return null
+    const lut = luts.get(ref.id)
+    if (lut) return { id: lut.id, name: conformName(ref.name, lut.name) }
+    return getLut(ref.id) ? { id: ref.id, name: conformName(ref.name, 'LUT') } : null
+  }
+}
+
+/** 参数 → 写入文件的形式：混色层去掉 id，找不到数据的 LUT 引用去掉 */
+export function gradeForFile(grade: GradeDoc): Json {
+  const ref = grade.creative.lut
+  return { ...grade, creative: { ...grade.creative, lut: ref && getLut(ref.id) ? ref : null, layers: withoutIds(grade.creative.layers) } }
+}
+
 /** 当前参数 → 预设文件的文本。使用中的 LUT 会内嵌进去 */
 export function serializePreset(preset: Preset): string {
-  const ref = preset.grade.creative.lut
-  const lut = ref && getLut(ref.id)
-  const luts = lut
-    ? [{ id: lut.id, name: ref.name, title: lut.title, size: lut.size, domainMin: lut.domainMin, domainMax: lut.domainMax, data: toBase64(lut.data) }]
-    : []
   const post = { ...preset.post, rays: { ...preset.post.rays, light: null } }
-  const grade = { ...preset.grade, creative: { ...preset.grade.creative, lut: lut ? ref : null, layers: withoutIds(preset.grade.creative.layers) } }
-  return JSON.stringify({ format: PRESET_FORMAT, version: PRESET_VERSION, name: preset.name, grade, post, luts }, null, 2)
+  return JSON.stringify({ format: PRESET_FORMAT, version: PRESET_VERSION, name: preset.name, grade: gradeForFile(preset.grade), post, luts: embedLuts(preset.grade) }, null, 2)
 }
 
 /** 预设文件的文本 → 预设，内嵌的 LUT 会被登记。格式不对时抛出 PresetError */
@@ -227,14 +234,7 @@ export function parsePreset(text: string, fallbackName: string): Preset {
   const o = record(raw)
   if (o.format !== PRESET_FORMAT && !LEGACY_PRESET_FORMATS.includes(o.format as string)) throw new PresetError('不是 Anime2Real 的预设文件')
   if (typeof o.version !== 'number' || o.version > PRESET_VERSION) throw new PresetError('预设来自更新的版本，请更新页面后再试')
-  const luts = new Map((Array.isArray(o.luts) ? o.luts : []).map(embeddedLut))
-  const lut = (ref: Json): LutRef | null => {
-    if (typeof ref.id !== 'string') return null
-    const embedded = luts.get(ref.id)
-    if (embedded) return { id: embedded.id, name: conformName(ref.name, embedded.name) }
-    return getLut(ref.id) ? { id: ref.id, name: conformName(ref.name, 'LUT') } : null
-  }
-  return { name: conformName(o.name, fallbackName), grade: conformGrade(o.grade, lut), post: conformPost(o.post) }
+  return { name: conformName(o.name, fallbackName), grade: conformGrade(o.grade, lutResolver(o.luts)), post: conformPost(o.post) }
 }
 
 /** 参数是否与预设一致（不比较混色层的 id 和光束的光源） */

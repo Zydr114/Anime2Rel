@@ -4,6 +4,7 @@ import { registerAsset } from '@/state/assets'
 import { textureLimit } from '@/state/engine'
 import { useApp } from '@/state/store'
 import { ask, notify } from './notify'
+import { isProjectFile, openProjectFile } from './project'
 
 export type ImportRole = 'background' | 'character' | 'auto'
 
@@ -38,9 +39,15 @@ async function apply(img: DecodedImage, file: File, role: 'background' | 'charac
 
 /**
  * 导入图片。role 为 auto 时：带透明区域的图片作为立绘，否则作为背景。
- * 一次导入多张时，每种角色只取第一张。
+ * 一次导入多张时，每种角色只取第一张。其中有工程文件（.a2r）时改为打开工程。
  */
 export async function importFiles(files: Iterable<File>, role: ImportRole): Promise<void> {
+  // 拖入或粘贴的工程文件直接打开
+  const project = Array.from(files).find(isProjectFile)
+  if (project) {
+    if (await openProjectFile(project)) useApp.getState().start()
+    return
+  }
   const list = Array.from(files).filter((f) => !f.type || f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name))
   if (list.length === 0) {
     const first = Array.from(files)[0]

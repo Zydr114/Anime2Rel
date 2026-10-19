@@ -4,6 +4,7 @@ import { useFusion } from '@/state/fusion'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { isTypingTarget } from './keyboard'
+import { pickProjectFile, saveProjectFile } from './project'
 import { isGradeStep } from './steps'
 import { zoomBy, zoomToActual } from './viewActions'
 
@@ -25,6 +26,16 @@ export function useShortcuts(): void {
       if (mod && key === 'y') {
         e.preventDefault()
         s.redo()
+        return
+      }
+      if (mod && key === 's') {
+        e.preventDefault()
+        void saveProjectFile()
+        return
+      }
+      if (mod && key === 'o') {
+        e.preventDefault()
+        pickProjectFile()
         return
       }
       if (mod || e.altKey) return

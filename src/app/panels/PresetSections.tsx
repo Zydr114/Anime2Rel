@@ -55,7 +55,7 @@ function PresetItem({ name, description, active, onClick, testId }: { name: stri
   )
 }
 
-/** 预设：内置预设、本次导入的预设，以及预设文件的导入导出 */
+/** 预设：内置预设、导入的预设，以及预设文件的导入导出 */
 export function PresetSections() {
   const grade = useApp((s) => s.doc.grade)
   const post = useApp((s) => s.doc.post)

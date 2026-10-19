@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { t } from '@/i18n'
 import type { AssetRef } from '@/state/assets'
 import { useApp } from '@/state/store'
@@ -10,6 +10,7 @@ import { ShimmerButton } from '@/ui/magicui/shimmer-button'
 import { HeroMark } from './HeroMark'
 import { importFiles, pickFiles } from './importer'
 import { LegalLinks } from './LegalLinks'
+import { lastAutosave, pickProjectFile, restoreAutosave, type AutosaveInfo } from './project'
 
 function DropZone({ role, title, hint, asset, optional }: { role: 'background' | 'character'; title: string; hint: string; asset: AssetRef | null; optional?: boolean }) {
   const [over, setOver] = useState(false)
@@ -59,8 +60,72 @@ function DropZone({ role, title, hint, asset, optional }: { role: 'background' |
   )
 }
 
-/** 首屏：选择素材后进入编辑器。 */
-export function Landing({ onStart }: { onStart: () => void }) {
+const start = () => useApp.getState().start()
+
+/** 与“开始”按钮同高的胶囊按钮 */
+const PILL =
+  'flex h-12 cursor-pointer items-center rounded-full border border-white/10 bg-[#1b1a18]/80 transition hover:border-white/20 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-champagne'
+
+/** 继续浏览器中自动保存的上一个工程，或打开工程文件 */
+function ProjectEntries() {
+  const [last, setLast] = useState<(AutosaveInfo & { url: string | null }) | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let alive = true
+    let url: string | null = null
+    void lastAutosave().then((info) => {
+      if (!alive || !info) return
+      url = info.thumbnail && URL.createObjectURL(info.thumbnail)
+      setLast({ ...info, url })
+    })
+    return () => {
+      alive = false
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [])
+
+  const resume = async () => {
+    setBusy(true)
+    if (await restoreAutosave()) start()
+    else setBusy(false)
+  }
+
+  const open = () => pickProjectFile(start)
+
+  if (!last) {
+    return (
+      <button type="button" onClick={open} data-testid="open-project" className={cn(PILL, 'gap-2 px-6 text-sm text-ivory')}>
+        <mdui-icon-folder-open--outlined className="text-champagne" style={{ fontSize: 20 }} />
+        {t.landing.openProject}
+      </button>
+    )
+  }
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <button type="button" onClick={resume} disabled={busy} data-testid="resume-project" className={cn(PILL, 'gap-3 py-1 pr-5 pl-1 text-left disabled:cursor-progress disabled:opacity-60')}>
+        {last.url ? (
+          <img src={last.url} alt="" className="h-10 w-14 rounded-full object-cover" />
+        ) : (
+          <span className="flex h-10 w-14 items-center justify-center rounded-full bg-white/5">
+            <mdui-icon-history--outlined className="text-champagne" />
+          </span>
+        )}
+        <span className="flex min-w-0 flex-col">
+          <span className="text-sm text-ivory">{t.landing.resume}</span>
+          <span className="max-w-52 truncate text-xs text-taupe">
+            {last.name} · {t.project.savedAt(last.savedAt)}
+          </span>
+        </span>
+      </button>
+      <button type="button" onClick={open} data-testid="open-project" className="cursor-pointer text-xs text-taupe underline-offset-4 hover:text-ivory hover:underline">
+        {t.landing.openProject}
+      </button>
+    </div>
+  )
+}
+
+/** 首屏：选择素材后进入编辑器，或继续之前的工程。 */
+export function Landing() {
   const background = useApp((s) => s.doc.background)
   const character = useApp((s) => s.doc.character)
 
@@ -92,19 +157,22 @@ export function Landing({ onStart }: { onStart: () => void }) {
           </div>
         </BlurFade>
         <BlurFade delay={0.25}>
-          <div className="flex flex-col items-center gap-2">
-            <ShimmerButton
-              className="px-10 text-base font-medium"
-              background="rgb(var(--mdui-color-primary-container))"
-              shimmerColor="#ffd2b0"
-              disabled={!background}
-              onClick={onStart}
-              data-testid="start"
-              style={{ opacity: background ? 1 : 0.5 }}
-            >
-              {t.landing.start}
-            </ShimmerButton>
-            {!background && <span className="text-xs text-on-surface-variant">{t.landing.needBackground}</span>}
+          <div className="flex flex-wrap items-start justify-center gap-4">
+            <div className="flex flex-col items-center gap-2">
+              <ShimmerButton
+                className="h-12 px-10 text-base font-medium"
+                background="rgb(var(--mdui-color-primary-container))"
+                shimmerColor="#ffd2b0"
+                disabled={!background}
+                onClick={start}
+                data-testid="start"
+                style={{ opacity: background ? 1 : 0.5 }}
+              >
+                {t.landing.start}
+              </ShimmerButton>
+              {!background && <span className="text-xs text-on-surface-variant">{t.landing.needBackground}</span>}
+            </div>
+            <ProjectEntries />
           </div>
         </BlurFade>
         <LegalLinks className="mt-4" />

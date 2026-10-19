@@ -16,6 +16,7 @@ import { EffectsPanel } from './panels/EffectsPanel'
 import { ExportPanel } from './panels/ExportPanel'
 import { FocusPanel } from './panels/FocusPanel'
 import { LightPanel } from './panels/LightPanel'
+import { startAutosave } from './project'
 import { steps } from './steps'
 import { Toolbar } from './Toolbar'
 import { useShortcuts } from './useShortcuts'
@@ -42,6 +43,8 @@ export function Editor() {
   useEffect(() => startAutoDepth(), [])
   useEffect(() => startAutoAnalysis(), [])
   useEffect(() => startAutoFusion(), [])
+  // 编辑内容自动保存在浏览器中，下次打开页面时可以在首屏继续
+  useEffect(() => startAutosave(), [])
 
   useDomEvent(railRef, 'change', (_e, el) => {
     if (el.value) setStep(el.value as StepId)

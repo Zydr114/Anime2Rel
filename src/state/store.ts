@@ -63,8 +63,12 @@ interface AppState {
   /** 浮动面板遮挡的视口边距，用于“适应窗口” */
   viewInsets: Insets
   step: StepId
+  /** 是否已离开首屏进入编辑器 */
+  started: boolean
 
   setDoc: (update: Partial<DocState> | ((doc: DocState) => DocState)) => void
+  /** 打开工程：替换整个文档并清空撤销历史 */
+  loadDoc: (doc: DocState, step: StepId) => void
   beginGesture: () => void
   endGesture: () => void
   undo: () => void
@@ -127,6 +131,27 @@ interface AppState {
   setViewInsets: (insets: Insets) => void
   fitToView: () => void
   setStep: (step: StepId) => void
+  start: () => void
+}
+
+/** 文档坐标按 (kx, ky) 缩放：立绘位置与大小、背景上的焦点、遮挡区域和点光源的位置随之变化 */
+export function rescaleDoc(d: DocState, kx: number, ky: number): DocState {
+  if (kx === 1 && ky === 1) return d
+  const k = Math.min(kx, ky)
+  const t = d.charTransform
+  const target = d.focus.target
+  const regions = d.focus.occlusion.regions.map((r) => ({
+    ...r,
+    strokes: r.strokes.map((st) => ({ ...st, radius: st.radius * k, points: st.points.map((v, i) => v * (i % 2 ? ky : kx)) })),
+  }))
+  const focus = {
+    ...d.focus,
+    target: target?.kind === 'background' ? { ...target, x: target.x * kx, y: target.y * ky } : target,
+    occlusion: { ...d.focus.occlusion, regions },
+  }
+  const charTransform = d.character ? { ...t, x: t.x * kx, y: t.y * ky, scale: t.scale * k } : t
+  const lights = d.lighting.lights.map((l) => ({ ...l, position: { ...l.position, x: l.position.x * kx, y: l.position.y * ky } }))
+  return { ...d, charTransform, focus, lighting: { ...d.lighting, lights } }
 }
 
 const pushPast = (past: DocState[], doc: DocState) => [...past.slice(-(HISTORY_LIMIT - 1)), doc]
@@ -152,6 +177,7 @@ export const useApp = create<AppState>()((set, get) => ({
   viewport: { width: 1, height: 1 },
   viewInsets: NO_INSETS,
   step: 'assets',
+  started: false,
 
   setDoc: (update) => {
     const { doc, gestureBase, past } = get()
@@ -159,6 +185,11 @@ export const useApp = create<AppState>()((set, get) => ({
     if (next === doc) return
     if (gestureBase) set({ doc: next })
     else set({ doc: next, past: pushPast(past, doc), future: [] })
+  },
+
+  loadDoc: (doc, step) => {
+    const { viewport, viewInsets } = get()
+    set({ doc, past: [], future: [], gestureBase: null, step, view: doc.background ? fitView(doc.background, viewport, undefined, viewInsets) : get().view })
   },
 
   beginGesture: () => {
@@ -195,21 +226,7 @@ export const useApp = create<AppState>()((set, get) => ({
       get().setDoc((d) => {
         // 更换尺寸不同的背景时，按比例保持立绘、背景焦点和遮挡区域的相对位置
         if (!d.background || !sizeChanged) return { ...d, background: asset }
-        const k = asset.width / d.background.width
-        const ky = asset.height / d.background.height
-        const t = d.charTransform
-        const target = d.focus.target
-        const regions = d.focus.occlusion.regions.map((r) => ({
-          ...r,
-          strokes: r.strokes.map((st) => ({ ...st, radius: st.radius * Math.min(k, ky), points: st.points.map((v, i) => v * (i % 2 ? ky : k)) })),
-        }))
-        const focus = {
-          ...d.focus,
-          target: target?.kind === 'background' ? { ...target, x: target.x * k, y: target.y * ky } : target,
-          occlusion: { ...d.focus.occlusion, regions },
-        }
-        const charTransform = d.character ? { ...t, x: t.x * k, y: t.y * ky, scale: t.scale * Math.min(k, ky) } : t
-        return { ...d, background: asset, charTransform, focus }
+        return { ...rescaleDoc(d, asset.width / d.background.width, asset.height / d.background.height), background: asset }
       })
     }
     if (sizeChanged) set({ view: fitView(asset, viewport, undefined, viewInsets) })
@@ -400,4 +417,5 @@ export const useApp = create<AppState>()((set, get) => ({
     if (doc.background) set({ view: fitView(doc.background, viewport, undefined, viewInsets) })
   },
   setStep: (step) => set({ step }),
+  start: () => set({ started: true }),
 }))

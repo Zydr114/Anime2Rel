@@ -3,6 +3,7 @@ import { t } from '@/i18n'
 import { useApp } from '@/state/store'
 import { ShimmerButton } from '@/ui/magicui/shimmer-button'
 import { exportPng } from '../exporter'
+import { pickProjectFile, saveProjectFile } from '../project'
 
 export function ExportPanel() {
   const background = useApp((s) => s.doc.background)
@@ -34,6 +35,19 @@ export function ExportPanel() {
       >
         {busy ? t.export.working : t.export.action}
       </ShimmerButton>
+
+      <section className="mt-1 flex flex-col gap-3 rounded-2xl bg-white/5 p-3">
+        <h3 className="text-sm font-medium">{t.project.title}</h3>
+        <p className="text-xs leading-5 text-on-surface-variant">{t.project.hint}</p>
+        <mdui-button variant="tonal" onClick={() => void saveProjectFile()} data-testid="save-project">
+          <mdui-icon-save--outlined slot="icon" />
+          {t.project.save}
+        </mdui-button>
+        <mdui-button variant="outlined" onClick={() => pickProjectFile()} data-testid="open-project-editor">
+          <mdui-icon-folder-open--outlined slot="icon" />
+          {t.project.open}
+        </mdui-button>
+      </section>
     </div>
   )
 }
