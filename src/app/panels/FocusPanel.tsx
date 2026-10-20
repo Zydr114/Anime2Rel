@@ -7,6 +7,7 @@ import { useDepth } from '@/state/depth'
 import { useFusion } from '@/state/fusion'
 import { regionColor, useRegionTool, type BrushTool } from '@/state/regions'
 import { useApp } from '@/state/store'
+import { ColorSwatch } from '@/ui/ColorSwatch'
 import { SelectField } from '@/ui/SelectField'
 import { Segmented } from '@/ui/Segmented'
 import { SliderField } from '@/ui/SliderField'
@@ -171,12 +172,14 @@ function StyleSlider({ value, label, onChange, testId }: { value: number; label:
 }
 
 const MEDIUM_FIELDS = ['clarity', 'density', 'detail'] as const
-const WATER_FIELDS = ['highlight', 'ripple'] as const
+const WATER_FIELDS = ['highlight', 'ripple', 'reflection'] as const
+const REFLECTION_FIELDS = ['reflectionBlur', 'reflectionRipple'] as const
 
 /** 遮挡方式及其参数，区域外和每个区域共用 */
 function StyleControls({ style, label, update, testPrefix }: { style: OcclusionStyle; label: string; update: (u: Partial<OcclusionStyle>) => void; testPrefix: string }) {
   const { mode } = style
-  const slider = (field: (typeof MEDIUM_FIELDS)[number] | (typeof WATER_FIELDS)[number]) => (
+  const { beginGesture, endGesture } = useApp.getState()
+  const slider = (field: (typeof MEDIUM_FIELDS)[number] | (typeof WATER_FIELDS)[number] | (typeof REFLECTION_FIELDS)[number]) => (
     <StyleSlider key={field} value={style[field]} label={t.focus[field]} onChange={(v) => update({ [field]: v })} testId={testPrefix + field} />
   )
   return (
@@ -191,6 +194,16 @@ function StyleControls({ style, label, update, testPrefix }: { style: OcclusionS
       <Hint>{t.focus.modeHints[mode]}</Hint>
       {MEDIUM_MODES.includes(mode) && MEDIUM_FIELDS.map(slider)}
       {mode === 'water' && WATER_FIELDS.map(slider)}
+      {mode === 'water' && style.reflection > 0 && (
+        <>
+          {REFLECTION_FIELDS.map(slider)}
+          <div className="flex items-center gap-2">
+            <span className="flex-1 text-on-surface-variant">{t.focus.waterColor}</span>
+            <ColorSwatch value={style.waterColor} label={t.focus.waterColor} onBegin={beginGesture} onChange={(waterColor) => update({ waterColor })} onEnd={endGesture} testId={`${testPrefix}waterColor`} />
+          </div>
+          <Hint>{t.focus.reflectionHint}</Hint>
+        </>
+      )}
     </>
   )
 }
