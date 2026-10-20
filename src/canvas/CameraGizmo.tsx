@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { useRef, useState, type PointerEvent as ReactPointerEvent, type SVGProps } from 'react'
 import { clamp, docToScreen, screenToDoc, type Point, type Size } from '@/algo/geometry'
 import { groundPoint, horizonLine, orientationFromHorizon, solveLines } from '@/camera/geometry'
 import { AXIS_COLORS, dragOrigin, grabHeight, yawToward } from '@/camera/guides'
@@ -8,18 +8,34 @@ import { guideOrigin, useCameraGuide } from '@/state/cameraGuide'
 import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 import { GuideLayer, type GuideTarget } from './CameraGuide'
+import { Loupe, type LoupeFocus } from './Loupe'
 
 /** 地平线的颜色 */
 const HORIZON = 'rgb(252, 211, 77)'
 const PAIRS = ['first', 'second'] as const
 /** 平行线按所沿的轴取色：第一组沿红轴，第二组沿蓝轴或竖直的绿轴 */
 const pairColor = (pair: Pair, lines: CameraLines) => (pair === 'first' ? AXIS_COLORS.x : lines.secondAxis === 'vertical' ? AXIS_COLORS.y : AXIS_COLORS.z)
+type Pair = (typeof PAIRS)[number]
 /** 旋转参考形状时按住 Shift 的步进 */
 const SNAP = Math.PI / 12
-type Pair = (typeof PAIRS)[number]
 /** 地平线两端控制点的位置（画面宽度的比例） */
 const HANDLE_X = [0.15, 0.85] as const
 const HANDLE_R = 7
+/** 相机步骤中暗化照片的程度 */
+const DIM = 0.45
+
+/** 空心的准星控制点：圆环加中心的小点，不挡住要对准的位置 */
+function Crosshair({ at, color, ...rest }: { at: Point; color: string } & SVGProps<SVGCircleElement>) {
+  return (
+    <>
+      <circle cx={at.x} cy={at.y} r={HANDLE_R} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={4} pointerEvents="none" />
+      <circle cx={at.x} cy={at.y} r={HANDLE_R} fill="none" stroke={color} strokeWidth={2} pointerEvents="none" />
+      <circle cx={at.x} cy={at.y} r={1.5} fill={color} pointerEvents="none" />
+      {/* 拾取区域比圆环略大 */}
+      <circle cx={at.x} cy={at.y} r={HANDLE_R + 3} fill="transparent" {...rest} />
+    </>
+  )
+}
 
 type Drag =
   | { id: number; kind: 'horizon'; which: 0 | 1 | 'both'; handles: [Point, Point]; startY: number }
@@ -75,6 +91,7 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
   const guide = useCameraGuide()
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<Drag | null>(null)
+  const [focus, setFocus] = useState<LoupeFocus | null>(null)
 
   const { background, camera } = doc
   if (!background || step !== 'camera') return null
@@ -87,32 +104,42 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
   }
   const interactive = passThrough ? 'none' : 'auto'
   const reach = 3 * Math.max(background.width, background.height) * view.zoom
+  const span = 2 * Math.max(background.width, background.height)
+
+  /** 放大镜的内容：拖动的控制点和它所在的线 */
+  const focusOn = (at: Point, line?: [Point, Point], color = HORIZON) => {
+    const lines = line ? [{ a: extend(line[0], line[1], span)[0], b: extend(line[0], line[1], span)[1], color }] : []
+    setFocus({ at, lines })
+  }
 
   const begin = (e: ReactPointerEvent<SVGElement>, drag: Drag) => {
-    if (e.button !== 0) return
+    if (e.button !== 0) return false
     e.stopPropagation()
     e.preventDefault()
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     // 移动参考形状不改变文档，不进撤销记录
     if (drag.kind !== 'guide') useApp.getState().beginGesture()
     dragRef.current = drag
+    return true
   }
 
   const beginGuide = (e: ReactPointerEvent<SVGElement>, target: GuideTarget) => {
     if (target === 'x' || target === 'z') return begin(e, { id: e.pointerId, kind: 'rotate', axis: target, origin })
     const p = toDoc(e)
     const height = target === 'origin' ? 0 : grabHeight(camera, background, guide.kind, origin, p, guide.boxSize)
-    begin(e, { id: e.pointerId, kind: 'guide', origin, height, start: target === 'origin' ? origin : p })
+    if (begin(e, { id: e.pointerId, kind: 'guide', origin, height, start: target === 'origin' ? origin : p }) && target === 'origin') focusOn(origin)
   }
 
   const beginHorizon = (e: ReactPointerEvent<SVGElement>, which: 0 | 1 | 'both') => {
     const handles = HANDLE_X.map((k) => horizonAt(camera, background, k * background.width)) as [Point, Point]
-    begin(e, { id: e.pointerId, kind: 'horizon', which, handles, startY: toDoc(e).y })
+    const p = toDoc(e)
+    if (begin(e, { id: e.pointerId, kind: 'horizon', which, handles, startY: p.y })) focusOn(which === 'both' ? horizonAt(camera, background, p.x) : handles[which], handles)
   }
 
   const beginLine = (e: ReactPointerEvent<SVGElement>, pair: Pair, segment: 0 | 1, end: 0 | 1, at: Point) => {
     const p = toDoc(e)
-    begin(e, { id: e.pointerId, kind: 'line', pair, segment, end, offset: { x: at.x - p.x, y: at.y - p.y } })
+    const seg = camera.lines![pair][segment].map((v) => ({ x: v.x * background.width, y: v.y * background.height })) as [Point, Point]
+    if (begin(e, { id: e.pointerId, kind: 'line', pair, segment, end, offset: { x: at.x - p.x, y: at.y - p.y } })) focusOn(at, seg, pairColor(pair, camera.lines!))
   }
 
   const move = (e: ReactPointerEvent<SVGElement>) => {
@@ -125,6 +152,7 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
     if (d.kind === 'guide') {
       const moved = dragOrigin(c, bg, d.origin, d.height, d.start, p)
       if (moved) useCameraGuide.getState().setOrigin(bg.id, moved)
+      if (moved && focus) focusOn(moved)
       return
     }
     if (d.kind === 'rotate') {
@@ -137,6 +165,8 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
       const dy = p.y - d.startY
       const [a, b] = d.handles.map((h, i) => (d.which === 'both' || d.which === i ? { x: h.x, y: h.y + dy } : h))
       s.updateCamera(orientationFromHorizon(a, b, bg, c))
+      const next = useApp.getState().doc.camera
+      focusOn(horizonAt(next, bg, d.which === 'both' ? p.x : d.handles[d.which].x), [horizonAt(next, bg, a.x), horizonAt(next, bg, b.x)])
       return
     }
     if (!c.lines) return
@@ -146,12 +176,15 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
     // 不能求解时只更新线段，保持上一个可用的结果
     const solved = solveLines(lines, bg)
     s.updateCamera({ lines, ...(solved.ok ? solved.camera : {}) })
+    const seg = pair[d.segment].map((v) => ({ x: v.x * bg.width, y: v.y * bg.height })) as [Point, Point]
+    focusOn(seg[d.end], seg, pairColor(d.pair, lines))
   }
 
   const end = (e: ReactPointerEvent<SVGElement>) => {
     const d = dragRef.current
     if (d?.id !== e.pointerId) return
     dragRef.current = null
+    setFocus(null)
     if (d.kind !== 'guide') useApp.getState().endGesture()
   }
 
@@ -160,8 +193,12 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
   const [h0, h1] = extend(handles[0], handles[1], reach)
   const lineMode = camera.method === 'lines' && camera.lines
 
+  const tl = toScreen({ x: 0, y: 0 })
+  const br = toScreen({ x: background.width, y: background.height })
   return (
+    <>
     <svg ref={svgRef} className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="camera-gizmo">
+      {guide.dim && <rect x={tl.x} y={tl.y} width={br.x - tl.x} height={br.y - tl.y} fill="black" fillOpacity={DIM} data-testid="camera-dim" />}
       <GuideLayer
         camera={camera}
         size={background}
@@ -193,14 +230,10 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
               data-testid="horizon-line"
             />
             {handles.map((p, i) => (
-              <circle
+              <Crosshair
                 key={i}
-                cx={p.x}
-                cy={p.y}
-                r={HANDLE_R}
-                fill={HORIZON}
-                stroke="rgba(0,0,0,0.6)"
-                strokeWidth={1.5}
+                at={p}
+                color={HORIZON}
                 style={{ pointerEvents: interactive, cursor: 'ns-resize' }}
                 onPointerDown={(e) => beginHorizon(e, i as 0 | 1)}
                 {...handlers}
@@ -223,16 +256,11 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
                 <line x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke="rgba(0,0,0,0.5)" strokeWidth={4} />
                 <line x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={color} strokeWidth={2} />
                 {[a, b].map((p, j) => {
-                  const sp = toScreen(p)
                   return (
-                    <circle
+                    <Crosshair
                       key={j}
-                      cx={sp.x}
-                      cy={sp.y}
-                      r={HANDLE_R}
-                      fill={color}
-                      stroke="rgba(0,0,0,0.6)"
-                      strokeWidth={1.5}
+                      at={toScreen(p)}
+                      color={color}
                       style={{ pointerEvents: interactive, cursor: 'move' }}
                       onPointerDown={(e) => beginLine(e, pair, i as 0 | 1, j as 0 | 1, p)}
                       {...handlers}
@@ -245,5 +273,7 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
           }),
         )}
     </svg>
+    {focus && <Loupe assetId={background.id} view={view} focus={focus} />}
+    </>
   )
 }

@@ -9,7 +9,7 @@ import { Segmented } from '@/ui/Segmented'
 import { SelectField } from '@/ui/SelectField'
 import { SliderField } from '@/ui/SliderField'
 import { useGestureChange } from '../useGestureChange'
-import { Hint, Section } from './FusionSections'
+import { Hint, Section, ToggleRow } from './FusionSections'
 
 const DEG = 180 / Math.PI
 const RAD = Math.PI / 180
@@ -143,7 +143,7 @@ function LinesSection() {
 const GUIDE_OPTIONS = GUIDE_KINDS.map((value) => ({ value, label: t.camera.guide.kinds[value] }))
 
 function GuideSection() {
-  const { kind, boxSize, setKind, setBoxSize, resetOrigin } = useCameraGuide()
+  const { kind, boxSize, dim, setKind, setBoxSize, setDim, resetOrigin } = useCameraGuide()
   const g = t.camera.guide
   return (
     <Section title={g.title} testId="camera-guide-section">
@@ -152,6 +152,7 @@ function GuideSection() {
         <SliderField label={g.boxSize} value={boxSize} min={BOX_RANGE[0]} max={BOX_RANGE[1]} step={0.05} format={(v) => `${v.toFixed(2)} m`} onChange={setBoxSize} testId="camera-box-size" />
       )}
       <Hint>{g.hint}</Hint>
+      <ToggleRow label={g.dim} checked={dim} onChange={setDim} testId="camera-dim-toggle" />
       <mdui-button variant="outlined" onClick={resetOrigin} data-testid="camera-guide-reset">
         <mdui-icon-restart-alt--outlined slot="icon" />
         {g.resetOrigin}

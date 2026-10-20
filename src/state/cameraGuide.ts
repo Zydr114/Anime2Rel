@@ -11,22 +11,27 @@ interface CameraGuideState {
   origin: { backgroundId: string; point: Point } | null
   /** 立方体的边长（米） */
   boxSize: number
+  /** 相机步骤中暗化照片，让线和参考形状更醒目 */
+  dim: boolean
 
   setKind: (kind: GuideKind) => void
   setOrigin: (backgroundId: string, point: Point) => void
   resetOrigin: () => void
   setBoxSize: (size: number) => void
+  setDim: (dim: boolean) => void
 }
 
 export const useCameraGuide = create<CameraGuideState>()((set) => ({
   kind: 'ground',
   origin: null,
   boxSize: 1,
+  dim: true,
 
   setKind: (kind) => set({ kind }),
   setOrigin: (backgroundId, point) => set({ origin: { backgroundId, point } }),
   resetOrigin: () => set({ origin: null }),
   setBoxSize: (size) => set({ boxSize: Math.min(BOX_RANGE[1], Math.max(BOX_RANGE[0], size)) }),
+  setDim: (dim) => set({ dim }),
 }))
 
 /** 当前背景上参考形状的原点：拖动过的位置仍在地面上时用它，否则用默认位置 */
