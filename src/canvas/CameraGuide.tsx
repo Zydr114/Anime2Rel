@@ -1,7 +1,7 @@
 import { useId, type PointerEvent as ReactPointerEvent, type SVGProps } from 'react'
 import { docToScreen, type Point, type Size, type ViewTransform } from '@/algo/geometry'
 import { horizonLine } from '@/camera/geometry'
-import { AXIS_COLORS, FIGURE_HEIGHT, guideGeometry, type GuideKind } from '@/camera/guides'
+import { AXIS_COLORS, guideGeometry, type GuideKind } from '@/camera/guides'
 import type { CameraDoc } from '@/camera/model'
 
 export type GuideTarget = 'body' | 'origin' | 'x' | 'z'
@@ -12,7 +12,8 @@ interface Props {
   view: ViewTransform
   kind: GuideKind
   origin: Point
-  boxSize: number
+  /** 网格和立方体的大小倍数 */
+  scale: number
   /** 可以拖动时，按下形状、原点或红蓝箭头 */
   onGrab?: (e: ReactPointerEvent<SVGElement>, target: GuideTarget) => void
   /** 红蓝箭头可以拖动旋转 */
@@ -30,9 +31,9 @@ function arrowHead(from: Point, to: Point, size = 9): string {
 }
 
 /** 参考形状、原点和坐标轴；只画在画面范围内，地面网格向地平线方向淡出 */
-export function GuideLayer({ camera, size, view, kind, origin, boxSize, onGrab, rotatable, handlers, passThrough }: Props) {
+export function GuideLayer({ camera, size, view, kind, origin, scale, onGrab, rotatable, handlers, passThrough }: Props) {
   const id = useId()
-  const geo = guideGeometry(camera, size, kind, origin, boxSize)
+  const geo = guideGeometry(camera, size, kind, origin, scale)
   if (!geo) return null
   const s = (p: Point) => docToScreen(view, p)
   const tl = s({ x: 0, y: 0 })
@@ -69,8 +70,6 @@ export function GuideLayer({ camera, size, view, kind, origin, boxSize, onGrab, 
         {geo.hit.map((poly, i) => (
           <polygon key={i} points={points(poly)} fill="transparent" style={{ pointerEvents: interactive, cursor: 'move' }} {...grab('body')} data-testid="guide-body" />
         ))}
-        {geo.outline && <polygon points={points(geo.outline)} fill="rgba(255,255,255,0.16)" stroke="rgba(0,0,0,0.45)" strokeWidth={3} strokeLinejoin="round" pointerEvents="none" />}
-        {geo.outline && <polygon points={points(geo.outline)} fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth={1.25} strokeLinejoin="round" pointerEvents="none" />}
         {(['shade', 'line'] as const).map((layer) => (
           <g
             key={layer}
@@ -85,12 +84,6 @@ export function GuideLayer({ camera, size, view, kind, origin, boxSize, onGrab, 
           </g>
         ))}
       </g>
-      {kind === 'figure' && geo.outline && geo.outline.length > 4 && (
-        // 标在头部右侧
-        <text x={s(geo.outline[3]).x + 6} y={s(geo.outline[0]).y + 6} fill="white" stroke="rgba(0,0,0,0.6)" strokeWidth={3} paintOrder="stroke" fontSize={12} pointerEvents="none">
-          {FIGURE_HEIGHT} m
-        </text>
-      )}
       {(['y', 'x', 'z'] as const).map((axis) => {
         const tip = geo.axes[axis]
         if (!tip) return null

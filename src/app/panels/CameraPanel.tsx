@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { cameraFocal, heightAbove, linesFromCamera, solveLines } from '@/camera/geometry'
-import { BOX_RANGE, GUIDE_KINDS } from '@/camera/guides'
+import { GUIDE_KINDS, GUIDE_SCALE_RANGE } from '@/camera/guides'
 import { CALIBRATION_METHODS, FOV_RANGE, HEIGHT_RANGE, LINE_AXES, PITCH_LIMIT, ROLL_LIMIT, type CalibrationMethod, type CameraDoc, type LineAxis } from '@/camera/model'
 import { t } from '@/i18n'
 import { guideRod, useCameraGuide } from '@/state/cameraGuide'
@@ -153,13 +153,13 @@ function LinesSection() {
 const GUIDE_OPTIONS = GUIDE_KINDS.map((value) => ({ value, label: t.camera.guide.kinds[value] }))
 
 function GuideSection() {
-  const { kind, boxSize, dim, setKind, setBoxSize, setDim, resetOrigin } = useCameraGuide()
+  const { kind, scale, dim, setKind, setScale, setDim, resetOrigin } = useCameraGuide()
   const g = t.camera.guide
   return (
     <Section title={g.title} testId="camera-guide-section">
       <SelectField label={g.kind} value={kind} options={GUIDE_OPTIONS} onChange={setKind} testId="camera-guide-kind" />
-      {kind === 'box' && (
-        <SliderField label={g.boxSize} value={boxSize} min={BOX_RANGE[0]} max={BOX_RANGE[1]} step={0.05} format={(v) => `${v.toFixed(2)} m`} onChange={setBoxSize} testId="camera-box-size" />
+      {kind !== 'none' && (
+        <SliderField label={g.scale} value={scale} min={GUIDE_SCALE_RANGE[0]} max={GUIDE_SCALE_RANGE[1]} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={setScale} testId="camera-guide-scale" />
       )}
       <Hint>{g.hint}</Hint>
       <ToggleRow label={g.dim} checked={dim} onChange={setDim} testId="camera-dim-toggle" />

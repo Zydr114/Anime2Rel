@@ -1,7 +1,8 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent, type SVGProps } from 'react'
 import { clamp, docToScreen, screenToDoc, type Point, type Size } from '@/algo/geometry'
+import type { Vec3 } from '@/algo/sh'
 import { groundPoint, heightAbove, horizonLine, orientationFromHorizon, pointAbove, solveLines } from '@/camera/geometry'
-import { AXIS_COLORS, dragOrigin, grabHeight, ROD_HEIGHT, yawToward } from '@/camera/guides'
+import { AXIS_COLORS, dragOrigin, grabOffset, ROD_HEIGHT, yawToward } from '@/camera/guides'
 import { cross } from '@/camera/vec'
 import type { CameraDoc, CameraLines } from '@/camera/model'
 import { characterGround } from '@/fusion/placement'
@@ -47,7 +48,7 @@ function Crosshair({ at, color, ...rest }: { at: Point; color: string } & SVGPro
 type Drag =
   | { id: number; kind: 'horizon'; which: 0 | 1 | 'both'; handles: [Point, Point]; startY: number }
   | { id: number; kind: 'line'; pair: Pair; segment: 0 | 1; end: 0 | 1; offset: Point }
-  | { id: number; kind: 'guide'; origin: Point; height: number; start: Point }
+  | { id: number; kind: 'guide'; offset: Vec3; origin: boolean }
   | { id: number; kind: 'rotate'; axis: 'x' | 'z'; origin: Point }
   | { id: number; kind: 'rod'; part: 'foot' | 'top' | 'body'; foot: Point; meters: number; offset: Point }
 
@@ -105,7 +106,7 @@ export function CharacterGuide() {
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
   const showGuide = useFusion((s) => s.showGuide)
-  const { kind, boxSize } = useCameraGuide()
+  const { kind, scale } = useCameraGuide()
   const info = useCharacterInfo(doc)
   const bg = doc.background
   if (!bg || step !== 'character' || !showGuide || kind === 'none') return null
@@ -115,7 +116,7 @@ export function CharacterGuide() {
   const [h0, h1] = extend(handles[0], handles[1], 3 * Math.max(bg.width, bg.height) * view.zoom)
   return (
     <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="character-guide">
-      <GuideLayer camera={doc.camera} size={bg} view={view} kind={kind} origin={origin} boxSize={boxSize} />
+      <GuideLayer camera={doc.camera} size={bg} view={view} kind={kind} origin={origin} scale={scale} />
       <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke={HORIZON} strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="8 6" />
       <HorizonLabel from={handles[0]} to={handles[1]} />
     </svg>
@@ -170,9 +171,9 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
 
   const beginGuide = (e: ReactPointerEvent<SVGElement>, target: GuideTarget) => {
     if (target === 'x' || target === 'z') return begin(e, { id: e.pointerId, kind: 'rotate', axis: target, origin })
-    const p = toDoc(e)
-    const height = target === 'origin' ? 0 : grabHeight(camera, background, guide.kind, origin, p, guide.boxSize)
-    if (begin(e, { id: e.pointerId, kind: 'guide', origin, height, start: target === 'origin' ? origin : p }) && target === 'origin') focusOn(origin)
+    // 按住原点时原点跟着光标；按住形状时按下的那一点跟着光标
+    const offset = target === 'origin' ? ([0, 0, 0] as Vec3) : grabOffset(camera, background, guide.kind, origin, toDoc(e))
+    if (begin(e, { id: e.pointerId, kind: 'guide', offset, origin: target === 'origin' }) && target === 'origin') focusOn(origin)
   }
 
   const beginRod = (e: ReactPointerEvent<SVGElement>, part: 'foot' | 'top' | 'body') => {
@@ -202,9 +203,9 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
     if (!bg) return
     const p = toDoc(e)
     if (d.kind === 'guide') {
-      const moved = dragOrigin(c, bg, d.origin, d.height, d.start, p)
+      const moved = dragOrigin(c, bg, d.offset, p)
       if (moved) useCameraGuide.getState().setOrigin(bg.id, moved)
-      if (moved && focus) focusOn(moved)
+      if (moved && d.origin) focusOn(moved)
       return
     }
     if (d.kind === 'rod') {
@@ -268,7 +269,7 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
         view={view}
         kind={guide.kind}
         origin={origin}
-        boxSize={guide.boxSize}
+        scale={guide.scale}
         onGrab={beginGuide}
         rotatable={camera.method === 'horizon'}
         handlers={handlers}

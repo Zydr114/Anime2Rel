@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Point } from '@/algo/geometry'
 import { groundPoint } from '@/camera/geometry'
-import { BOX_RANGE, defaultOrigin, defaultRod, ROD_HEIGHT, type GuideKind } from '@/camera/guides'
+import { defaultOrigin, defaultRod, GUIDE_SCALE_RANGE, ROD_HEIGHT, type GuideKind } from '@/camera/guides'
 import type { DocState } from './store'
 
 /** 相机标定的参考形状（M8.5 补充）。界面状态，不进工程和撤销记录。 */
@@ -9,8 +9,8 @@ interface CameraGuideState {
   kind: GuideKind
   /** 原点（文档坐标）；只对拖动时的背景有效，更换背景后回到默认位置 */
   origin: { backgroundId: string; point: Point } | null
-  /** 立方体的边长（米） */
-  boxSize: number
+  /** 网格和立方体的大小倍数 */
+  scale: number
   /** 相机步骤中暗化照片，让线和参考形状更醒目 */
   dim: boolean
   /** 测量杆的底端和顶端（文档坐标）；与原点一样只对拖动时的背景有效 */
@@ -21,7 +21,7 @@ interface CameraGuideState {
   setKind: (kind: GuideKind) => void
   setOrigin: (backgroundId: string, point: Point) => void
   resetOrigin: () => void
-  setBoxSize: (size: number) => void
+  setScale: (scale: number) => void
   setDim: (dim: boolean) => void
   setRod: (backgroundId: string, foot: Point, top: Point) => void
   setRodReal: (meters: number) => void
@@ -30,7 +30,7 @@ interface CameraGuideState {
 export const useCameraGuide = create<CameraGuideState>()((set) => ({
   kind: 'ground',
   origin: null,
-  boxSize: 1,
+  scale: 1,
   dim: true,
   rod: null,
   rodReal: ROD_HEIGHT,
@@ -38,7 +38,7 @@ export const useCameraGuide = create<CameraGuideState>()((set) => ({
   setKind: (kind) => set({ kind }),
   setOrigin: (backgroundId, point) => set({ origin: { backgroundId, point } }),
   resetOrigin: () => set({ origin: null }),
-  setBoxSize: (size) => set({ boxSize: Math.min(BOX_RANGE[1], Math.max(BOX_RANGE[0], size)) }),
+  setScale: (scale) => set({ scale: Math.min(GUIDE_SCALE_RANGE[1], Math.max(GUIDE_SCALE_RANGE[0], scale)) }),
   setDim: (dim) => set({ dim }),
   setRod: (backgroundId, foot, top) => set({ rod: { backgroundId, foot, top } }),
   setRodReal: (rodReal) => set({ rodReal }),
