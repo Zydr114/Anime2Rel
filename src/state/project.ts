@@ -25,7 +25,7 @@ import { DEFAULT_FUSION, RELIGHT_STYLES, type FusionDoc } from '@/fusion/model'
 import { conformWarp, IDENTITY_WARP } from '@/fusion/warp'
 import { conformGrade, conformPost, embedLuts, gradeForFile, lutResolver } from '@/grade/preset'
 import { bool, fields, hex, num, oneOf, record, text, type Json } from '@/io/conform'
-import { DEFAULT_INTENSITY, DEFAULT_LIGHTING, MAX_LIGHTS, newLightId, type Light, type LightingDoc } from '@/lighting/model'
+import { DEFAULT_INTENSITY, DEFAULT_LIGHTING, MAX_LIGHT_DEPTH, MAX_LIGHTS, newLightId, type Light, type LightingDoc } from '@/lighting/model'
 import type { AssetRef } from './assets'
 import { rescaleDoc, type DocState, type StepId } from './store'
 
@@ -159,7 +159,7 @@ function conformLight(v: unknown): Light | null {
     type: o.type,
     enabled: bool(o.enabled, true),
     direction: unit(vec3(o.direction, fallbackDirection, -1, 1), fallbackDirection),
-    position: { x: num(position.x, 0, ...COORD), y: num(position.y, 0, ...COORD), depth: num(position.depth, 0.5, 0, 1) },
+    position: { x: num(position.x, 0, ...COORD), y: num(position.y, 0, ...COORD), depth: num(position.depth, 0.5, 0, MAX_LIGHT_DEPTH) },
     color: vec3(o.color, [1, 1, 1], 0, 1),
     kelvin: typeof o.kelvin === 'number' ? num(o.kelvin, 6500, 1700, 12000) : null,
     intensity: num(o.intensity, DEFAULT_INTENSITY, 0, 10),

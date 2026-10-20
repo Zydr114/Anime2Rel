@@ -5,7 +5,7 @@
  * 坐标与视角见 src/scene3d/space.ts。场景先渲染到多重采样的渲染目标，再画到画布上，右下角叠加二维结果的小预览。
  */
 import * as THREE from 'three/webgpu'
-import { abs, cameraPosition, dot, float, fract, fwidth, max, min, mix, normalize, positionGeometry, positionLocal, positionWorld, screenUV, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, cameraPosition, dot, float, fract, fwidth, max, min, mix, normalize, normalWorld, positionGeometry, positionLocal, positionWorld, pow, screenUV, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl'
 import { sceneDepth } from '@/algo/camera'
 import type { Insets, Point, Size } from '@/algo/geometry'
 import { shade } from '@/algo/shading'
@@ -32,6 +32,8 @@ export interface Scene3dInput {
   ball: BallPreview | null
   /** 视口中被面板遮挡的边距，小预览放在可见区域的右下角 */
   insets: Insets
+  /** 选中的光源 */
+  selected: string | null
 }
 
 /** 引擎中与文档对齐的图层（预览分辨率）：融合后的立绘（预乘）、立绘深度（r 为归一化逆深度），以及二维结果 */
@@ -62,6 +64,30 @@ const CHARACTER_VERTICES = 192
 /** 浮雕网格比立绘不透明区域的包围盒向外多出的比例：变形可能超出包围盒 */
 const CHARACTER_MARGIN = 0.1
 const PREVIEW_FRAME = new THREE.Color(0.75, 0.75, 0.75)
+/** 灯的光强减半范围：淡的球，轮廓处更明显；选中时更亮，未启用时更淡 */
+const BUBBLE_OPACITY = { base: 0.03, rim: 0.18, selected: 1.8, disabled: 0.4 }
+
+/** 灯的光强减半范围的球 */
+class Bubble {
+  readonly color = uniform(new THREE.Color())
+  readonly strength = uniform(1)
+  readonly center = uniform(new THREE.Vector3())
+  readonly radius = uniform(1)
+  readonly mesh: THREE.Mesh
+
+  constructor(geometry: THREE.SphereGeometry) {
+    // 只画正面。视点贴近球面时整个画面都是掠射角，轮廓的增亮会让画面发灰，因此随视点靠近淡出，进入球内时不画
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false })
+    const view = normalize(cameraPosition.sub(positionWorld))
+    const rim = pow(float(1).sub(abs(dot(normalWorld, view))), 3)
+    const fade = smoothstep(1.05, 1.6, cameraPosition.sub(this.center).length().div(this.radius))
+    m.colorNode = this.color
+    m.opacityNode = rim.mul(BUBBLE_OPACITY.rim).add(BUBBLE_OPACITY.base).mul(this.strength).mul(fade)
+    this.mesh = new THREE.Mesh(geometry, m)
+    this.mesh.frustumCulled = false
+    this.mesh.renderOrder = 1
+  }
+}
 
 /** 地面网格朝相机拉近的比例：照片中的地面与拟合的地面有出入，拉近后不会被背景挡住，站在地面上的物体仍能挡住它 */
 const GRID_PULL = 0.95
@@ -201,11 +227,15 @@ export class Scene3D {
   private readonly skyNode = texture(this.placeholders[2])
   private readonly grid: THREE.Mesh
   private readonly gridUniforms = { axisX: uniform(new THREE.Vector2(1, 0)), axisZ: uniform(new THREE.Vector2(0, 1)), center: uniform(new THREE.Vector2()), radius: uniform(10) }
+  private gridKey = ''
   private readonly frustum: THREE.LineSegments
+  private frustumKey = ''
   private readonly character: THREE.Mesh
   private readonly characterUniforms = { origin: uniform(new THREE.Vector3()), scale: uniform(1) }
   private characterKey = ''
   private readonly ball: THREE.Mesh<THREE.SphereGeometry>
+  private readonly bubbleGeometry = new THREE.SphereGeometry(1, 48, 24)
+  private readonly bubbles: Bubble[] = []
   private readonly previewUniforms = { viewport: uniform(new THREE.Vector2(1, 1)), rect: uniform(new THREE.Vector4(0, 0, 0, 0)) }
 
   constructor(layers: Scene3dLayers) {
@@ -333,10 +363,14 @@ export class Scene3D {
     const [cx, , cz] = layout.target
     g.center.value.set(cx, cz)
     g.radius.value = radius
-    this.grid.geometry.dispose()
-    this.grid.geometry = new THREE.BufferGeometry()
-      .setAttribute('position', new THREE.Float32BufferAttribute([cx - radius, 0, cz - radius, cx + radius, 0, cz - radius, cx + radius, 0, cz + radius, cx - radius, 0, cz + radius], 3))
-      .setIndex([0, 2, 1, 0, 3, 2])
+    const gridKey = [cx, cz, radius].join()
+    if (gridKey !== this.gridKey) {
+      this.gridKey = gridKey
+      this.grid.geometry.dispose()
+      this.grid.geometry = new THREE.BufferGeometry()
+        .setAttribute('position', new THREE.Float32BufferAttribute([cx - radius, 0, cz - radius, cx + radius, 0, cz - radius, cx + radius, 0, cz + radius, cx - radius, 0, cz + radius], 3))
+        .setIndex([0, 2, 1, 0, 3, 2])
+    }
 
     // 立绘浮雕：网格只在立绘的位置或标定变化时重建，起伏由着色器从立绘深度图层读出。
     // 图层的逆深度按伪深度 1/(d + shift) 换算，以立绘平面为基准缩放到校准后的距离，与重光照使用的立绘距离一致
@@ -369,6 +403,25 @@ export class Scene3D {
       colors.needsUpdate = true
     }
 
+    // 灯的光强减半范围：衰减的参考距离是原相机到立绘的距离（见 src/lighting/preview.ts 的 effectiveLight）
+    const lamps = layout.lights.filter((l) => l.type === 'point')
+    while (this.bubbles.length < lamps.length) {
+      const b = new Bubble(this.bubbleGeometry)
+      this.bubbles.push(b)
+      this.scene.add(b.mesh)
+    }
+    this.bubbles.forEach((b, i) => {
+      const l = lamps[i]
+      b.mesh.visible = !!l
+      if (!l) return
+      b.mesh.position.set(...l.position)
+      b.mesh.scale.setScalar(layout.reference)
+      b.center.value.set(...l.position)
+      b.radius.value = layout.reference
+      b.color.value.setRGB(...l.color)
+      b.strength.value = (l.id === input.selected ? BUBBLE_OPACITY.selected : 1) * (l.enabled ? 1 : BUBBLE_OPACITY.disabled)
+    })
+
     // 二维结果的小预览
     const r = previewRect(p.viewport, input.insets, size)
     this.previewUniforms.viewport.value.set(p.viewport.width, p.viewport.height)
@@ -376,7 +429,9 @@ export class Scene3D {
 
     // 原相机的视锥：画到四分之一的参考距离
     this.frustum.visible = !input.cameraView
-    if (!input.cameraView) {
+    const frustumKey = [camera.fovDeg, camera.pitch, camera.roll, camera.height, size.width, size.height, layout.reference].join()
+    if (!input.cameraView && frustumKey !== this.frustumKey) {
+      this.frustumKey = frustumKey
       const reach = layout.reference * 0.25
       const corners = [
         { x: 0, y: 0 },
@@ -420,6 +475,8 @@ export class Scene3D {
       object.geometry.dispose()
       ;(object.material as THREE.Material).dispose()
     }
+    for (const b of this.bubbles) (b.mesh.material as THREE.Material).dispose()
+    this.bubbleGeometry.dispose()
     this.skyMap?.dispose()
     for (const t of this.placeholders) t.dispose()
     this.target.dispose()

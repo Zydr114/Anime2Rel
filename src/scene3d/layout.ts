@@ -12,7 +12,7 @@ import { add, mul, unit } from '@/camera/vec'
 import type { DepthResult } from '@/depth/protocol'
 import { characterBox, characterDepth } from '@/fusion/placement'
 import type { CharacterInfo } from '@/fusion/protocol'
-import type { Light } from '@/lighting/model'
+import { MAX_LIGHT_DEPTH, type Light } from '@/lighting/model'
 import { ballPlacement } from '@/lighting/preview'
 import type { DocState } from '@/state/store'
 import { cameraFromWorld, directionToWorld, worldFromCamera } from './space'
@@ -66,7 +66,7 @@ export function lampFromWorld(camera: CameraDoc, size: Size, scale: CalibratedDe
   const x = cameraFromWorld(camera, w)
   if (-x[2] < LAMP_NEAR * camera.height) return null
   const p = projectPoint(x, size, cameraFocal(camera, size))!
-  return { x: p.x, y: p.y, depth: inverseDepth(-x[2], scale) }
+  return { x: p.x, y: p.y, depth: Math.min(MAX_LIGHT_DEPTH, Math.max(0, inverseDepth(-x[2], scale))) }
 }
 
 /** 灯离原相机最近的距离（沿光轴，相机高度的倍数） */

@@ -4,7 +4,10 @@ import { add, dot, mul } from '@/camera/vec'
 import { t } from '@/i18n'
 import { ORBIT_PITCH_LIMIT, orbitFrom, type Orbit, type View3d } from '@/scene3d/space'
 import { useApp } from '@/state/store'
+import { useLighting } from '@/state/lighting'
 import { currentScene, useView3d } from '@/state/view3d'
+import { View3DLights } from './View3DLights'
+import { clickScene } from './view3dActions'
 
 /** 拖动一个视口高度旋转的角度 */
 const ROTATE = Math.PI
@@ -50,6 +53,7 @@ function View3DLayer() {
   const [dragging, setDragging] = useState(false)
   const cameraView = useView3d((s) => s.view?.kind === 'camera')
   const insets = useApp((s) => s.viewInsets)
+  const tool = useLighting((s) => s.tool)
 
   useEffect(() => {
     if (!useView3d.getState().view) {
@@ -80,6 +84,13 @@ function View3DLayer() {
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return
     e.stopPropagation()
+    // 添加光源、吸管工具，或按住 Ctrl 点击：在所点的表面上操作，不旋转视角
+    if (e.button === 0 && (tool !== 'select' || e.ctrlKey)) {
+      e.preventDefault()
+      const r = e.currentTarget.getBoundingClientRect()
+      clickScene({ x: e.clientX - r.left, y: e.clientY - r.top }, tool === 'select' ? 'place' : tool)
+      return
+    }
     const orbit = currentOrbit()
     if (!orbit) return
     // 左键环绕，中键、右键或按住 Shift 平移
@@ -119,7 +130,7 @@ function View3DLayer() {
     <div
       ref={ref}
       className="absolute inset-0 touch-none select-none"
-      style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+      style={{ cursor: tool === 'add' ? 'copy' : tool === 'pick' ? 'crosshair' : dragging ? 'grabbing' : 'grab' }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -128,6 +139,7 @@ function View3DLayer() {
       data-testid="view3d"
       data-view={cameraView ? 'camera' : 'orbit'}
     >
+      <View3DLights />
       <div className="pointer-events-none absolute flex flex-col items-center gap-2" style={{ left: insets.left, right: insets.right, top: insets.top }}>
         <mdui-button
           variant="tonal"

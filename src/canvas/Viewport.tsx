@@ -108,7 +108,7 @@ export function Viewport() {
           if (!s || !view || !bg) return e.setScene3d(null)
           const depth = getDepthResult(bg.id)
           const ball = useLighting.getState().showBall ? computeBallPreview(doc, getAnalysis(bg.id), depth, characterInfo(doc)?.bbox) : null
-          e.setScene3d({ ...s, cameraView: view.kind === 'camera', camera: doc.camera, size: bg, depth, ball, insets: useApp.getState().viewInsets })
+          e.setScene3d({ ...s, cameraView: view.kind === 'camera', camera: doc.camera, size: bg, depth, ball, insets: useApp.getState().viewInsets, selected: useLighting.getState().selected })
         }
         const syncAll = () => {
           e.setDocument(useApp.getState().doc)
@@ -149,10 +149,8 @@ export function Viewport() {
         })
         const offLighting = useLighting.subscribe((next, prev) => {
           if (isExporting()) return
-          if (next.analyses !== prev.analyses || next.showBall !== prev.showBall) {
-            syncBall()
-            sync3d()
-          }
+          if (next.analyses !== prev.analyses || next.showBall !== prev.showBall) syncBall()
+          if (next.analyses !== prev.analyses || next.showBall !== prev.showBall || next.selected !== prev.selected) sync3d()
           if (next.analyses !== prev.analyses) syncFusion()
         })
         const offFusion = useFusion.subscribe((next, prev) => {

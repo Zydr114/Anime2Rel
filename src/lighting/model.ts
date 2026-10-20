@@ -12,7 +12,7 @@ export interface Light {
   enabled: boolean
   /** 方向光：指向光源的单位向量（相机空间：x 右、y 上、z 指向相机） */
   direction: Vec3
-  /** 点光源：文档像素坐标与该处的归一化逆深度（1 为最近） */
+  /** 点光源：文档像素坐标与该处的归一化逆深度（1 为照片中最近的景物；在 3D 视图中可以放得更近，大于 1） */
   position: { x: number; y: number; depth: number }
   /** 线性 RGB，最大分量为 1 */
   color: Vec3
@@ -36,6 +36,8 @@ export interface LightingDoc {
 
 export const DEFAULT_LIGHTING: LightingDoc = { lights: [], ambient: 1, analyzedFor: null }
 export const MAX_LIGHTS = 8
+/** 点光源归一化逆深度的上限：3D 视图中的灯可以比照片中最近的景物还近，实际由离原相机的最近距离限制（见 src/scene3d/layout.ts） */
+export const MAX_LIGHT_DEPTH = 1e4
 export const DEFAULT_INTENSITY = 0.5
 /** 置信度达到该值的点光源候选默认启用；方向光只默认启用排名最高的一个，避免同一个太阳被叠加两次 */
 const POINT_ENABLE_CONFIDENCE = 0.4

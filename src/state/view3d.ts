@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { sceneLayout, type SceneLayout } from '@/scene3d/layout'
+import { surfaceModel, type SurfaceModel } from '@/scene3d/pick'
 import { viewProjection, type Projection, type View3d } from '@/scene3d/space'
 import { getDepthResult } from './depth'
 import { characterInfo } from './fusion'
@@ -28,4 +29,11 @@ export function currentScene(view?: View3d): { layout: SceneLayout; projection: 
   const layout = sceneLayout(doc, getDepthResult(bg.id), characterInfo(doc)?.bbox)
   const v = view ?? useView3d.getState().view ?? { kind: 'camera' }
   return layout && { layout, projection: viewProjection(v, doc.camera, bg, view2d, viewport, viewInsets) }
+}
+
+/** 当前场景的表面（点选用）；scale 取自 currentScene 的布局 */
+export function currentSurface(layout: SceneLayout): SurfaceModel | null {
+  const { doc } = useApp.getState()
+  if (!doc.background) return null
+  return surfaceModel(doc, layout.scale, getDepthResult(doc.background.id), getDepthResult(doc.character?.id), characterInfo(doc))
 }
