@@ -98,7 +98,10 @@ function luma(c: Vec3Node): FloatNode {
   return dot(c, vec3(0.2126, 0.7152, 0.0722))
 }
 
-/** 立绘在文档中的摆放：文档像素坐标、立绘纹理坐标、是否在立绘矩形内。各个 pass 共用同一组统一量。 */
+/**
+ * 立绘在文档中的摆放：文档像素坐标、立绘纹理坐标、是否在立绘纹理范围内。各个 pass 共用同一组统一量。
+ * 立绘变形后，立绘纹理是变形后的包围盒（见 src/engine/warp.ts）：charSize 为包围盒的尺寸、charOffset 为包围盒中心相对原立绘中心的偏移（原立绘像素）。
+ */
 export function createPlacement(tile: TileMapping) {
   const u = {
     docSize: uniform(new THREE.Vector2(1, 1)),
@@ -107,17 +110,18 @@ export function createPlacement(tile: TileMapping) {
     charScale: uniform(1),
     charFlip: uniform(1),
     charSize: uniform(new THREE.Vector2(1, 1)),
+    charOffset: uniform(new THREE.Vector2(0, 0)),
     hasChar: uniform(0),
   }
   const p = tile.uv.mul(u.docSize)
-  /** 文档像素坐标 → 立绘 UV，与 src/algo/geometry.ts 的 docToLayerUV 一致 */
+  /** 文档像素坐标 → 立绘纹理坐标；没有变形时与 src/algo/geometry.ts 的 docToLayerUV 一致 */
   const toCharUV = (q: Vec2Node) => {
     const d = q.sub(u.charCenter)
     const c = cos(u.charRotation)
     const s = sin(u.charRotation)
     const lx = c.mul(d.x).add(s.mul(d.y)).div(u.charScale).mul(u.charFlip)
     const ly = s.negate().mul(d.x).add(c.mul(d.y)).div(u.charScale)
-    return vec2(lx, ly).div(u.charSize).add(0.5)
+    return vec2(lx, ly).sub(u.charOffset).div(u.charSize).add(0.5)
   }
   const charUV = toCharUV(p)
   const inside = step(0, charUV.x).mul(step(charUV.x, 1)).mul(step(0, charUV.y)).mul(step(charUV.y, 1)).mul(u.hasChar)

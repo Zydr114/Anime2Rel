@@ -100,6 +100,8 @@ export function createFusionNode(input: FusionNodeInput) {
     noise: v3(),
     /** 输出图像像素 / 文档像素，用于把噪声换算到当前分辨率 */
     targetScale: uniform(1),
+    /** 边缘带距离的单位：原边缘带图的长边换算到当前边缘带纹理的像素数（立绘变形后纹理是重采样的） */
+    rimLong: uniform(1),
   }
   const { p, charUV, character, background, tile, docSize, charSize, charScale } = input
   const texel = vec2(1).div(charSize).div(charScale)
@@ -197,7 +199,7 @@ export function createFusionNode(input: FusionNodeInput) {
   const guideUV = charUV.mul(rimSize)
   const footprint = max(length(dFdx(guideUV)), length(dFdy(guideUV)))
   const margin = max(footprint.sub(1), 0)
-  const silhouette = rimTex.a.mul(max(rimSize.x, rimSize.y).mul(RIM_WIDTH))
+  const silhouette = rimTex.a.mul(u.rimLong.mul(RIM_WIDTH))
   const outer = saturate(silhouette.sub(margin).div(max(margin, 1e-3)))
 
   // 轮廓光同时看法线和剪影：合成法线在轮廓处不一定贴近像平面

@@ -45,6 +45,7 @@ import {
 import { applyPostParams, createPostPasses, createPostUniforms, disposePostPasses, renderPost, resizePostPasses, BLOOM_SIZE } from './post'
 import { applyShadowParams, createShadowPass, createShadowUniforms } from './shadow'
 import { planTiles, tilePlan, WHOLE_PIXELS, type Rect } from './tiling'
+import { createWarpPass, WARP_LAYERS, type WarpLayer } from './warp'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
@@ -56,6 +57,7 @@ import type { GradeParams } from '@/grade/params'
 import type { PostParams } from '@/grade/post'
 import type { MatteMap, NormalMap } from '@/fusion/protocol'
 import type { ShadowParams } from '@/fusion/shadow'
+import { IDENTITY_WARP, isIdentityWarp, WARP_SEGMENTS, warpMesh, type Bounds, type CharWarp } from '@/fusion/warp'
 import type { RegionMask } from '@/focus/regions'
 import { decodeOriginal } from '@/io/decode'
 import type { BallPreview } from '@/lighting/preview'
@@ -214,6 +216,25 @@ function byteTarget(width: number, height: number): THREE.RenderTarget {
   return new THREE.RenderTarget(width, height, { type: THREE.UnsignedByteType, depthBuffer: false })
 }
 
+/** 变形后的立绘各层，格式与原纹理一致：立绘与融合法线、边缘带带 mipmap */
+function warpTargets(): Record<WarpLayer, THREE.RenderTarget> {
+  const bytes = (mipmaps: boolean) =>
+    new THREE.RenderTarget(1, 1, {
+      type: THREE.UnsignedByteType,
+      depthBuffer: false,
+      generateMipmaps: mipmaps,
+      minFilter: mipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+    })
+  return { character: linearTarget(1, 1, true), coef: linearTarget(1, 1), aux: linearTarget(1, 1), depthNormal: bytes(false), normal: bytes(true), rim: bytes(true) }
+}
+
+/** 变形后立绘纹理的面积上限：原立绘面积的 2 倍，至少 2048²，避免把四角拉得很远时占用过多显存 */
+const WARP_AREA = 2
+const WARP_MIN_AREA = 2048 * 2048
+/** 变形后的纹理尺寸取这个数的倍数，拖动时不必每次都重新分配 */
+const WARP_ROUND = 32
+
 /** 合成用的中间图层，尺寸与渲染目标相同（弥散圆统计块为 1/16，各级局部调整的引导滤波系数为 1/4） */
 type LayerKey = keyof LayerTextures | 'tone' | 'adjusted'
 const COEF = { background: 'backgroundCoef', character: 'characterCoef', global: 'globalCoef' } as const satisfies Record<GradeLevel, string>
@@ -299,6 +320,17 @@ export class Engine {
   private postParams: PostParams | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   private readonly charRT = linearTarget(1, 1, true)
+  /** 立绘纹理节点：预处理后的立绘，或变形后的立绘 */
+  private readonly characterNode: THREE.TextureNode
+  private readonly shadowCharacter: THREE.TextureNode
+  private readonly warpPass = createWarpPass(WARP_SEGMENTS, this.placeholder)
+  private readonly warpTargets = warpTargets()
+  private warp: CharWarp = IDENTITY_WARP
+  /** 变形后的包围盒（立绘 UV）；没有变形时为 null */
+  private warpBox: Bounds | null = null
+  /** 立绘或它的深度、法线、变形有变化，需要重新变形并更新各 pass 的纹理 */
+  private warpDirty = false
+  private charSize: Size = { width: 1, height: 1 }
   private readonly docRT = linearTarget(1, 1, true)
   private readonly layers = layerTargets()
 
@@ -373,7 +405,8 @@ export class Engine {
     this.charPrep = createCharPrepPass(this.placeholder, this.mattePlaceholders)
     const placement = this.placement
     this.backgroundNode = texture(this.placeholder, this.tile.toBackground(this.tile.uv))
-    const characterNode = texture(this.charRT.texture, placement.charUV)
+    const characterNode = (this.characterNode = texture(this.charRT.texture, placement.charUV))
+    this.shadowCharacter = texture(this.charRT.texture)
     this.depthNodes = createDepthNodes(placement, this.backgroundNode, characterNode, this.depthPlaceholder)
     const layer = (key: keyof LayerTargets) => texture(this.layers[key].texture)
     const nodes = (this.layerNodes = {
@@ -432,7 +465,7 @@ export class Engine {
       ),
       characterDof: quad(createCharacterDofPass(dof, nodes.characterAdjusted, nodes.characterDepth)),
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
-      shadow: quad(createShadowPass(this.shadow, placement, texture(this.charRT.texture), this.depthNodes.background)),
+      shadow: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background)),
       composite: quad(createCompositePass({ placement, background: nodes.background, layers: nodes, dof, shadow: this.shadow })),
       globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt('global'), nodes.composited)),
       finish: quad(createFinishPass(this.finish, this.post, finishInputs)),
@@ -474,6 +507,10 @@ export class Engine {
     u.charScale.value = Math.max(t.scale, 1e-6)
     u.charFlip.value = t.flipX ? -1 : 1
     u.hasChar.value = doc.character && this.charSource ? 1 : 0
+    if (doc.charWarp !== this.warp) {
+      this.warp = doc.charWarp
+      this.warpDirty = true
+    }
     this.docDirty = true
     this.schedule()
   }
@@ -498,16 +535,20 @@ export class Engine {
     if (current) for (const t of Object.values(current.textures)) t.dispose()
     const textures = result ? depthTextures(result) : null
     this.depth[layer] = result && textures ? { result, textures } : null
-    const nodes = this.depthNodes.textures[layer]
-    const src = textures ?? this.depthPlaceholder[layer]
-    nodes.coef.value = src.coef
-    nodes.aux.value = src.aux
-    nodes.normal.value = src.normal
     const u = this.depthNodes.uniforms
     if (layer === 'background') {
+      const nodes = this.depthNodes.textures.background
+      const src = textures ?? this.depthPlaceholder.background
+      nodes.coef.value = src.coef
+      nodes.aux.value = src.aux
+      nodes.normal.value = src.normal
       u.hasBgDepth.value = textures ? 1 : 0
       this.backgroundDirty = true
-    } else u.hasCharDepth.value = textures ? 1 : 0
+    } else {
+      // 立绘深度随立绘一起变形，纹理在 applyWarp 中设置
+      u.hasCharDepth.value = textures ? 1 : 0
+      this.warpDirty = true
+    }
     this.docDirty = true
     this.schedule()
   }
@@ -681,6 +722,7 @@ export class Engine {
     this.renderer.setRenderTarget(this.charRT)
     this.quads.charPrep.render(this.renderer)
     this.renderer.setRenderTarget(null)
+    this.warpDirty = true
     this.docDirty = true
   }
 
@@ -693,8 +735,7 @@ export class Engine {
     this.charNormal = map
       ? { map, texture: dataTexture(map.data, map.width, map.height, THREE.UnsignedByteType, true), rim: dataTexture(map.rim, map.width, map.height, THREE.UnsignedByteType, true) }
       : null
-    this.character.characterNormal.value = this.charNormal?.texture ?? this.normalPlaceholder
-    this.character.characterRim.value = this.charNormal?.rim ?? this.rimPlaceholder
+    this.warpDirty = true
     this.docDirty = true
     this.schedule()
   }
@@ -731,6 +772,7 @@ export class Engine {
     // 前景色估计属于上一张立绘
     this.disposeMatte()
     this.matteApplied = false
+    this.warpDirty = true
     const asset = id ? getAsset(id) : undefined
     if (!asset) return
     this.charSource = bitmapTexture(asset.bitmap)
@@ -738,10 +780,93 @@ export class Engine {
     this.charSource.minFilter = THREE.NearestFilter
     this.charSource.magFilter = THREE.NearestFilter
     this.charRT.setSize(asset.width, asset.height)
-    this.placement.uniforms.charSize.value.set(asset.width, asset.height)
+    this.charSize = { width: asset.width, height: asset.height }
     this.charPrep.source.value = this.charSource
     this.charPrep.uniforms.texel.value.set(1 / asset.width, 1 / asset.height)
     this.prepCharacter()
+  }
+
+  /** 立绘变形：把立绘各层画到变形后的包围盒里（没有变形时直接使用原来的纹理），再更新各 pass 的纹理和摆放 */
+  private applyWarp(): void {
+    this.warpDirty = false
+    this.warpBox = null
+    const targets = this.warpTargets
+    if (this.charSource && !isIdentityWarp(this.warp)) {
+      const { width, height } = this.charSize
+      const mesh = warpMesh(this.warp)
+      // 包围盒左上角对齐原立绘的像素并留出一个像素，没有变形的地方按原像素复制，不会因重采样变模糊
+      const b = mesh.bounds
+      const x0 = (Math.floor(b.x0 * width) - 1) / width
+      const y0 = (Math.floor(b.y0 * height) - 1) / height
+      const bw = (b.x1 - x0) * width + 1
+      const bh = (b.y1 - y0) * height + 1
+      // 按原立绘的分辨率变形，受纹理上限和面积上限约束
+      const k = Math.min(1, this.textureLimit / Math.max(bw, bh), Math.sqrt(Math.max(WARP_AREA * width * height, WARP_MIN_AREA) / (bw * bh)))
+      const fit = (n: number) => Math.min(this.textureLimit, Math.max(1, Math.ceil(n / WARP_ROUND) * WARP_ROUND))
+      // 立绘纹理的尺寸取整后，包围盒向右下扩展到正好覆盖整个纹理
+      const cw = fit(bw * k)
+      const ch = fit(bh * k)
+      const box = { x0, y0, x1: x0 + cw / (k * width), y1: y0 + ch / (k * height) }
+      this.warpBox = box
+      this.warpPass.setMesh(mesh, box)
+      const sources = this.warpSources()
+      for (const layer of WARP_LAYERS) {
+        const src = sources[layer]
+        const rt = targets[layer]
+        if (!src) {
+          rt.setSize(1, 1)
+          continue
+        }
+        if (layer === 'character') rt.setSize(cw, ch)
+        else rt.setSize(fit((box.x1 - box.x0) * src.width * k), fit((box.y1 - box.y0) * src.height * k))
+        this.warpPass.render(this.renderer, layer, src.texture, rt)
+      }
+      this.renderer.setRenderTarget(null)
+    } else for (const rt of Object.values(targets)) rt.setSize(1, 1)
+    this.bindCharacter()
+    this.docDirty = true
+  }
+
+  private warpSources(): Record<WarpLayer, { texture: THREE.Texture; width: number; height: number } | null> {
+    const depth = this.depth.character
+    const guide = depth?.result.guideSize
+    const normals = this.charNormal
+    const size = normals && { width: normals.map.width, height: normals.map.height }
+    return {
+      character: { texture: this.charRT.texture, ...this.charSize },
+      coef: depth && guide ? { texture: depth.textures.coef, ...guide } : null,
+      aux: depth && guide ? { texture: depth.textures.aux, ...guide } : null,
+      depthNormal: depth && guide ? { texture: depth.textures.normal, ...guide } : null,
+      normal: normals && size ? { texture: normals.texture, ...size } : null,
+      rim: normals && size ? { texture: normals.rim, ...size } : null,
+    }
+  }
+
+  /** 把立绘的纹理节点指向原纹理或变形后的纹理，并设置立绘纹理覆盖的范围 */
+  private bindCharacter(): void {
+    const box = this.warpBox
+    const targets = this.warpTargets
+    const pick = (layer: WarpLayer, source: THREE.Texture | undefined, fallback: THREE.Texture) => (source ? (box ? targets[layer].texture : source) : fallback)
+    const character = box ? targets.character.texture : this.charRT.texture
+    this.characterNode.value = character
+    this.shadowCharacter.value = character
+    const depth = this.depth.character?.textures
+    const placeholder = this.depthPlaceholder.character
+    const nodes = this.depthNodes.textures.character
+    nodes.coef.value = pick('coef', depth?.coef, placeholder.coef)
+    nodes.aux.value = pick('aux', depth?.aux, placeholder.aux)
+    nodes.normal.value = pick('depthNormal', depth?.normal, placeholder.normal)
+    this.character.characterNormal.value = pick('normal', this.charNormal?.texture, this.normalPlaceholder)
+    this.character.characterRim.value = pick('rim', this.charNormal?.rim, this.rimPlaceholder)
+
+    const { width, height } = this.charSize
+    const u = this.placement.uniforms
+    u.charSize.value.set(box ? (box.x1 - box.x0) * width : width, box ? (box.y1 - box.y0) * height : height)
+    u.charOffset.value.set(box ? ((box.x0 + box.x1) / 2 - 0.5) * width : 0, box ? ((box.y0 + box.y1) / 2 - 0.5) * height : 0)
+    // 边缘带的距离以原边缘带图的长边为单位，换算到当前纹理的像素
+    const map = this.charNormal?.map
+    const density = map && box ? targets.rim.width / ((box.x1 - box.x0) * map.width) : 1
+    this.character.fusion.rimLong.value = map ? Math.max(map.width, map.height) * density : 1
   }
 
   private schedule(): void {
@@ -828,6 +953,7 @@ export class Engine {
   private renderFrame(): void {
     if (this.disposed) return
     const r = this.renderer
+    if (this.warpDirty && !this.exporting) this.applyWarp()
     if (this.docDirty && this.docSize && !this.exporting) {
       this.renderDocument(this.layers, this.docRT, this.effects(this.display), 'preview', this.backgroundDirty)
       this.backgroundDirty = false
@@ -872,6 +998,7 @@ export class Engine {
       globalCoef: !effects.local.global,
     }
     const downscaled = size.width !== this.docSize.width || size.height !== this.docSize.height
+    if (this.warpDirty) this.applyWarp()
     this.exporting = true
     this.syncDisplay(display)
     try {
@@ -1014,6 +1141,8 @@ export class Engine {
     this.bgTexture?.dispose()
     this.charSource?.dispose()
     this.charRT.dispose()
+    for (const rt of Object.values(this.warpTargets)) rt.dispose()
+    this.warpPass.dispose()
     this.docRT.dispose()
     for (const rt of Object.values(this.layers)) rt.dispose()
     this.placeholder.dispose()
