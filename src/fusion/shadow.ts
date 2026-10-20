@@ -7,7 +7,7 @@
  * 朝向光源的竖直平面：地面上沿“背离光源”方向距离接地点 s 的点，对应立绘上高 s·tan(仰角) 的位置。
  * 阴影颜色 = 去掉主光源后的光照 / 全部光照，晴天偏天空色；没有方向明确的光源时投影自然消失。
  */
-import { normalize, sceneDepth, unproject } from '@/algo/camera'
+import { normalize, sceneDepth, unproject, type DepthScale } from '@/algo/camera'
 import type { Point } from '@/algo/geometry'
 import { focalLength } from '@/algo/normals'
 import { shade, wrapDiffuse } from '@/algo/shading'
@@ -30,9 +30,11 @@ const MIN_SHADOW = 0.2
 const CONTACT_OCCLUSION = 0.55
 
 export interface ShadowParams {
-  /** 接地点（文档像素）与该处的伪深度 */
+  /** 接地点（文档像素）与该处的距离，单位与 depthScale 一致 */
   ground: Point
   groundZ: number
+  /** 背景逆深度到距离的换算（深度校准） */
+  depthScale: DepthScale
   /** 焦距（文档像素） */
   focal: number
   /** 地面法线（相机空间） */
@@ -153,6 +155,7 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
   return {
     ground,
     groundZ: sceneDepth(depth, scale),
+    depthScale: scale,
     focal: focalLength(bg.width, bg.height, fov),
     normal,
     contact: { strength: s.contact, center, dir: horizonLine(doc.camera, bg).dir, axes: [a, Math.max(1.5, a * aspect)], softness: s.contactSoftness, tint: contactTint },

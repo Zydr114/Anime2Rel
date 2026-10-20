@@ -16,6 +16,8 @@ export function createShadowUniforms() {
     enabled: uniform(0),
     ground: uniform(new THREE.Vector2()),
     groundZ: uniform(1),
+    /** 深度校准 1/z = a·d + b 的 a、b 与最远距离的倒数 */
+    depthScale: uniform(new THREE.Vector3(1, DEPTH_SHIFT, 0)),
     focal: uniform(1),
     normal: uniform(new THREE.Vector3(0, 1, 0)),
     contactStrength: uniform(0),
@@ -48,7 +50,7 @@ export function createShadowPass(u: ShadowUniforms, placement: Placement, charac
   const r = length(vec2(dot(d, u.contactDir), dot(d, vec2(u.contactDir.y.negate(), u.contactDir.x))).div(u.contactAxes))
   const contact = float(1).sub(smoothstep(float(1).sub(mix(0.25, 1, u.contactSoftness)), 1, r))
 
-  // 当前像素的视线与地面平面的交点（伪深度 t）
+  // 当前像素的视线与地面平面的交点（沿光轴的距离 t，单位与 groundZ 一致）
   const half = pu.docSize.mul(0.5)
   const ray = vec3(p.x.sub(half.x).div(u.focal), half.y.sub(p.y).div(u.focal), -1)
   const g3 = vec3(u.ground.x.sub(half.x).div(u.focal).mul(u.groundZ), half.y.sub(u.ground.y).div(u.focal).mul(u.groundZ), u.groundZ.negate())
@@ -70,7 +72,7 @@ export function createShadowPass(u: ShadowUniforms, placement: Placement, charac
   const lod = log2(max(blur.div(pu.charScale), 1))
   const cast = sampleLevel(character, uv, lod).a.mul(insideUV).mul(step(0, height))
 
-  const zBackground = float(1).div(background.depth.add(DEPTH_SHIFT))
+  const zBackground = float(1).div(max(background.depth.mul(u.depthScale.x).add(u.depthScale.y), max(u.depthScale.z, 1e-6)))
   const valid = float(1).sub(smoothstep(0.2, 0.45, abs(zBackground.sub(t)).div(max(t, 1e-4)))).mul(float(1).sub(background.sky)).mul(hit)
   const mult = mix(vec3(1), u.contactTint, contact.mul(u.contactStrength).mul(valid)).mul(mix(vec3(1), u.castTint, cast.mul(u.castStrength).mul(valid)))
   return material(vec4(mult, 1))
@@ -79,6 +81,7 @@ export function createShadowPass(u: ShadowUniforms, placement: Placement, charac
 export function applyShadowParams(u: ShadowUniforms, params: ShadowParams): void {
   u.ground.value.set(params.ground.x, params.ground.y)
   u.groundZ.value = params.groundZ
+  u.depthScale.value.set(params.depthScale.a, params.depthScale.b, 1 / params.depthScale.far)
   u.focal.value = params.focal
   u.normal.value.set(...params.normal)
   const { contact, cast } = params
