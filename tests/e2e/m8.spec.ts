@@ -490,3 +490,63 @@ test('a character dragged in the calibrated camera keeps its height in the scene
   const [y1, y2] = await Promise.all([line.getAttribute('y1'), line.getAttribute('y2')])
   expect(Math.abs(Number(y1) - Number(y2))).toBeGreaterThan(10)
 })
+
+test('the 3D view shows the calibrated scene, places lamps and suns by dragging, undoably, and returns to the camera view', async ({ page }, info) => {
+  await page.goto(`/${rendererQuery(info.project.metadata.renderer)}`)
+  await importAndStart(page, [
+    ['drop-background', 'sunny.png', sunny],
+    ['drop-character', 'figure.png', figure(240, 480)],
+  ])
+  await page.getByTestId('step-depth').click()
+  await expect(page.getByTestId('depth-scale')).toHaveAttribute('data-state', 'ground', { timeout: 120_000 })
+  await page.getByTestId('step-light').click()
+  await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
+  await page.getByTestId('light-view3d').click()
+  const view = page.getByTestId('view3d')
+  await expect(view).toHaveAttribute('data-view', 'orbit')
+  await expect(page.getByTestId('view3d-notice')).toContainText('2.5D')
+  await expect(page.getByTestId('light-gizmo')).toHaveCount(0)
+
+  // 添加工具点在环绕中心（人物）上：灯放在人物前面
+  const box = (await view.boundingBox())!
+  await page.getByTestId('light-add-canvas').click()
+  await page.mouse.click(box.x + (112 + box.width - 352) / 2, box.y + 16 + (box.height - 104) / 2)
+  const lamp = page.locator('[data-testid^="view3d-light-"][data-kind="point"]')
+  await expect(lamp).toHaveCount(1)
+  await expect(page.locator('[data-testid^="light-row-"][data-type="point"]')).toHaveCount(1)
+
+  // 拖动灯是一次撤销
+  const center = async () => {
+    const b = (await lamp.boundingBox())!
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+  }
+  const start = await center()
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down()
+  await page.mouse.move(start.x - 80, start.y - 60, { steps: 8 })
+  await page.mouse.up()
+  const moved = await center()
+  expect(Math.hypot(moved.x - start.x + 80, moved.y - start.y + 60)).toBeLessThan(3)
+  await page.getByTestId('undo').click()
+  await expect.poll(async () => Math.hypot((await center()).x - start.x, (await center()).y - start.y)).toBeLessThan(2)
+
+  // 按住 Shift 在球面上拖动太阳：方位和仰角以 15° 为步进
+  const sun = page.locator('[data-testid^="view3d-light-"][data-kind="directional"]').first()
+  const s = (await sun.boundingBox())!
+  await page.keyboard.down('Shift')
+  await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(s.x + s.width / 2 - 70, s.y + s.height / 2 + 40, { steps: 8 })
+  await page.mouse.up()
+  await page.keyboard.up('Shift')
+  for (const id of ['light-azimuth', 'light-elevation']) {
+    const v = await sliderValue(page, id)
+    expect(Math.abs(v / 15 - Math.round(v / 15))).toBeLessThan(0.02)
+  }
+
+  await page.getByTestId('view3d-camera').click()
+  await expect(view).toHaveAttribute('data-view', 'camera')
+  await page.getByTestId('light-view3d').click()
+  await expect(view).toHaveCount(0)
+  await expect(page.getByTestId('light-gizmo')).toBeVisible()
+})
