@@ -394,6 +394,32 @@ test('the camera is calibrated before the other steps, by the horizon or by para
   await page.getByTestId('undo').click()
   await expect.poll(() => sliderValue(page, 'camera-pitch')).toBeCloseTo(pitch, 3)
 
+  // 参考形状的原点可以拖动，拖动时显示放大镜
+  const origin = page.getByTestId('guide-origin')
+  const start = (await origin.boundingBox())!
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(start.x + start.width / 2 + 60, start.y + start.height / 2 + 30, { steps: 8 })
+  await expect(page.getByTestId('camera-loupe')).toBeVisible()
+  await page.mouse.up()
+  await expect(page.getByTestId('camera-loupe')).toHaveCount(0)
+  expect((await origin.boundingBox())!.x).toBeGreaterThan(start.x + 40)
+
+  // 测量杆对准已知高度的物体，按比例设定相机高度；可以撤销
+  const unset = page.getByTestId('camera-scale-unset')
+  await expect(unset).toHaveCount(1)
+  const cameraHeight = await sliderValue(page, 'camera-height')
+  await dragBy(page, 'rod-top', 0, -30)
+  const real = page.getByTestId('camera-rod-real').locator('input')
+  await real.fill('2')
+  await real.press('Enter')
+  await page.getByTestId('camera-rod-apply').click()
+  await expect(page.getByTestId('camera-rod-reading')).toHaveText('2.00 m')
+  await expect(unset).toHaveCount(0)
+  expect(await sliderValue(page, 'camera-height')).not.toBeCloseTo(cameraHeight, 1)
+  await page.getByTestId('undo').click()
+  await expect(unset).toHaveCount(1)
+
   // 平行线：按当前的标定生成线段，求解结果不变；拖动端点后重新求解
   await page.locator('[data-testid="camera-method"] mdui-segmented-button[value="lines"]').click()
   const solution = page.getByTestId('camera-solution')
@@ -411,7 +437,7 @@ test('the camera is calibrated before the other steps, by the horizon or by para
   await page.getByTestId('step-assets').click()
   await choose(page, 'replace-background', 'other.png', makeImage(W, H, () => [90, 90, 90, 255]))
   await expect(page.getByTestId('camera-locked')).toBeVisible()
-  await expect(solution).toHaveCount(0)
+  await expect(solution).toContainText('60.0°')
 })
 
 test('a character dragged in the calibrated camera keeps its height in the scene and can be put into its perspective', async ({ page }, info) => {

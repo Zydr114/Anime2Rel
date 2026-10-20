@@ -274,14 +274,6 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
         handlers={handlers}
         passThrough={passThrough}
       />
-      <MeasuringRod
-        foot={toScreen(rod.foot)}
-        top={toScreen(rodTop)}
-        meters={rodMeters}
-        interactive={interactive}
-        onGrab={beginRod}
-        handlers={handlers}
-      />
       <g data-testid="horizon">
         <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke="rgba(0,0,0,0.5)" strokeWidth={3} />
         <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke={HORIZON} strokeWidth={1.5} strokeDasharray={lineMode ? '8 6' : undefined} />
@@ -315,6 +307,15 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
           </>
         )}
       </g>
+      {/* 测量杆画在视平线之上：顶端常在视平线附近，小的控制点优先拾取 */}
+      <MeasuringRod
+        foot={toScreen(rod.foot)}
+        top={toScreen(rodTop)}
+        meters={rodMeters}
+        interactive={interactive}
+        onGrab={beginRod}
+        handlers={handlers}
+      />
       {lineMode &&
         PAIRS.map((pair) => {
           const color = pairColor(pair, lineMode)
