@@ -536,7 +536,7 @@ export class Engine {
   setScene3d(input: Scene3dInput | null): void {
     if (input) {
       if (!this.scene3d) {
-        this.scene3d = new Scene3D()
+        this.scene3d = new Scene3D({ character: this.layers.characterAdjusted.texture, characterDepth: this.layers.characterDepth.texture, document: this.docRT.texture })
         this.scene3d.setBackground(this.bgTexture)
       }
       this.scene3d.update(input)

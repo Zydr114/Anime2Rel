@@ -113,3 +113,13 @@ export function orbitFrom(p: Projection, target: Vec3, insets: Insets): Orbit {
     fovDeg: (2 * Math.atan(Math.max(1, p.viewport.height - insets.top - insets.bottom) / 2 / p.focal) * 180) / Math.PI,
   }
 }
+
+/** 二维结果的小预览：在两侧面板之间可见区域的右下角，宽不超过可见区域的 30%、高不超过 35% */
+export function previewRect(viewport: Size, insets: Insets, size: Size): Point & Size {
+  const margin = 16
+  const visible = { width: Math.max(1, viewport.width - insets.left - insets.right), height: Math.max(1, viewport.height - insets.top - insets.bottom) }
+  const k = Math.min((visible.width * 0.3) / size.width, (visible.height * 0.35) / size.height)
+  const width = Math.round(size.width * k)
+  const height = Math.round(size.height * k)
+  return { x: viewport.width - insets.right - margin - width, y: viewport.height - insets.bottom - margin - height, width, height }
+}

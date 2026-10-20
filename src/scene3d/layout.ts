@@ -8,11 +8,12 @@ import type { Vec3 } from '@/algo/sh'
 import { depthScaleFor, type CalibratedDepth } from '@/camera/depthScale'
 import { cameraFocal, projectPoint } from '@/camera/geometry'
 import type { CameraDoc } from '@/camera/model'
-import { add, mul } from '@/camera/vec'
+import { add, mul, unit } from '@/camera/vec'
 import type { DepthResult } from '@/depth/protocol'
 import { characterBox, characterDepth } from '@/fusion/placement'
 import type { CharacterInfo } from '@/fusion/protocol'
 import type { Light } from '@/lighting/model'
+import { ballPlacement } from '@/lighting/preview'
 import type { DocState } from '@/state/store'
 import { cameraFromWorld, directionToWorld, worldFromCamera } from './space'
 
@@ -20,7 +21,10 @@ export interface CharacterLayout {
   /** 立绘中心（世界坐标）与它到原相机的距离（沿光轴） */
   center: Vec3
   depth: number
-  /** 立绘平面上四角的位置（世界坐标），顺序同 characterBox */
+  /** 立绘平面的归一化逆深度（见 characterDepth） */
+  plane: number
+  /** 不透明区域的四角：文档像素（见 characterBox）与立绘平面上的世界坐标 */
+  box: Point[]
   corners: Vec3[]
   /** 不透明区域的高度（米） */
   height: number
@@ -46,6 +50,8 @@ export interface SceneLayout {
   reference: number
   /** 太阳 / 天光所在球面的半径 */
   sunRadius: number
+  /** 灰球：在立绘右侧、与立绘中心等高，大小与二维视图中的灰球相同；没有立绘时在环绕中心 */
+  ball: { center: Vec3; radius: number }
   lights: LightLayout[]
 }
 
@@ -80,12 +86,21 @@ export function sceneLayout(doc: DocState, depth: DepthResult | undefined, bbox:
     const z = 1 / Math.max(scale.a * d + scale.b, 1 / scale.far)
     const corners = box.map((p) => docToWorld(camera, bg, p, z))
     const center = mul(corners.reduce((s, c) => add(s, c), [0, 0, 0] as Vec3), 1 / 4)
-    character = { center, depth: z, corners, height: (Math.hypot(...add(corners[3], corners[0], -1)) + Math.hypot(...add(corners[2], corners[1], -1))) / 2 }
+    character = { center, depth: z, plane: d, box, corners, height: (Math.hypot(...add(corners[3], corners[0], -1)) + Math.hypot(...add(corners[2], corners[1], -1))) / 2 }
   }
   // 没有立绘时环绕画面中心的景物，距离取画面中心的深度
   const target = character?.center ?? at({ x: bg.width / 2, y: bg.height / 2 }, centerDepth(depth))
   const reference = Math.hypot(...add(target, [0, camera.height, 0], -1))
   const sunRadius = Math.max(reference * 0.6, (character?.height ?? 0) * 1.5)
+
+  const metres = (character?.depth ?? reference) / cameraFocal(camera, bg)
+  const radius = ballPlacement(doc, bg).radius * metres
+  let ball = { center: target, radius }
+  if (character) {
+    const side = directionToWorld(camera, [1, 0, 0])
+    const width = Math.hypot(...add(character.corners[1], character.corners[0], -1))
+    ball = { center: add(character.center, unit([side[0], 0, side[2]]), width / 2 + 2 * radius), radius }
+  }
 
   const lights = doc.lighting.lights.map((l): LightLayout => {
     const color = l.color
@@ -93,7 +108,7 @@ export function sceneLayout(doc: DocState, depth: DepthResult | undefined, bbox:
     const direction = directionToWorld(camera, l.direction)
     return { id: l.id, type: l.type, enabled: l.enabled, position: add(target, direction, sunRadius), direction, color }
   })
-  return { scale, character, target, reference, sunRadius, lights }
+  return { scale, character, target, reference, sunRadius, ball, lights }
 }
 
 function centerDepth(depth: DepthResult | undefined): number {
