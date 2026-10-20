@@ -2,15 +2,17 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent, type SVGProps
 import { clamp, docToScreen, screenToDoc, type Point, type Size } from '@/algo/geometry'
 import { groundPoint, heightAbove, horizonLine, orientationFromHorizon, pointAbove, solveLines } from '@/camera/geometry'
 import { AXIS_COLORS, dragOrigin, grabHeight, ROD_HEIGHT, yawToward } from '@/camera/guides'
+import { cross } from '@/camera/vec'
 import type { CameraDoc, CameraLines } from '@/camera/model'
 import { characterGround } from '@/fusion/placement'
+import { t } from '@/i18n'
 import { guideOrigin, guideRod, useCameraGuide } from '@/state/cameraGuide'
 import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 import { GuideLayer, type GuideTarget } from './CameraGuide'
 import { Loupe, type LoupeFocus } from './Loupe'
 
-/** 地平线的颜色 */
+/** 视平线的颜色 */
 const HORIZON = 'rgb(252, 211, 77)'
 const PAIRS = ['first', 'second'] as const
 /** 平行线按所沿的轴取色：第一组沿红轴，第二组沿蓝轴或竖直的绿轴 */
@@ -18,7 +20,7 @@ const pairColor = (pair: Pair, lines: CameraLines) => (pair === 'first' ? AXIS_C
 type Pair = (typeof PAIRS)[number]
 /** 旋转参考形状时按住 Shift 的步进 */
 const SNAP = Math.PI / 12
-/** 地平线两端控制点的位置（画面宽度的比例） */
+/** 视平线两端控制点的位置（画面宽度的比例） */
 const HANDLE_X = [0.15, 0.85] as const
 const HANDLE_R = 7
 /** 相机步骤中暗化照片的程度 */
@@ -26,6 +28,8 @@ const DIM = 0.45
 /** 测量杆的颜色和最小高度（米） */
 const ROD = 'rgb(250, 250, 250)'
 const ROD_MIN = 0.05
+/** 消失点离画面中心超过长边的这个倍数时不标出 */
+const VP_LIMIT = 20
 
 /** 空心的准星控制点：圆环加中心的小点，不挡住要对准的位置 */
 function Crosshair({ at, color, ...rest }: { at: Point; color: string } & SVGProps<SVGCircleElement>) {
@@ -50,13 +54,13 @@ type Drag =
 /** 只改变界面状态、不进撤销记录的拖动 */
 const undoable = (d: Drag) => d.kind !== 'guide' && d.kind !== 'rod'
 
-/** 地平线上横坐标为 x 的点（文档坐标） */
+/** 视平线上横坐标为 x 的点（文档坐标） */
 function horizonAt(c: CameraDoc, size: Size, x: number): Point {
   const h = horizonLine(c, size)
   return { x, y: h.point.y + (h.dir.y * (x - h.point.x)) / h.dir.x }
 }
 
-/** 穿过 a、b 的长直线（屏幕坐标），用于画地平线和平行线的延长线 */
+/** 穿过 a、b 的长直线（屏幕坐标），用于画视平线和平行线的延长线 */
 function extend(a: Point, b: Point, length: number): [Point, Point] {
   const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
   const d = { x: ((b.x - a.x) / len) * length, y: ((b.y - a.y) / len) * length }
@@ -66,7 +70,36 @@ function extend(a: Point, b: Point, length: number): [Point, Point] {
   ]
 }
 
-/** 立绘步骤可选的地面网格：以接地点为中心（接地点不在地面上时取默认位置），并画出地平线 */
+/** 两条直线 ab、cd 的交点（屏幕坐标）；交点离 near 超过 limit 时当作平行，为 null */
+function meet([a, b]: Point[], [c, d]: Point[], near: Point, limit: number): Point | null {
+  const v = cross(cross([a.x, a.y, 1], [b.x, b.y, 1]), cross([c.x, c.y, 1], [d.x, d.y, 1]))
+  if (v[2] === 0) return null
+  const p = { x: v[0] / v[2], y: v[1] / v[2] }
+  return Math.hypot(p.x - near.x, p.y - near.y) <= limit ? p : null
+}
+
+/** 视平线旁的标签：写在右侧控制点的左边、天空一侧（左侧默认放着测量杆） */
+function HorizonLabel({ from, to }: { from: Point; to: Point }) {
+  const angle = (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI
+  return (
+    <text
+      transform={`translate(${to.x} ${to.y}) rotate(${angle}) translate(-14 -7)`}
+      textAnchor="end"
+      fill={HORIZON}
+      stroke="rgba(0,0,0,0.7)"
+      strokeWidth={3}
+      paintOrder="stroke"
+      fontSize={12}
+      fontWeight={600}
+      pointerEvents="none"
+      data-testid="horizon-label"
+    >
+      {t.camera.horizonLabel}
+    </text>
+  )
+}
+
+/** 立绘步骤可选的地面网格：以接地点为中心（接地点不在地面上时取默认位置），并画出视平线 */
 export function CharacterGrid() {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
@@ -83,12 +116,13 @@ export function CharacterGrid() {
     <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="character-grid">
       <GuideLayer camera={doc.camera} size={bg} view={view} kind="ground" origin={origin} boxSize={1} />
       <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke={HORIZON} strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="8 6" />
+      <HorizonLabel from={handles[0]} to={handles[1]} />
     </svg>
   )
 }
 
 /**
- * 相机步骤的画布控件：地平线方式拖动地平线（两端的圆点改变高度和倾斜，线本身上下平移），
+ * 相机步骤的画布控件：视平线方式拖动视平线（两端的圆点改变高度和倾斜，线本身上下平移），
  * 平行线方式拖动两组线的端点并实时求解；两种方式都叠加可拖动的参考形状。
  */
 export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
@@ -250,6 +284,7 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
       <g data-testid="horizon">
         <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke="rgba(0,0,0,0.5)" strokeWidth={3} />
         <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke={HORIZON} strokeWidth={1.5} strokeDasharray={lineMode ? '8 6' : undefined} />
+        <HorizonLabel from={handles[0]} to={handles[1]} />
         {!lineMode && (
           <>
             {/* 较宽的透明线便于拾取 */}
@@ -280,34 +315,48 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
         )}
       </g>
       {lineMode &&
-        PAIRS.map((pair) =>
-          lineMode[pair].map((seg, i) => {
-            const [a, b] = seg.map((v) => ({ x: v.x * background.width, y: v.y * background.height }))
-            const [sa, sb] = [toScreen(a), toScreen(b)]
-            const [e0, e1] = extend(sa, sb, reach)
-            const color = pairColor(pair, lineMode)
-            return (
-              <g key={`${pair}-${i}`} data-testid={`camera-line-${pair}-${i}`}>
-                <line x1={e0.x} y1={e0.y} x2={e1.x} y2={e1.y} stroke={color} strokeOpacity={0.45} strokeWidth={1} strokeDasharray="4 6" />
-                <line x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke="rgba(0,0,0,0.5)" strokeWidth={4} />
-                <line x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={color} strokeWidth={2} />
-                {[a, b].map((p, j) => {
-                  return (
-                    <Crosshair
-                      key={j}
-                      at={toScreen(p)}
-                      color={color}
-                      style={{ pointerEvents: interactive, cursor: 'move' }}
-                      onPointerDown={(e) => beginLine(e, pair, i as 0 | 1, j as 0 | 1, p)}
-                      {...handlers}
-                      data-testid={`camera-handle-${pair}-${i}-${j}`}
-                    />
-                  )
-                })}
-              </g>
-            )
-          }),
-        )}
+        PAIRS.map((pair) => {
+          const color = pairColor(pair, lineMode)
+          const segs = lineMode[pair].map((seg) => seg.map((v) => ({ x: v.x * background.width, y: v.y * background.height })))
+          const screen = segs.map((seg) => seg.map(toScreen))
+          const center = toScreen({ x: background.width / 2, y: background.height / 2 })
+          const vp = meet(screen[0], screen[1], center, VP_LIMIT * Math.max(background.width, background.height) * view.zoom)
+          return (
+            <g key={pair}>
+              {screen.map(([sa, sb], i) => {
+                // 延长线至少画到消失点
+                const length = vp ? Math.max(reach, Math.hypot(vp.x - sa.x, vp.y - sa.y), Math.hypot(vp.x - sb.x, vp.y - sb.y)) : reach
+                const [e0, e1] = extend(sa, sb, length)
+                return (
+                  <g key={i} data-testid={`camera-line-${pair}-${i}`}>
+                    <line x1={e0.x} y1={e0.y} x2={e1.x} y2={e1.y} stroke={color} strokeOpacity={0.45} strokeWidth={1} strokeDasharray="4 6" />
+                    <line x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke="rgba(0,0,0,0.5)" strokeWidth={4} />
+                    <line x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={color} strokeWidth={2} />
+                    {segs[i].map((p, j) => (
+                      <Crosshair
+                        key={j}
+                        at={screen[i][j]}
+                        color={color}
+                        style={{ pointerEvents: interactive, cursor: 'move' }}
+                        onPointerDown={(e) => beginLine(e, pair, i as 0 | 1, j as 0 | 1, p)}
+                        {...handlers}
+                        data-testid={`camera-handle-${pair}-${i}-${j}`}
+                      />
+                    ))}
+                  </g>
+                )
+              })}
+              {vp && (
+                <g pointerEvents="none" data-testid={`camera-vp-${pair}`}>
+                  <circle cx={vp.x} cy={vp.y} r={5} fill={color} stroke="rgba(0,0,0,0.6)" strokeWidth={1.5} />
+                  <text x={vp.x + 9} y={vp.y - 7} fill={color} stroke="rgba(0,0,0,0.7)" strokeWidth={3} paintOrder="stroke" fontSize={12} fontWeight={600}>
+                    {t.camera.vanishingPoint}
+                  </text>
+                </g>
+              )}
+            </g>
+          )
+        })}
     </svg>
     {focus && <Loupe assetId={background.id} view={view} focus={focus} />}
     </>

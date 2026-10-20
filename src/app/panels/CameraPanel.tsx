@@ -31,6 +31,7 @@ export function CameraPanel() {
     <div className="flex flex-col gap-4">
       <ConfirmSection />
       <Section title={t.camera.method}>
+        <Hint>{t.camera.intro}</Hint>
         <Segmented value={method} options={CALIBRATION_METHODS} label={(v) => t.camera.methods[v]} onChange={setMethod} testId="camera-method" />
         <Hint>{method === 'horizon' ? t.camera.horizonHint : t.camera.linesHint}</Hint>
       </Section>
