@@ -1,7 +1,8 @@
 // 渲染各阶段使用的 TSL 材质。所有中间结果都是线性 sRGB；立绘使用预乘 alpha。
 import * as THREE from 'three/webgpu'
 import { abs, cos, dot, exp, float, fract, fwidth, length, log2, max, mix, saturate, screenCoordinate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
-import { isMode, MODE, occlusionStyles, refraction, sampleLevel, waterDepth, waterEdge, waterWave, type DofUniforms } from './dof'
+import { cocPx, isMode, MODE, occlusionStyles, reflectance, REFLECTION_BLUR, reflectionOffset, refraction, sampleLevel, waterDepth, waterEdge, waterWave, type DofUniforms } from './dof'
+import { DEPTH_SHIFT } from '@/focus/dof'
 import { createFusionNode } from './fusion'
 import type { ShadowUniforms } from './shadow'
 import { evalSh, material, sampleAt, srgbDecode, srgbEncode, type FloatNode, type TileMapping, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
@@ -196,6 +197,8 @@ export interface LayerTextures {
   character: TextureNode
   /** 立绘层调整后的立绘，景深与合成使用 */
   characterAdjusted: TextureNode
+  /** 倒影：按水线上下镜像的位置渲染的立绘层（立绘层调整之后），带 mip，见 Engine.renderMirror */
+  reflection: TextureNode
   characterDepth: TextureNode
   characterDof: TextureNode
   occlusion: TextureNode
@@ -208,9 +211,9 @@ export interface LayerTextures {
 }
 
 /**
- * 最终合成：模糊背景（乘以站立阴影） → 模糊立绘 → 遮挡层（按区域和遮挡方式混合）→ 遮罩预览。
+ * 最终合成：模糊背景（乘以站立阴影） → 模糊立绘 → 遮挡层（按区域和遮挡方式混合）→ 水面倒影 → 遮罩预览。
  * 透明介质与水体按遮挡强度（介质的不透明度）普通覆盖，再在透出的立绘上叠加背景的高频细节；
- * 水体另外在水下部分做折射偏移、在水线处加高光。
+ * 水体另外在水下部分做折射偏移、在水线处加高光，水线以下盖上立绘的倒影（水下的立绘也在水面之下）。
  * 调试视图和灰球在 createDisplayPass 中叠加，这里的纹理数要留在 WebGPU / WebGL2 每阶段 16 个的下限以内。
  */
 export function createCompositePass(input: { placement: Placement; background: TextureNode; layers: LayerTextures; dof: DofUniforms; shadow: ShadowUniforms }) {
@@ -272,7 +275,28 @@ export function createCompositePass(input: { placement: Placement; background: T
     .mul(float(1).sub(darkenWeight).sub(multiplyWeight))
     .add(darken.add(behindCh).mul(darkenWeight))
     .add(multiply.add(behindCh).mul(multiplyWeight))
-  const rgb = mix(occluded, MASK_TINT, charDepth.g.mul(charDepth.a).mul(dof.showMask).mul(0.6))
+  // 水面倒影：镜像的立绘层按波纹扭曲采样，离水线越远、立绘越离焦越模糊；按反射率盖在水面上，颜色按水色过滤
+  const reflectionWeight = sum((s) => isMode(s.mode, MODE.water).mul(s.reflection)).mul(dof.occlusion)
+  // 各水体样式的倒影参数按权重平均
+  const toWaterAverage = float(1).div(max(water, 1e-4))
+  const reflectionBlur = sum((s) => isMode(s.mode, MODE.water).mul(s.reflectionBlur)).mul(toWaterAverage)
+  const reflectionRipple = sum((s) => isMode(s.mode, MODE.water).mul(s.reflectionRipple)).mul(toWaterAverage)
+  const waterColor = styles
+    .reduce<Vec3Node>((acc, s) => acc.add(s.waterColor.mul(isMode(s.mode, MODE.water).mul(s.weight))), vec3(0))
+    .mul(toWaterAverage)
+  const docSize = placement.uniforms.docSize
+  // 文档像素 → 渲染目标像素
+  const toTarget = dof.targetLong.div(max(docSize.x, docSize.y))
+  const blurPx = max(p.y.sub(dof.waterline), 0).mul(reflectionBlur.mul(REFLECTION_BLUR)).mul(toTarget)
+  const planeCoc = cocPx(dof, float(1).div(dof.planeZ).sub(DEPTH_SHIFT))
+  const reflectionLod = log2(max(length(vec2(blurPx, planeCoc)), 1))
+  const reflectionUV = screenUV.add(reflectionOffset(dof, p, reflectionRipple).div(docSize).div(placement.tile.uniforms.scale))
+  const mirrored = sampleLevel(layers.reflection, reflectionUV, reflectionLod)
+  const surface = smoothstep(waterEdge(dof).negate(), waterEdge(dof), h)
+  const R = saturate(reflectionWeight.mul(reflectance(dof, p, docSize)).mul(surface))
+  const reflected = occluded.mul(float(1).sub(R.mul(mirrored.a))).add(mirrored.rgb.mul(waterColor).mul(R))
+
+  const rgb = mix(reflected, MASK_TINT, charDepth.g.mul(charDepth.a).mul(dof.showMask).mul(0.6))
   return material(vec4(rgb, 1))
 }
 

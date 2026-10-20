@@ -7,11 +7,11 @@
  * 采样半径取周围 16×16 像素块内弥散圆的最大值，按采样间距选用 mipmap 级别做预模糊。
  */
 import * as THREE from 'three/webgpu'
-import { abs, exp, float, floor, Fn, If, log2, Loop, max, min, mix, mx_noise_float, screenCoordinate, screenUV, select, sign, smoothstep, texture, uniform, uniformArray, vec2, vec4 } from 'three/tsl'
+import { abs, exp, float, floor, Fn, If, length, log2, Loop, max, min, mix, mx_noise_float, pow, screenCoordinate, screenUV, select, sign, smoothstep, texture, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl'
 import { DEPTH_SHIFT, MIN_PSEUDO_DEPTH } from '@/focus/dof'
 import { MAX_REGIONS } from '@/focus/model'
 import { BOKEH_SAMPLES, type FocusParams } from '@/focus/params'
-import { material, type FloatNode, type Vec4Node } from './nodes'
+import { material, type FloatNode, type Vec3Node, type Vec4Node } from './nodes'
 
 type Vec2Node = THREE.Node<'vec2'>
 type TextureNode = THREE.TextureNode
@@ -51,7 +51,7 @@ export function createDofUniforms() {
     occlusion: uniform(0),
     tolerance: uniform(0.05),
     softness: uniform(0.03),
-    /** 各遮挡方式（第 0 项为区域外）：(方式, 清澈度, 浑浊度, 表面细节)、(水线高光, 波纹, -, -) */
+    /** 各遮挡方式（第 0 项为区域外）：(方式, 清澈度, 浑浊度, 表面细节)、(水线高光, 波纹, 倒影强度, 倒影模糊)、(倒影波纹, 水色) */
     styleA: uniformArray(
       Array.from({ length: STYLES }, () => new THREE.Vector4()),
       'vec4',
@@ -60,11 +60,17 @@ export function createDofUniforms() {
       Array.from({ length: STYLES }, () => new THREE.Vector4()),
       'vec4',
     ),
+    styleC: uniformArray(
+      Array.from({ length: STYLES }, () => new THREE.Vector4()),
+      'vec4',
+    ),
     /** 区域遮罩（文档空间）：四个通道是第 1–4 个区域的覆盖度 */
     regions: texture(emptyRegions()),
     /** 水线（文档 y）与立绘不透明区域的高度（文档像素） */
     waterline: uniform(0),
     charHeight: uniform(1),
+    /** 焦距（文档像素），倒影的反射率按它换算视线与水面的夹角 */
+    focal: uniform(1),
     /** 1 时合成直接使用未模糊的图层（景深关闭、前后对比、法线视图） */
     bypass: uniform(1),
     showMask: uniform(0),
@@ -112,6 +118,10 @@ export interface StyleNodes {
   detail: FloatNode
   highlight: FloatNode
   ripple: FloatNode
+  reflection: FloatNode
+  reflectionBlur: FloatNode
+  reflectionRipple: FloatNode
+  waterColor: Vec3Node
 }
 
 /** 文档 UV 处的各遮挡方式：第 0 项为区域外，后面的区域覆盖前面的 */
@@ -128,7 +138,8 @@ export function occlusionStyles(u: DofUniforms, uv: Vec2Node): StyleNodes[] {
   return weights.map((weight, k) => {
     const a = u.styleA.element(k) as unknown as Vec4Node
     const b = u.styleB.element(k) as unknown as Vec4Node
-    return { weight, mode: a.x, clarity: a.y, density: a.z, detail: a.w, highlight: b.x, ripple: b.y }
+    const c = u.styleC.element(k) as unknown as Vec4Node
+    return { weight, mode: a.x, clarity: a.y, density: a.z, detail: a.w, highlight: b.x, ripple: b.y, reflection: b.z, reflectionBlur: b.w, reflectionRipple: c.x, waterColor: c.yzw }
   })
 }
 
@@ -151,6 +162,29 @@ export function refraction(u: DofUniforms, p: Vec2Node, ripple: FloatNode): Vec2
 
 /** 水线的抗锯齿宽度（文档像素） */
 export const waterEdge = (u: DofUniforms) => max(ofHeight(u, 0.002), 0.5)
+
+/** 倒影模糊为 1 时，模糊半径与离水线距离之比；倒影波纹为 1 时的扭曲幅度（立绘高度的比例） */
+export const REFLECTION_BLUR = 0.15
+export const REFLECTION_RIPPLE = 0.03
+/** 视线垂直于水面时的反射率（相对贴近水面时）。真实水面只有约 2%，这里留得较高，倒影强度仍然起作用 */
+const REFLECTANCE_FLOOR = 0.3
+
+/** 倒影的扭曲（文档像素）：横向为主，沿纵向变化快，形成一条条水平的波纹 */
+export function reflectionOffset(u: DofUniforms, p: Vec2Node, ripple: FloatNode): Vec2Node {
+  const q = vec2(p.x.div(ofHeight(u, 0.08)), p.y.div(ofHeight(u, 0.012)))
+  const offset = vec2(mx_noise_float(q), mx_noise_float(q.add(vec2(23.1, 7.7))).mul(0.25))
+  return offset.mul(ripple).mul(ofHeight(u, REFLECTION_RIPPLE))
+}
+
+/**
+ * 水面的相对反射率（Schlick 近似）：视线越贴近水面越接近 1，越垂直越接近 REFLECTANCE_FLOOR。
+ * 相机水平（地平线在画面中央），与站立阴影的假设一致。
+ */
+export function reflectance(u: DofUniforms, p: Vec2Node, docSize: Vec2Node): FloatNode {
+  const c = p.sub(docSize.mul(0.5))
+  const cosI = abs(c.y).div(length(vec3(c, u.focal)))
+  return mix(REFLECTANCE_FLOOR, 1, pow(float(1).sub(cosI), 5))
+}
 
 interface GatherInput {
   center: Vec4Node
@@ -325,9 +359,11 @@ export function applyFocusParams(u: DofUniforms, params: FocusParams): boolean {
   u.softness.value = Math.max(o.softness, 1e-4)
   o.styles.forEach((s, i) => {
     ;(u.styleA.array[i] as THREE.Vector4).set(s.mode, s.clarity, s.density, s.detail)
-    ;(u.styleB.array[i] as THREE.Vector4).set(s.highlight, s.ripple, 0, 0)
+    ;(u.styleB.array[i] as THREE.Vector4).set(s.highlight, s.ripple, s.reflection, s.reflectionBlur)
+    ;(u.styleC.array[i] as THREE.Vector4).set(s.reflectionRipple, ...s.waterColor)
   })
   u.waterline.value = o.waterline
   u.charHeight.value = Math.max(o.height, 1)
+  u.focal.value = o.focal
   return changed || kernelChanged
 }

@@ -10,6 +10,8 @@ import {
   createOcclusionPass,
   createPrepPass,
   createTilePass,
+  REFLECTION_BLUR,
+  REFLECTION_RIPPLE,
   TILE,
 } from './dof'
 import { applyFinishParams, createFinishPass, createFinishUniforms, disposeFinish, setFinishLut } from './finish'
@@ -49,6 +51,7 @@ import { createWarpPass, WARP_LAYERS, type WarpLayer } from './warp'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
+import { OCCLUSION_MODES } from '@/focus/model'
 import type { FocusParams } from '@/focus/params'
 import type { FusionParams } from '@/fusion/params'
 import { GRADE_LEVELS, type GradeLevel } from '@/grade/model'
@@ -169,6 +172,8 @@ export interface FusionDisplay {
 interface Effects {
   dof: boolean
   occlusion: boolean
+  /** 水体遮挡中有倒影 */
+  reflection: boolean
   shadow: boolean
   /** 三级调整与全局调色 */
   grade: boolean
@@ -235,11 +240,12 @@ const WARP_MIN_AREA = 2048 * 2048
 /** 变形后的纹理尺寸取这个数的倍数，拖动时不必每次都重新分配 */
 const WARP_ROUND = 32
 
-/** 合成用的中间图层，尺寸与渲染目标相同（弥散圆统计块为 1/16，各级局部调整的引导滤波系数为 1/4） */
-type LayerKey = keyof LayerTextures | 'tone' | 'adjusted'
+/** 合成用的中间图层，尺寸与渲染目标相同（弥散圆统计块为 1/16，各级局部调整的引导滤波系数为 1/4）；镜像的立绘层 mirror 与倒影在用到时才分配 */
+type LayerKey = keyof LayerTextures | 'tone' | 'adjusted' | 'mirror'
 const COEF = { background: 'backgroundCoef', character: 'characterCoef', global: 'globalCoef' } as const satisfies Record<GradeLevel, string>
 type CoefKey = (typeof COEF)[GradeLevel]
 const COEF_KEYS: readonly string[] = Object.values(COEF)
+const MIRROR_KEYS = ['mirror', 'reflection'] as const
 type LayerTargets = Record<LayerKey | 'tiles' | CoefKey, THREE.RenderTarget>
 type SkipLayers = Partial<Record<LayerKey | CoefKey, boolean>>
 
@@ -256,6 +262,8 @@ function layerTargets(adjustedMips = true): LayerTargets {
     backgroundDof: target(),
     character: target(true),
     characterAdjusted: target(true),
+    mirror: target(),
+    reflection: target(true),
     characterDepth: target(true),
     characterDof: target(),
     occlusion: target(),
@@ -273,7 +281,7 @@ function layerTargets(adjustedMips = true): LayerTargets {
 /** 按渲染目标的尺寸设置中间图层；skip 中的图层在这次渲染中用不到，保持 1×1 */
 function sizeLayers(targets: Partial<LayerTargets>, width: number, height: number, skip: SkipLayers = {}): void {
   for (const [key, rt] of Object.entries(targets) as [keyof LayerTargets, THREE.RenderTarget][]) {
-    if (key !== 'tiles' && skip[key]) continue
+    if ((key !== 'tiles' && skip[key]) || (MIRROR_KEYS as readonly string[]).includes(key)) continue
     if (key === 'tiles') rt.setSize(tileCount(width), tileCount(height))
     else if (COEF_KEYS.includes(key)) rt.setSize(coefSize(width), coefSize(height))
     else rt.setSize(width, height)
@@ -416,6 +424,8 @@ export class Engine {
       backgroundDof: layer('backgroundDof'),
       character: layer('character'),
       characterAdjusted: layer('characterAdjusted'),
+      mirror: layer('mirror'),
+      reflection: layer('reflection'),
       characterDepth: layer('characterDepth'),
       characterDof: layer('characterDof'),
       occlusion: layer('occlusion'),
@@ -647,9 +657,12 @@ export class Engine {
     const p = this.postParams
     const post = graded && !!p?.active
     const gradeActive = grade && (this.grade!.creative.active || GRADE_LEVELS.some((level) => this.grade!.levels[level].active))
+    const occlusion = !raw && !!this.focus?.occlusion.enabled
+    const water = OCCLUSION_MODES.indexOf('water')
     return {
       dof: !raw && !!this.focus?.dof,
-      occlusion: !raw && !!this.focus?.occlusion.enabled,
+      occlusion,
+      reflection: occlusion && !!this.focus?.occlusion.styles.some((s) => s.mode === water && s.reflection > 0),
       shadow: !raw && !!this.shadowParams,
       grade,
       local: Object.fromEntries(GRADE_LEVELS.map((level) => [level, grade && !!this.grade?.levels[level].local])) as Record<GradeLevel, boolean>,
@@ -936,6 +949,8 @@ export class Engine {
     pass(this.quads.character, targets.character)
     tone('character')
     pass(this.quads.characterAdjust, targets.characterAdjusted)
+    if (effects.reflection) this.renderMirror(targets, effects)
+    else for (const key of MIRROR_KEYS) if (targets[key].width > 1) targets[key].setSize(1, 1)
     pass(this.quads.characterDepth, targets.characterDepth)
     if (effects.dof) pass(this.quads.characterDof, targets.characterDof)
     if (effects.occlusion) pass(this.quads.occlusion, targets.occlusion)
@@ -948,6 +963,38 @@ export class Engine {
     if (mode !== 'preview') return pass(this.quads.finish, out)
     pass(this.quads.finish, targets.graded)
     pass(this.quads.display, out)
+  }
+
+  /**
+   * 倒影：按水线上下镜像的位置再渲染一次立绘层和立绘层调整（输出图像的 UV 纵向翻转），得到与当前渲染目标对齐的镜像立绘。
+   * 局部调整的系数沿用正常渲染的结果（按输出图像的 UV 采样），tone 按镜像重新计算。分块导出时每一块各自渲染镜像。
+   */
+  private renderMirror(targets: LayerTargets, effects: Effects): void {
+    const r = this.renderer
+    const { width, height } = targets.character
+    for (const key of MIRROR_KEYS) if (targets[key].width !== width || targets[key].height !== height) targets[key].setSize(width, height)
+    const t = this.tile.uniforms
+    const { y: offset } = t.offset.value
+    const { y: scale } = t.scale.value
+    const waterline = this.dof.waterline.value / this.docSize!.height
+    const character = this.layerNodes.character
+    t.offset.value.y = 2 * waterline - offset
+    t.scale.value.y = -scale
+    try {
+      r.setRenderTarget(targets.mirror)
+      this.quads.character.render(r)
+      character.value = targets.mirror.texture
+      if (effects.local.character) {
+        r.setRenderTarget(targets.tone)
+        this.toneQuads.character.render(r)
+      }
+      r.setRenderTarget(targets.reflection)
+      this.quads.characterAdjust.render(r)
+    } finally {
+      character.value = targets.character.texture
+      t.offset.value.y = offset
+      t.scale.value.y = scale
+    }
   }
 
   private renderFrame(): void {
@@ -1054,12 +1101,16 @@ export class Engine {
   /** 分块渲染需要的扩展量和块大小 */
   private tilePlan(size: Size, effects: Effects, cropped: boolean) {
     const long = Math.max(size.width, size.height)
+    const scale = size.width / this.docSize!.width
     const u = this.dof
-    const water = effects.occlusion ? u.charHeight.value * 0.008 : 0
+    const water = effects.occlusion ? u.charHeight.value * (0.008 + (effects.reflection ? REFLECTION_RIPPLE : 0)) : 0
+    // 倒影在画面底部的 mip 模糊半径（输出像素），与弥散圆一样需要对齐和扩展
+    const blur = effects.reflection ? Math.max(...this.focus!.occlusion.styles.map((s) => (s.reflection > 0 ? s.reflectionBlur : 0))) : 0
+    const reflection = blur * REFLECTION_BLUR * Math.max(this.docSize!.height - u.waterline.value, 0) * scale
     return tilePlan({
       long,
-      scale: size.width / this.docSize!.width,
-      coc: effects.dof || effects.occlusion ? Math.max(u.aperture.value, u.characterCoc.value) * long : 0,
+      scale,
+      coc: Math.max(effects.dof || effects.occlusion ? Math.max(u.aperture.value, u.characterCoc.value) * long : 0, reflection),
       aberration: this.post.aberration.value,
       reach: water + (cropped ? this.character.fusion.wrapRadius.value : 0),
       maxEdge: this.textureLimit,
