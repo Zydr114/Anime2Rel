@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SegmentedButtonGroup } from 'mdui/components/segmented-button-group.js'
 import type { Switch } from 'mdui/components/switch.js'
+import { depthScaleFor } from '@/camera/depthScale'
 import { clearModelCache, modelCacheSize, reestimate, reloadDepth } from '@/depth/service'
 import { MODEL_SOURCES, PRECISIONS, type Attempt } from '@/depth/models'
 import { t } from '@/i18n'
-import { DEBUG_VIEWS, useDepth, type DebugView, type DepthSettings, type JobStatus } from '@/state/depth'
+import { DEBUG_VIEWS, getDepthResult, useDepth, type DebugView, type DepthSettings, type JobStatus } from '@/state/depth'
 import { useApp } from '@/state/store'
 import { SelectField } from '@/ui/SelectField'
 import { SliderField } from '@/ui/SliderField'
@@ -32,6 +33,7 @@ export function DepthPanel() {
     <div className="flex flex-col gap-4">
       <ModelSection />
       <JobsSection />
+      <ScaleSection />
       <ViewSection />
       <SettingsSection />
     </div>
@@ -136,6 +138,26 @@ function JobsSection() {
         <mdui-icon-refresh--outlined slot="icon" />
         {t.depth.reestimate}
       </mdui-button>
+    </section>
+  )
+}
+
+/** 深度校准的状态（背景深度按标定的地面换算成距离） */
+function ScaleSection() {
+  const background = useApp((s) => s.doc.background)
+  const camera = useApp((s) => s.doc.camera)
+  useDepth((s) => s.resultsVersion)
+  if (!background) return null
+  const scale = depthScaleFor(camera, background, getDepthResult(background.id))
+  const ok = scale.state === 'ground'
+  return (
+    <section className="flex flex-col gap-2 rounded-2xl bg-white/5 p-3 text-sm" data-testid="depth-scale" data-state={scale.state}>
+      <h3 className="font-medium">{t.depth.scale.title}</h3>
+      <div className="flex items-center gap-2">
+        {ok ? <mdui-icon-check-circle--outlined className="size-5 shrink-0 text-primary" /> : <mdui-icon-info--outlined className="size-5 shrink-0 text-on-surface-variant" />}
+        <span>{ok ? t.depth.scale.ground(scale.inliers, scale.samples) : `${t.depth.scale.approx}：${t.depth.scale.reasons[scale.state as Exclude<typeof scale.state, 'ground'>]}`}</span>
+      </div>
+      <p className="text-xs leading-5 text-on-surface-variant">{t.depth.scale.hint}</p>
     </section>
   )
 }

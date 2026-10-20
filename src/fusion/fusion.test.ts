@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { PSEUDO_SCALE } from '@/algo/camera'
 import { kelvinToRgb, nearestKelvin } from '@/algo/kelvin'
 import { oklabImage } from '@/algo/oklab'
 import type { Vec3 } from '@/algo/sh'
@@ -157,6 +158,7 @@ describe('fusion parameters', () => {
       ambient: undefined,
       center: { x: 400, y: 300 },
       depth: 0.5,
+      depthScale: PSEUDO_SCALE,
     }
     const light = (direction: Vec3): Light => ({ ...newDirectionalLight(), direction, color: [1, 1, 1], intensity: 1, softness: 0 })
     const front = fusionParams({ ...base, lighting: { ...DEFAULT_LIGHTING, lights: [light([0, 0, 1])] } })

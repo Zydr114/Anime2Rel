@@ -3,6 +3,7 @@
  * 生成立绘法线，并在立绘移动、缩放或参数变化时重新计算立绘周围的背景统计；立绘变形后重新统计不透明区域的几何。
  */
 import * as Comlink from 'comlink'
+import { depthScaleFor } from '@/camera/depthScale'
 import { guideSize } from '@/depth/pipeline'
 import type { DepthResult } from '@/depth/protocol'
 import { getAsset } from '@/state/assets'
@@ -226,6 +227,7 @@ export function currentFusionParams(doc: DocState): FusionParams | null {
     ambient: getAnalysis(bg.id)?.ambient,
     center: { x: box.reduce((s, p) => s + p.x, 0) / 4, y: box.reduce((s, p) => s + p.y, 0) / 4 },
     depth: characterDepth(doc, getDepthResult(bg.id), bbox),
+    depthScale: depthScaleFor(doc.camera, bg, getDepthResult(bg.id)),
   })
 }
 

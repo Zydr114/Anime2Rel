@@ -4,7 +4,7 @@
  * 重光照：C · lerp(1, S(N) / S_ref, strength) + 轮廓光 + 高光，S_ref 是正面半球上的平均光照。
  */
 import { adaptationMatrix, luminance, type Mat3 } from '@/algo/cat'
-import { normalize, pseudoDepth, unproject } from '@/algo/camera'
+import { normalize, sceneDepth, unproject, type DepthScale } from '@/algo/camera'
 import { clamp, type Point, type Size } from '@/algo/geometry'
 import { focalLength } from '@/algo/normals'
 import { evalSh, type ShRgb, type Vec3 } from '@/algo/sh'
@@ -133,6 +133,8 @@ export interface FusionInputs {
   /** 立绘中心（文档像素）与所在的归一化逆深度 */
   center: Point
   depth: number
+  /** 逆深度到距离的换算（深度校准） */
+  depthScale: DepthScale
 }
 
 export function fusionParams(input: FusionInputs): FusionParams {
@@ -152,7 +154,8 @@ export function fusionParams(input: FusionInputs): FusionParams {
   const tint: [number, number] = hasStats ? [local.mean[0] * cm.chroma, local.mean[1] * cm.chroma] : [0, 0]
 
   // 光源：相机空间中立绘中心的位置
-  const at = unproject(input.center, input.depth, size, fovDeg)
+  const scale = input.depthScale
+  const at = unproject(input.center, input.depth, size, fovDeg, scale)
   const referenceDistance = Math.hypot(...at)
   const visibility =
     stats && background ? clamp(Math.sqrt(luminance(stats.localColor) / Math.max(luminance(background.meanColor), 1e-4)), ...VISIBILITY) : 1
@@ -160,7 +163,7 @@ export function fusionParams(input: FusionInputs): FusionParams {
   const lights: FusionLight[] = enabled.map((l) => {
     const color = l.color.map((c) => c * l.intensity * visibility) as Vec3
     if (l.type === 'directional') return { type: 0, vector: l.direction, color, softness: l.softness }
-    return { type: 1, vector: unproject(l.position, l.position.depth, size, fovDeg), color, softness: l.softness }
+    return { type: 1, vector: unproject(l.position, l.position.depth, size, fovDeg, scale), color, softness: l.softness }
   })
   const ambient = Float64Array.from(input.ambient ?? new Array<number>(27).fill(0), (v) => v * lighting.ambient)
 
@@ -187,7 +190,7 @@ export function fusionParams(input: FusionInputs): FusionParams {
   const inverseReference = reference.map((v) => 1 / Math.max(v, floor, 1e-6)) as Vec3
   const lit = refLuma > 1e-4
 
-  const D = pseudoDepth(input.depth)
+  const D = sceneDepth(input.depth, scale)
   return {
     cat,
     tone,

@@ -7,11 +7,12 @@
  * 朝向光源的竖直平面：地面上沿“背离光源”方向距离接地点 s 的点，对应立绘上高 s·tan(仰角) 的位置。
  * 阴影颜色 = 去掉主光源后的光照 / 全部光照，晴天偏天空色；没有方向明确的光源时投影自然消失。
  */
-import { normalize, pseudoDepth, unproject } from '@/algo/camera'
+import { normalize, sceneDepth, unproject } from '@/algo/camera'
 import type { Point } from '@/algo/geometry'
 import { focalLength } from '@/algo/normals'
 import { shade, wrapDiffuse } from '@/algo/shading'
 import { LUMA, type ShRgb, type Vec3 } from '@/algo/sh'
+import { depthScaleFor } from '@/camera/depthScale'
 import { cameraUp, horizonLine } from '@/camera/geometry'
 import type { DepthResult } from '@/depth/protocol'
 import { waterActive } from '@/focus/model'
@@ -106,7 +107,8 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
   const fov = doc.camera.fovDeg
   const ground = characterGround(doc, bg, bbox)
   const depth = characterDepth(doc, background, bbox)
-  const at = unproject(ground, depth, bg, fov)
+  const scale = depthScaleFor(doc.camera, bg, background)
+  const at = unproject(ground, depth, bg, fov, scale)
   const normal = cameraUp(doc.camera)
   const t = doc.charTransform
 
@@ -121,7 +123,7 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
 
   // 阴影颜色：挡住主光源（地面上贡献最大的光源）后剩下的光照与全部光照之比
   const amb: ShRgb = Float64Array.from(ambient ?? new Array<number>(27).fill(0), (x) => x * doc.lighting.ambient)
-  const lights = doc.lighting.lights.filter((l) => l.enabled).map((l) => effectiveLight(l, at, bg, fov))
+  const lights = doc.lighting.lights.filter((l) => l.enabled).map((l) => effectiveLight(l, at, bg, fov, scale))
   const contribution = lights.map((l) => wrapDiffuse(dot(normal, l.direction), l.softness) * dot(l.color, LUMA))
   const main = contribution.length ? contribution.indexOf(Math.max(...contribution)) : -1
   const total = shade(normal, amb, lights)
@@ -150,7 +152,7 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
 
   return {
     ground,
-    groundZ: pseudoDepth(depth),
+    groundZ: sceneDepth(depth, scale),
     focal: focalLength(bg.width, bg.height, fov),
     normal,
     contact: { strength: s.contact, center, dir: horizonLine(doc.camera, bg).dir, axes: [a, Math.max(1.5, a * aspect)], softness: s.contactSoftness, tint: contactTint },

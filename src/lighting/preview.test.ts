@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { unproject } from '@/algo/camera'
+import { PSEUDO_SCALE, unproject } from '@/algo/camera'
 import { newLightAt } from './model'
 import { effectiveLight } from './preview'
 
@@ -7,11 +7,11 @@ describe('effectiveLight', () => {
   const size = { width: 800, height: 600 }
 
   it('points a point light from the ball towards its 2.5D position and attenuates it', () => {
-    const at = unproject({ x: 400, y: 300 }, 0.5, size, 60)
+    const at = unproject({ x: 400, y: 300 }, 0.5, size, 60, PSEUDO_SCALE)
     const left = newLightAt({ x: 100, y: 300 }, size, 60, { depth: 0.5, sky: 0 }, 1)
-    const near = effectiveLight(left, at, size, 60)
+    const near = effectiveLight(left, at, size, 60, PSEUDO_SCALE)
     expect(near.direction[0]).toBeLessThan(-0.9)
-    const far = effectiveLight({ ...left, position: { x: -2000, y: 300, depth: 0.5 } }, at, size, 60)
+    const far = effectiveLight({ ...left, position: { x: -2000, y: 300, depth: 0.5 } }, at, size, 60, PSEUDO_SCALE)
     expect(far.color[0]).toBeLessThan(near.color[0])
   })
 

@@ -329,6 +329,18 @@ export const zhCN = {
     },
     timings: (inference: string, post: string) => `推理 ${inference}，后处理 ${post}`,
     reestimate: '重新估计',
+    scale: {
+      title: '深度校准',
+      ground: (inliers: number, samples: number) => `已按地面校准：地面一侧 ${samples} 个采样点中 ${inliers} 个符合`,
+      approx: '使用近似深度',
+      reasons: {
+        noDepth: '还没有背景深度',
+        noGround: '画面中看不到地面',
+        fewInliers: '符合地面的像素太少',
+        narrow: '地面的远近范围太小',
+      },
+      hint: '深度模型只给出相对远近。这里按相机步骤标定的地面换算成距离，点光源的明暗与衰减、3D 视图都按它计算。换算不了时按地面的平均比例近似。',
+    },
     view: '调试视图',
     views: {
       composite: '合成',

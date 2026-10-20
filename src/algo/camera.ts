@@ -32,11 +32,33 @@ export function pseudoDepth(inverse: number, shift = DEFAULT_NORMAL_OPTIONS.shif
   return 1 / (Math.max(0, inverse) + shift)
 }
 
-/** 文档像素 + 归一化逆深度 → 相机空间位置（单位任意，只用于相对方向和距离）。 */
-export function unproject(p: Point, inverse: number, size: Size, fovDeg: number): Vec3 {
+/**
+ * 归一化逆深度 d → 沿光轴的距离 z：1/z = a·d + b，最远到 far。
+ * 按标定的地面拟合时单位为米（src/camera/depthScale.ts），否则是按比例缩放的伪深度。
+ */
+export interface DepthScale {
+  a: number
+  b: number
+  far: number
+}
+
+/** 伪深度本身（单位任意） */
+export const PSEUDO_SCALE: DepthScale = { a: 1, b: DEFAULT_NORMAL_OPTIONS.shift, far: Infinity }
+
+export function sceneDepth(inverse: number, scale: DepthScale): number {
+  return 1 / Math.max(scale.a * inverse + scale.b, 1 / scale.far)
+}
+
+/** sceneDepth 的反函数：距离 z → 归一化逆深度（可以超出 [0,1]） */
+export function inverseDepth(z: number, scale: DepthScale): number {
+  return (1 / z - scale.b) / scale.a
+}
+
+/** 文档像素 + 归一化逆深度 → 相机空间位置，单位与 scale 一致。 */
+export function unproject(p: Point, inverse: number, size: Size, fovDeg: number, scale: DepthScale): Vec3 {
   const [x, y] = centered(p, size)
   const f = focalLength(size.width, size.height, fovDeg)
-  const z = pseudoDepth(inverse)
+  const z = sceneDepth(inverse, scale)
   return [(x * z) / f, (y * z) / f, -z]
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { angleBetween, fromAngles, pixelToRay, rayToPixel, toAngles, unproject } from './camera'
+import { angleBetween, fromAngles, pixelToRay, PSEUDO_SCALE, rayToPixel, toAngles, unproject } from './camera'
 import { kelvinToRgb, nearestKelvin } from './kelvin'
 
 describe('camera', () => {
@@ -16,8 +16,8 @@ describe('camera', () => {
   })
 
   it('places nearer points closer to the camera', () => {
-    const near = unproject({ x: 400, y: 300 }, 0.9, size, 60)
-    const far = unproject({ x: 400, y: 300 }, 0.1, size, 60)
+    const near = unproject({ x: 400, y: 300 }, 0.9, size, 60, PSEUDO_SCALE)
+    const far = unproject({ x: 400, y: 300 }, 0.1, size, 60, PSEUDO_SCALE)
     expect(near[2]).toBeGreaterThan(far[2])
   })
 
