@@ -216,3 +216,72 @@ test('a lens flare appears around the lamp, can be edited and saved, and fades w
   const coveredOff = await exportPixels(page)
   expect(Math.abs(glow(covered) - glow(coveredOff))).toBeLessThan(2)
 })
+
+/** 120×180 的立绘，左半红、右半蓝，四周 10 px 透明 */
+const halves = makeImage(120, 180, (x, y) => (x < 10 || x >= 110 || y < 10 || y >= 170 ? [0, 0, 0, 0] : x < 60 ? [220, 30, 30, 255] : [30, 30, 220, 255]))
+const isRed = ([r, g]: number[]) => r - g > 60
+const isBlue = ([r, , b]: number[]) => b - r > 60
+
+/** 把变形控件的第 index 个控制点拖向第 toward 个控制点，走 k 倍的距离 */
+async function dragWarp(page: Page, index: number, toward: number, k: number) {
+  const center = async (i: number) => {
+    const b = (await page.getByTestId(`warp-handle-${i}`).boundingBox())!
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+  }
+  const from = await center(index)
+  const to = await center(toward)
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k, { steps: 8 })
+  await page.mouse.up()
+}
+
+test('the character warps by its perspective corners and mesh points, undoably and resettably', async ({ page }, info) => {
+  await page.goto(`/${rendererQuery(info.project.metadata.renderer)}`)
+  await importAndStart(page, [
+    ['drop-background', 'dark.png', makeImage(W, H, (x, y) => [40 + (x / W) * 40, 50 + (y / H) * 30, 70, 255])],
+    ['drop-character', 'halves.png', halves],
+  ])
+  // 默认摆放：立绘占文档 x 192–448、y 86.4–470.4。立绘 UV (0.15, 0.1)，左上角附近
+  const topLeft = (img: ExportedImage) => pixel(img, 230, 125)
+  // 立绘 UV (0.45, 1/3)，左右两半分界线的左侧
+  const nearSeam = (img: ExportedImage) => pixel(img, 307, 214)
+  const before = await exportAfter(page, async () => {})
+  expect(isRed(topLeft(before))).toBe(true)
+  expect(isRed(nearSeam(before))).toBe(true)
+
+  // 四角透视：左上角向右上角拖过 40%，原来左上角处露出背景
+  await page.getByTestId('step-character').click()
+  await page.locator('[data-testid="warp-tool"] mdui-segmented-button[value="perspective"]').click()
+  await expect(page.getByTestId('gizmo')).toHaveCount(0)
+  const reset = page.getByTestId('warp-reset-perspective')
+  await expect(reset).toHaveAttribute('disabled')
+  await dragWarp(page, 0, 1, 0.4)
+  await expect(reset).not.toHaveAttribute('disabled')
+  const tilted = await exportAfter(page, async () => {})
+  expect(isRed(topLeft(tilted))).toBe(false)
+  expect(isRed(nearSeam(tilted))).toBe(true)
+  expect(isRed(topLeft(await exportAfter(page, () => reset.click())))).toBe(true)
+  // 撤销重置
+  expect(isRed(topLeft(await exportAfter(page, () => page.getByTestId('undo').click())))).toBe(false)
+  await page.getByTestId('step-character').click()
+  await reset.click()
+
+  // 网格变形：第二行第三个控制点（UV 2/3, 1/3）向左拖，分界线随之左移
+  await page.locator('[data-testid="warp-tool"] mdui-segmented-button[value="mesh"]').click()
+  await expect(page.getByTestId('warp-handle-15')).toBeVisible()
+  await dragWarp(page, 6, 5, 0.9)
+  await expect(page.getByTestId('warp-reset-grid')).not.toHaveAttribute('disabled')
+  expect(isBlue(nearSeam(await exportAfter(page, async () => {})))).toBe(true)
+  // 改变网格密度保持形状
+  const finer = await exportAfter(page, async () => {
+    await page.locator('[data-testid="warp-grid"] mdui-segmented-button[value="6"]').click()
+    await expect(page.getByTestId('warp-handle-35')).toBeVisible()
+  })
+  expect(isBlue(nearSeam(finer))).toBe(true)
+  const undone = await exportAfter(page, async () => {
+    await page.getByTestId('undo').click()
+    await page.getByTestId('undo').click()
+  })
+  expect(isRed(nearSeam(undone))).toBe(true)
+})
