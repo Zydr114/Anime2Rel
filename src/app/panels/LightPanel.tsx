@@ -371,13 +371,11 @@ function currentDirection(id: string): Vec3 {
 function PreviewSection() {
   const showBall = useLighting((s) => s.showBall)
   const ambient = useApp((s) => s.doc.lighting.ambient)
-  const fovDeg = useApp((s) => s.doc.camera.fovDeg)
   const ballRef = useRef<Switch>(null)
   useDomEvent(ballRef, 'change', (e, el) => {
     if (e.target === el) useLighting.getState().setShowBall(el.checked)
   })
   const onAmbient = useGestureChange(useCallback((v: number) => useApp.getState().setLighting({ ambient: v / 100 }), []))
-  const onFov = useGestureChange(useCallback((v: number) => useApp.getState().updateCamera({ fovDeg: v }), []))
 
   return (
     <Section title={t.light.preview}>
@@ -387,8 +385,6 @@ function PreviewSection() {
       </div>
       <p className="text-xs leading-5 text-on-surface-variant">{t.light.ballHint}</p>
       <SliderField label={t.light.ambient} value={ambient * 100} min={0} max={200} format={formatPercent} onChange={onAmbient} testId="light-ambient" />
-      <SliderField label={t.light.fov} value={fovDeg} min={30} max={100} format={formatDegrees} onChange={onFov} testId="light-fov" />
-      <p className="text-xs leading-5 text-on-surface-variant">{t.light.fovHint}</p>
     </Section>
   )
 }

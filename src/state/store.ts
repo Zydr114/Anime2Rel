@@ -164,10 +164,11 @@ interface AppState {
   start: () => void
 }
 
-/** 背景的相机标定还没有确认时，只能停留在素材和相机两个步骤 */
-export function stepLocked(doc: DocState, step: StepId): boolean {
-  return !!doc.background && !doc.camera.confirmed && step !== 'assets' && step !== 'camera'
-}
+/** 背景的相机标定还没有确认 */
+export const cameraPending = (doc: DocState) => !!doc.background && !doc.camera.confirmed
+/** 相机标定确认之前不能进入的步骤：素材和相机以外的步骤 */
+export const needsCamera = (step: StepId) => step !== 'assets' && step !== 'camera'
+export const stepLocked = (doc: DocState, step: StepId) => cameraPending(doc) && needsCamera(step)
 
 const allowedStep = (doc: DocState, step: StepId): StepId => (stepLocked(doc, step) ? 'camera' : step)
 
@@ -568,6 +569,6 @@ export const useApp = create<AppState>()((set, get) => ({
   start: () => {
     const { doc, step } = get()
     // 背景的相机还没有确认时，进入编辑器后直接打开相机步骤
-    set({ started: true, step: doc.background && !doc.camera.confirmed ? 'camera' : step })
+    set({ started: true, step: cameraPending(doc) ? 'camera' : step })
   },
 }))

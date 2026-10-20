@@ -207,13 +207,24 @@ export function linesFromCamera(c: CameraDoc, size: Size, secondAxis = c.lines?.
     return { x: p.x / size.width, y: p.y / size.height }
   }
   const seg = (center: Vec3, dir: Vec3, half: number): Segment => [uv(add(center, dir, -half)), uv(add(center, dir, half))]
-  const w = 0.25 * d
-  const first: [Segment, Segment] = [seg(add(p0, b, -w), a, 0.3 * d), seg(add(p0, b, w), a, 0.3 * d)]
-  const second: [Segment, Segment] =
-    secondAxis === 'vertical'
-      ? [seg(add(add(p0, a, -w), up, 0.3 * d), up, 0.3 * d), seg(add(add(p0, a, w), up, 0.3 * d), up, 0.3 * d)]
-      : [seg(add(p0, a, -w), b, 0.3 * d), seg(add(p0, a, w), b, 0.3 * d)]
-  return { first, second, secondAxis }
+  const make = (k: number): CameraLines => {
+    // 两组线摆成“井”字，端点互相分开
+    const [w, half] = [0.15 * k * d, 0.3 * k * d]
+    const first: [Segment, Segment] = [seg(add(p0, b, -w), a, half), seg(add(p0, b, w), a, half)]
+    const second: [Segment, Segment] =
+      secondAxis === 'vertical'
+        ? [seg(add(add(p0, a, -w), up, half), up, half), seg(add(add(p0, a, w), up, half), up, half)]
+        : [seg(add(p0, a, -w), b, half), seg(add(p0, a, w), b, half)]
+    return { first, second, secondAxis }
+  }
+  // 端点超出画面时缩小，便于拖动
+  const inside = (l: CameraLines) => [...l.first, ...l.second].flat().every((p) => p.x > 0.02 && p.x < 0.98 && p.y > 0.02 && p.y < 0.98)
+  const scales = [1, 0.7, 0.5, 0.35, 0.25]
+  for (const k of scales) {
+    const lines = make(k)
+    if (inside(lines)) return lines
+  }
+  return make(scales[scales.length - 1])
 }
 
 // ── 立在地面上的物体 ──

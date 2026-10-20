@@ -1,5 +1,7 @@
 // 界面文案。M6 增加英文时按相同结构新增语言文件。
 import type { Estimator } from '@/analysis/protocol'
+import type { SolveError } from '@/camera/geometry'
+import type { CalibrationMethod, LineAxis } from '@/camera/model'
 import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
 import type { FlareElementType, FlarePresetId } from '@/grade/flare'
@@ -52,6 +54,7 @@ export const zhCN = {
   },
   steps: {
     assets: '素材',
+    camera: '相机',
     depth: '深度',
     light: '光源',
     character: '立绘',
@@ -70,6 +73,40 @@ export const zhCN = {
     size: (w: number, h: number) => `${w} × ${h}`,
     downscaled: (w: number, h: number) => `原图 ${w} × ${h}，已按 GPU 上限缩小`,
     dropHint: '也可以把图片直接拖到画布上：带透明区域的图片会作为立绘，否则替换背景。',
+  },
+  camera: {
+    noBackground: '先在“素材”中导入背景照片。',
+    locked: '确认相机标定后才能进入后面的步骤',
+    lockedHint: '按照片调整地平线，或沿照片中的平行边画线，让地面网格平铺在照片的地面上，然后按“确认相机”。照片中的地平线确实在正中、相机水平时，可以直接确认。',
+    lockedNotice: '请先在“相机”步骤中确认相机标定',
+    confirm: '确认相机',
+    confirmed: '相机已确认',
+    confirmedHint: '之后可以随时回到这一步修改，修改可以撤销。更换背景后需要重新确认。',
+    method: '标定方式',
+    methods: { horizon: '地平线', lines: '平行线' } as Record<CalibrationMethod, string>,
+    horizonHint: '在画布上拖动地平线：两端的圆点改变高度和倾斜，拖动线本身上下平移。大角度俯拍、仰拍时地平线在画面之外，可以缩小画布再拖动。看不到地平线时，按地面网格是否平铺在地面上来判断。',
+    fov: '视场角',
+    fovHint: '相机长边方向的视场角：广角镜头大，长焦镜头小，手机主摄约 65°–75°。影响画面位置与光照方向的换算。',
+    pitch: '俯仰',
+    pitchHint: '向上为正。俯拍时地平线在画面中心以上。',
+    roll: '倾斜',
+    yaw: '网格朝向',
+    yawHint: '只影响地面网格的方向，便于与地砖等对齐。',
+    linesHint: '沿照片中地面上同一方向的两条平行边（如地砖缝、路沿、墙脚）拖动橙色线的端点，沿与之垂直的方向拖动蓝色线的端点，结果实时更新。',
+    axis: '蓝色线的方向',
+    axes: { horizontal: '水平', vertical: '竖直' } as Record<LineAxis, string>,
+    axisHint: '水平：地面上与橙色线垂直的方向。竖直：墙角、柱子等竖直的边，俯拍或仰拍时它们在画面中汇聚。',
+    resetLines: '按当前标定重新放置',
+    solved: '求解结果',
+    solveErrors: {
+      'parallel-first': '橙色线在画面上平行，求不出消失点。请沿照片中会汇聚的边放置。',
+      'parallel-second': '蓝色线在画面上平行，求不出消失点。相机水平时竖直的边互相平行，这时请改用地平线方式。',
+      'not-orthogonal': '两组线的方向不可能互相垂直，请检查它们是否放在照片中互相垂直的边上。',
+      'out-of-range': '求出的视场角、俯仰或倾斜超出了允许的范围。',
+    } as Record<SolveError, string>,
+    keepLast: '暂时保持上一个可用的结果。',
+    height: '相机高度',
+    heightHint: '相机离地面的高度，只用来换算地面网格的间距（每格 1 m）和人物的身高读数，不影响画面。',
   },
   character: {
     noCharacter: '还没有立绘，请先在“素材”步骤中添加。',
@@ -276,7 +313,7 @@ export const zhCN = {
     diffuse: '漫射主导（阴天）',
     diffuseHint: '画面亮度平坦、看不到明显的阳光，主光已设为来自上方的柔和天空光。',
     reanalyze: '重新分析',
-    reanalyzeHint: '按当前视场角重新分析，并替换现有光源（可撤销）。',
+    reanalyzeHint: '按相机步骤中的视场角重新分析，并替换现有光源（可撤销）。',
     details: '分析详情',
     angleHint: '画面内方向：0° 为右侧，90° 为上方。',
     report: {
@@ -339,8 +376,6 @@ export const zhCN = {
     ball: '灰球预览',
     ballHint: '在立绘位置显示受环境光与全部光源照明的灰球，用来判断光照是否与背景一致。',
     ambient: '环境光',
-    fov: '视场角',
-    fovHint: '相机长边方向的视场角，影响画面位置与光照方向的换算。修改后可重新分析。',
   },
   export: {
     title: '导出',

@@ -4,12 +4,15 @@ import { startAutoAnalysis } from '@/analysis/service'
 import { startAutoDepth } from '@/depth/service'
 import { startAutoFusion } from '@/fusion/service'
 import { t } from '@/i18n'
-import { useApp, type StepId } from '@/state/store'
+import { cameraPending, needsCamera, stepLocked, useApp, type StepId } from '@/state/store'
+import { cn } from '@/ui/lib/cn'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { AboutDialog } from './AboutDialog'
 import { LegalLinks } from './LegalLinks'
 import { AdjustPanel } from './panels/AdjustPanel'
+import { notify } from './notify'
 import { AssetsPanel } from './panels/AssetsPanel'
+import { CameraPanel } from './panels/CameraPanel'
 import { CharacterPanel } from './panels/CharacterPanel'
 import { DepthPanel } from './panels/DepthPanel'
 import { EffectsPanel } from './panels/EffectsPanel'
@@ -23,6 +26,7 @@ import { useShortcuts } from './useShortcuts'
 
 function StepPanel({ step }: { step: StepId }) {
   if (step === 'assets') return <AssetsPanel />
+  if (step === 'camera') return <CameraPanel />
   if (step === 'depth') return <DepthPanel />
   if (step === 'light') return <LightPanel />
   if (step === 'character') return <CharacterPanel />
@@ -32,10 +36,21 @@ function StepPanel({ step }: { step: StepId }) {
   return <ExportPanel />
 }
 
+/** 切换步骤；相机标定还没有确认时提示并留在原处 */
+function goToStep(step: StepId): boolean {
+  const s = useApp.getState()
+  if (stepLocked(s.doc, step)) {
+    notify(t.camera.lockedNotice)
+    return false
+  }
+  s.setStep(step)
+  return true
+}
+
 /** 编辑器外框：左侧步骤导航、右侧检查器、底部工具栏。画布由 App 常驻渲染。 */
 export function Editor() {
   const step = useApp((s) => s.step)
-  const setStep = useApp((s) => s.setStep)
+  const pending = useApp((s) => cameraPending(s.doc))
   const [aboutOpen, setAboutOpen] = useState(false)
   const railRef = useRef<NavigationRail>(null)
   useShortcuts()
@@ -47,7 +62,11 @@ export function Editor() {
   useEffect(() => startAutosave(), [])
 
   useDomEvent(railRef, 'change', (_e, el) => {
-    if (el.value) setStep(el.value as StepId)
+    if (!el.value || goToStep(el.value as StepId)) return
+    // 导航栏的选中项由组件自己切换；不能进入时等它更新完再改回当前步骤（同一次更新中改回会被当作没有变化）
+    void el.updateComplete.then(() => {
+      el.value = useApp.getState().step
+    })
   })
 
   const current = steps.find((s) => s.id === step)
@@ -60,7 +79,12 @@ export function Editor() {
             <img src="./favicon.svg" alt="" className="size-9" />
           </div>
           {steps.map((s) => (
-            <mdui-navigation-rail-item key={s.id} value={s.id} data-testid={`step-${s.id}`}>
+            <mdui-navigation-rail-item
+              key={s.id}
+              value={s.id}
+              className={cn(pending && needsCamera(s.id) && 'opacity-40')}
+              data-testid={`step-${s.id}`}
+            >
               {s.label}
               {createElement(`mdui-icon-${s.icon}`, { slot: 'icon' })}
             </mdui-navigation-rail-item>
@@ -86,7 +110,7 @@ export function Editor() {
       </aside>
 
       <div className="absolute bottom-4 left-28 right-88 flex justify-center">
-        <Toolbar onExport={() => setStep('export')} />
+        <Toolbar onExport={() => goToStep('export')} />
       </div>
 
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
