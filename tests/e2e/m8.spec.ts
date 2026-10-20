@@ -301,6 +301,14 @@ test('a character standing in water is reflected below the waterline, tinted by 
     ['drop-background', 'dark.png', makeImage(W, H, (x, y) => [40 + (x / W) * 40, 50 + (y / H) * 30, 70, 255])],
     ['drop-character', 'halves.png', halves],
   ])
+  // 等深度、光源分析和融合统计都就绪，之后立绘的颜色不再变化，水线以上的像素才能逐一比较
+  await page.getByTestId('step-depth').click()
+  for (const layer of ['background', 'character'])
+    await expect(page.getByTestId(`depth-job-${layer}`)).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
+  await page.getByTestId('step-light').click()
+  await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
+  await page.getByTestId('step-character').click()
+  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 30_000 })
   // 原大摆在 (320, 150)：不透明部分 x 270–370、y 70–230，接地点（水线）在脚底 y ≈ 230
   await page.getByTestId('step-character').click()
   await setSlider(page, 'char-scale', 100)
