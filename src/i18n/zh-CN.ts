@@ -118,6 +118,18 @@ export const zhCN = {
     flip: '水平翻转',
     reset: '重置摆放',
     gizmoHint: '在画布上拖动立绘移动，拖动四角缩放，拖动上方圆点旋转（按住 Shift 以 15° 为步进）。',
+    camera: {
+      title: '相机透视',
+      perspectiveMove: '拖动时按透视缩放',
+      perspectiveMoveHint: '移动立绘时人物在场景中的身高保持不变：接地点跟着拖动走，离得越远越小。接地点在地平线以上时不缩放。',
+      showGrid: '显示地面网格',
+      height: (meters: string) => `身高约 ${meters}`,
+      heightUnknown: '接地点在地平线以上，无法换算身高',
+      heightHint: '按相机步骤中的相机高度换算，帮助判断大小是否合理。',
+      apply: '按相机透视',
+      applyHint: '按相机的俯仰和倾斜给立绘加上竖直方向的透视（俯拍时上宽下窄），写入四角透视，人物在画面中的高度不变。之后可以继续调整或重置透视。',
+      applyFailed: '接地点不在地面上，无法按相机透视',
+    },
     warp: {
       title: '变形',
       tool: '画布上拖动',

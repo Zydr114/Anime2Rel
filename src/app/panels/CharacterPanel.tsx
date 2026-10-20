@@ -1,15 +1,17 @@
 import { useCallback, useRef } from 'react'
 import { useGestureChange } from '../useGestureChange'
 import type { Switch } from 'mdui/components/switch.js'
-import { hasGridWarp, hasPerspective, WARP_GRID_SIZES, type WarpGridSize } from '@/fusion/warp'
+import { cameraCorners, characterMeters } from '@/camera/character'
+import { hasGridWarp, hasPerspective, isValidWarp, WARP_GRID_SIZES, type WarpGridSize } from '@/fusion/warp'
 import { t } from '@/i18n'
-import { CHARACTER_TOOLS, useFusion } from '@/state/fusion'
+import { CHARACTER_TOOLS, characterInfo, useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 import { SliderField } from '@/ui/SliderField'
 import { NumberField } from '@/ui/NumberField'
 import { Segmented } from '@/ui/Segmented'
 import { useDomEvent } from '@/ui/useDomEvent'
-import { FusionSections } from './FusionSections'
+import { notify } from '../notify'
+import { FusionSections, Hint, Section, ToggleRow } from './FusionSections'
 
 const RAD = Math.PI / 180
 
@@ -48,9 +50,45 @@ export function CharacterPanel() {
         </mdui-button>
         <p className="text-xs leading-5 text-on-surface-variant">{t.character.gizmoHint}</p>
       </section>
+      <CameraSection />
       <WarpSection />
       <FusionSections />
     </div>
+  )
+}
+
+/** 按相机写入四角透视（一次撤销记录） */
+function applyCameraPerspective(): void {
+  const s = useApp.getState()
+  const corners = cameraCorners(s.doc, characterInfo(s.doc)?.bbox)
+  const warp = corners && { ...s.doc.charWarp, corners }
+  if (warp && isValidWarp(warp)) s.setCharWarp(warp)
+  else notify(t.character.camera.applyFailed)
+}
+
+function CameraSection() {
+  const doc = useApp((s) => s.doc)
+  const info = useCharacterInfo(doc)
+  const perspectiveMove = useFusion((s) => s.perspectiveMove)
+  const showGrid = useFusion((s) => s.showGrid)
+  const c = t.character.camera
+  const meters = characterMeters(doc, info?.bbox)
+  return (
+    <Section title={c.title} testId="char-camera">
+      <ToggleRow label={c.perspectiveMove} checked={perspectiveMove} onChange={useFusion.getState().setPerspectiveMove} testId="char-perspective-move" />
+      <Hint>{c.perspectiveMoveHint}</Hint>
+      <ToggleRow label={c.showGrid} checked={showGrid} onChange={useFusion.getState().setShowGrid} testId="char-show-grid" />
+      <div className="flex flex-col gap-1">
+        <span className="font-medium tabular-nums" data-testid="char-height">
+          {meters === null ? c.heightUnknown : c.height(`${meters.toFixed(2)} m`)}
+        </span>
+        <Hint>{c.heightHint}</Hint>
+      </div>
+      <mdui-button variant="outlined" onClick={applyCameraPerspective} data-testid="char-camera-perspective">
+        {c.apply}
+      </mdui-button>
+      <Hint>{c.applyHint}</Hint>
+    </Section>
   )
 }
 

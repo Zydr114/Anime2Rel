@@ -25,6 +25,10 @@ interface FusionState {
   /** 在画布上用红色显示深度遮挡的遮罩 */
   showMask: boolean
   tool: CharacterTool
+  /** 拖动立绘时按相机透视缩放（M8.5） */
+  perspectiveMove: boolean
+  /** 立绘步骤中显示地面网格 */
+  showGrid: boolean
 
   setBackground: (v: FusionState['background']) => void
   setCharacter: (v: FusionState['character']) => void
@@ -36,6 +40,8 @@ interface FusionState {
   setShowNormals: (on: boolean) => void
   setShowMask: (on: boolean) => void
   setTool: (tool: CharacterTool) => void
+  setPerspectiveMove: (on: boolean) => void
+  setShowGrid: (on: boolean) => void
 }
 
 export const useFusion = create<FusionState>()((set) => ({
@@ -49,6 +55,8 @@ export const useFusion = create<FusionState>()((set) => ({
   showNormals: false,
   showMask: false,
   tool: 'transform',
+  perspectiveMove: true,
+  showGrid: false,
 
   setBackground: (background) => set({ background }),
   setCharacter: (character) => set({ character }),
@@ -60,6 +68,8 @@ export const useFusion = create<FusionState>()((set) => ({
   setShowNormals: (showNormals) => set({ showNormals }),
   setShowMask: (showMask) => set({ showMask }),
   setTool: (tool) => set({ tool }),
+  setPerspectiveMove: (perspectiveMove) => set({ perspectiveMove }),
+  setShowGrid: (showGrid) => set({ showGrid }),
 }))
 
 const merged = new WeakMap<WarpedGeometry, { info: CharacterInfo; result: CharacterInfo }>()

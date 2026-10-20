@@ -2,6 +2,8 @@ import { useId, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { clamp, docToScreen, screenToDoc, type Point, type Size, type ViewTransform } from '@/algo/geometry'
 import { groundGrid, groundPoint, horizonLine, orientationFromHorizon, solveLines } from '@/camera/geometry'
 import type { CameraDoc, CameraLines } from '@/camera/model'
+import { characterGround } from '@/fusion/placement'
+import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 
 /** 地平线的颜色 */
@@ -78,6 +80,27 @@ export function GroundGrid({ camera, size, view, anchor }: { camera: CameraDoc; 
         </g>
       ))}
     </g>
+  )
+}
+
+/** 立绘步骤可选的地面网格：以接地点为中心（接地点不在地面上时取默认位置），并画出地平线 */
+export function CharacterGrid() {
+  const doc = useApp((s) => s.doc)
+  const view = useApp((s) => s.view)
+  const step = useApp((s) => s.step)
+  const showGrid = useFusion((s) => s.showGrid)
+  const info = useCharacterInfo(doc)
+  const bg = doc.background
+  if (!bg || step !== 'character' || !showGrid) return null
+  const foot = doc.character ? characterGround(doc, bg, info?.bbox) : null
+  const anchor = foot && groundPoint(doc.camera, bg, foot) ? foot : undefined
+  const handles = HANDLE_X.map((k) => docToScreen(view, horizonAt(doc.camera, bg, k * bg.width)))
+  const [h0, h1] = extend(handles[0], handles[1], 3 * Math.max(bg.width, bg.height) * view.zoom)
+  return (
+    <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="character-grid">
+      <GroundGrid camera={doc.camera} size={bg} view={view} anchor={anchor} />
+      <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke={HORIZON} strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="8 6" />
+    </svg>
   )
 }
 

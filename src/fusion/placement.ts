@@ -50,6 +50,11 @@ export function characterBox(doc: DocState, bbox: CharacterInfo['bbox'] = FULL_B
   ].map((uv) => layerUVToDoc(doc, uv))
 }
 
+/** 立绘不透明区域的高度（文档像素）。bbox 缺省时用整张图。 */
+export function characterHeight(doc: DocState, bbox: CharacterInfo['bbox'] = FULL_BOX): number {
+  return (bbox.y1 - bbox.y0) * (doc.character?.height ?? 0) * doc.charTransform.scale
+}
+
 /** 接地点（变形后的立绘 UV）：用户设置的点经变形后的位置，或不透明区域包围盒底边的中点。 */
 export function groundUV(doc: DocState, bbox: CharacterInfo['bbox'] = FULL_BOX): { u: number; v: number } {
   const g = doc.fusion.ground

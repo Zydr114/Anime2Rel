@@ -4,7 +4,7 @@ import type { Point } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
 import { cameraFocal, cameraUp, homographyToUV, horizonLine, mirrorHomography } from '@/camera/geometry'
 import type { DepthResult } from '@/depth/protocol'
-import { characterBox, characterDepth, characterGround, characterPoint } from '@/fusion/placement'
+import { characterBox, characterDepth, characterGround, characterHeight, characterPoint } from '@/fusion/placement'
 import type { CharacterInfo } from '@/fusion/protocol'
 import type { Homography } from '@/fusion/warp'
 import { sampleDepth } from '@/lighting/sampling'
@@ -31,18 +31,12 @@ export interface CharacterRelief {
   scale: number
 }
 
-/** 立绘不透明区域的高度（文档像素） */
-function characterHeight(doc: DocState, info: CharacterInfo | undefined): number {
-  const box = info?.bbox ?? { y0: 0, y1: 1 }
-  return (box.y1 - box.y0) * (doc.character?.height ?? 0) * doc.charTransform.scale
-}
-
 export function characterRelief({ doc, background, character, info }: FocusInputs): CharacterRelief {
   const plane = characterDepth(doc, background, info?.bbox)
   const bg = doc.background
   const reference = info?.reliefMedian ?? 0.5
   if (!doc.character || !bg || !character) return { plane, reference, scale: 0 }
-  return { plane, reference, scale: reliefScale(doc.focus.thickness, characterHeight(doc, info), plane, bg, doc.camera.fovDeg) }
+  return { plane, reference, scale: reliefScale(doc.focus.thickness, characterHeight(doc, info?.bbox), plane, bg, doc.camera.fovDeg) }
 }
 
 /** 立绘 UV 处的自身起伏（引导分辨率，最近邻） */
@@ -153,7 +147,7 @@ export function focusParams(input: FocusInputs): FocusParams {
       softness: occlusion.softness,
       styles: Array.from({ length: 1 + MAX_REGIONS }, (_, i) => styleParams((i > 0 && occlusion.regions[i - 1]) || occlusion)),
       water: waterPlane(input.doc, input.info),
-      height: characterHeight(input.doc, input.info),
+      height: characterHeight(input.doc, input.info?.bbox),
       focal: bg ? cameraFocal(input.doc.camera, bg) : 1,
     },
   }

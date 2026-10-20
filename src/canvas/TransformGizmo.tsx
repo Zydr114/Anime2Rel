@@ -1,8 +1,9 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { docToScreen, screenToDoc, type LayerTransform, type Point } from '@/algo/geometry'
-import { characterOutline, characterPoint } from '@/fusion/placement'
+import { standingScale } from '@/camera/geometry'
+import { characterGround, characterHeight, characterOutline, characterPoint } from '@/fusion/placement'
 import { UNIT_CORNERS } from '@/fusion/warp'
-import { useFusion } from '@/state/fusion'
+import { characterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 
 const HANDLE_RADIUS = 6
@@ -17,11 +18,16 @@ interface Drag {
   mode: Mode
   start: Point // 文档坐标
   t0: LayerTransform
+  /** 按透视移动：开始时的接地点与人物的画面高度，以及最近一次可用的缩放比例；不按透视移动时为 null */
+  standing: { ground: Point; height: number; k: number } | null
 }
 
 const angleOf = (p: Point, c: Point) => Math.atan2(p.y - c.y, p.x - c.x)
 
-/** 立绘变换控件：拖动主体移动，四角等比缩放，上方圆点旋转。控件跟随变形后立绘的外框；立绘步骤选择变形工具时隐藏。 */
+/**
+ * 立绘变换控件：拖动主体移动，四角等比缩放，上方圆点旋转。控件跟随变形后立绘的外框；立绘步骤选择变形工具时隐藏。
+ * 相机已确认且开启“按透视缩放”时，移动时人物在场景中的身高不变：接地点跟着光标走，按标定的相机缩放（M8.5）。
+ */
 export function TransformGizmo({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
@@ -54,7 +60,10 @@ export function TransformGizmo({ passThrough }: { passThrough: boolean }) {
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     const s = useApp.getState()
     s.beginGesture()
-    dragRef.current = { id: e.pointerId, mode, start: toDoc(e), t0: s.doc.charTransform }
+    const { doc: d } = s
+    const bbox = characterInfo(d)?.bbox
+    const standing = mode === 'move' && d.background && d.camera.confirmed && useFusion.getState().perspectiveMove ? { ground: characterGround(d, d.background, bbox), height: characterHeight(d, bbox), k: 1 } : null
+    dragRef.current = { id: e.pointerId, mode, start: toDoc(e), t0: d.charTransform, standing }
   }
 
   const move = (e: ReactPointerEvent<SVGElement>) => {
@@ -64,7 +73,13 @@ export function TransformGizmo({ passThrough }: { passThrough: boolean }) {
     const { t0 } = d
     const s = useApp.getState()
     if (d.mode === 'move') {
-      s.setCharTransform({ x: t0.x + p.x - d.start.x, y: t0.y + p.y - d.start.y })
+      const st = d.standing
+      const bg = s.doc.background
+      if (!st || !bg) return s.setCharTransform({ x: t0.x + p.x - d.start.x, y: t0.y + p.y - d.start.y })
+      // 以接地点为中心缩放；接地点移到地平线以上时保持最近一次的大小
+      const g = { x: st.ground.x + p.x - d.start.x, y: st.ground.y + p.y - d.start.y }
+      st.k = Math.max(MIN_SCALE / t0.scale, standingScale(s.doc.camera, bg, st.ground, g, st.height) ?? st.k)
+      s.setCharTransform({ x: g.x + st.k * (t0.x - st.ground.x), y: g.y + st.k * (t0.y - st.ground.y), scale: t0.scale * st.k })
     } else if (d.mode === 'scale') {
       const r0 = Math.hypot(d.start.x - t0.x, d.start.y - t0.y) || 1
       const r1 = Math.hypot(p.x - t0.x, p.y - t0.y)
