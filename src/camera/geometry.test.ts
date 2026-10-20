@@ -28,6 +28,9 @@ describe('camera geometry', () => {
       expect(solved.camera.pitch).toBeCloseTo(tilted.pitch, 4)
       expect(solved.camera.roll).toBeCloseTo(tilted.roll, 4)
     }
+    // 参考方向：红轴沿第一组线
+    const turned = solveLines(linesFromCamera({ ...tilted, yaw: 30 * deg }, size), size)
+    expect(turned.ok && turned.camera.yaw).toBeCloseTo(30 * deg, 4)
     // 相机水平时竖直线在画面上平行，求不出消失点
     expect(solveLines(linesFromCamera(DEFAULT_CAMERA, size, 'vertical'), size)).toEqual({ ok: false, error: 'parallel-second' })
   })

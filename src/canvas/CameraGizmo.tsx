@@ -1,16 +1,21 @@
-import { useId, useRef, type PointerEvent as ReactPointerEvent } from 'react'
-import { clamp, docToScreen, screenToDoc, type Point, type Size, type ViewTransform } from '@/algo/geometry'
-import { groundGrid, groundPoint, horizonLine, orientationFromHorizon, solveLines } from '@/camera/geometry'
+import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { clamp, docToScreen, screenToDoc, type Point, type Size } from '@/algo/geometry'
+import { groundPoint, horizonLine, orientationFromHorizon, solveLines } from '@/camera/geometry'
+import { AXIS_COLORS, dragOrigin, grabHeight, yawToward } from '@/camera/guides'
 import type { CameraDoc, CameraLines } from '@/camera/model'
 import { characterGround } from '@/fusion/placement'
+import { guideOrigin, useCameraGuide } from '@/state/cameraGuide'
 import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
+import { GuideLayer, type GuideTarget } from './CameraGuide'
 
 /** 地平线的颜色 */
 const HORIZON = 'rgb(252, 211, 77)'
-/** 两组平行线的颜色 */
-const PAIR_COLORS = { first: 'rgb(251, 146, 60)', second: 'rgb(96, 165, 250)' } as const
 const PAIRS = ['first', 'second'] as const
+/** 平行线按所沿的轴取色：第一组沿红轴，第二组沿蓝轴或竖直的绿轴 */
+const pairColor = (pair: Pair, lines: CameraLines) => (pair === 'first' ? AXIS_COLORS.x : lines.secondAxis === 'vertical' ? AXIS_COLORS.y : AXIS_COLORS.z)
+/** 旋转参考形状时按住 Shift 的步进 */
+const SNAP = Math.PI / 12
 type Pair = (typeof PAIRS)[number]
 /** 地平线两端控制点的位置（画面宽度的比例） */
 const HANDLE_X = [0.15, 0.85] as const
@@ -19,19 +24,13 @@ const HANDLE_R = 7
 type Drag =
   | { id: number; kind: 'horizon'; which: 0 | 1 | 'both'; handles: [Point, Point]; startY: number }
   | { id: number; kind: 'line'; pair: Pair; segment: 0 | 1; end: 0 | 1; offset: Point }
+  | { id: number; kind: 'guide'; origin: Point; height: number; start: Point }
+  | { id: number; kind: 'rotate'; axis: 'x' | 'z'; origin: Point }
 
 /** 地平线上横坐标为 x 的点（文档坐标） */
 function horizonAt(c: CameraDoc, size: Size, x: number): Point {
   const h = horizonLine(c, size)
   return { x, y: h.point.y + (h.dir.y * (x - h.point.x)) / h.dir.x }
-}
-
-/** 网格的中心：画面下部的中央；那里不在地面上时取地平线以下的一点 */
-function gridAnchor(c: CameraDoc, size: Size): Point {
-  const p = { x: size.width / 2, y: size.height * 0.8 }
-  if (groundPoint(c, size, p)) return p
-  const h = horizonLine(c, size)
-  return { x: h.point.x + h.normal.x * 0.25 * size.height, y: h.point.y + h.normal.y * 0.25 * size.height }
 }
 
 /** 穿过 a、b 的长直线（屏幕坐标），用于画地平线和平行线的延长线 */
@@ -44,45 +43,6 @@ function extend(a: Point, b: Point, length: number): [Point, Point] {
   ]
 }
 
-/** 地面网格：间距 1 m，向地平线方向逐渐淡出，只画在画面范围内 */
-export function GroundGrid({ camera, size, view, anchor }: { camera: CameraDoc; size: Size; view: ViewTransform; anchor?: Point }) {
-  const id = useId()
-  const tl = docToScreen(view, { x: 0, y: 0 })
-  const br = docToScreen(view, { x: size.width, y: size.height })
-  const lines = groundGrid(camera, size, anchor ?? gridAnchor(camera, size))
-  const h = horizonLine(camera, size)
-  const from = docToScreen(view, h.point)
-  const fade = 0.4 * size.height * view.zoom
-  const to = { x: from.x + h.normal.x * fade, y: from.y + h.normal.y * fade }
-  const toScreen = (p: Point) => docToScreen(view, p)
-  return (
-    <g data-testid="camera-grid" clipPath={`url(#${id}-clip)`}>
-      <defs>
-        <clipPath id={`${id}-clip`}>
-          <rect x={tl.x} y={tl.y} width={br.x - tl.x} height={br.y - tl.y} />
-        </clipPath>
-        <linearGradient id={`${id}-fade`} gradientUnits="userSpaceOnUse" x1={from.x} y1={from.y} x2={to.x} y2={to.y}>
-          <stop offset="0" stopColor="white" stopOpacity="0" />
-          <stop offset="1" stopColor="white" stopOpacity="0.7" />
-        </linearGradient>
-        <linearGradient id={`${id}-shade`} gradientUnits="userSpaceOnUse" x1={from.x} y1={from.y} x2={to.x} y2={to.y}>
-          <stop offset="0" stopColor="black" stopOpacity="0" />
-          <stop offset="1" stopColor="black" stopOpacity="0.35" />
-        </linearGradient>
-      </defs>
-      {(['shade', 'fade'] as const).map((layer) => (
-        <g key={layer} stroke={`url(#${id}-${layer})`} strokeWidth={layer === 'shade' ? 2.5 : 1}>
-          {lines.map((l, i) => {
-            const a = toScreen(l.a)
-            const b = toScreen(l.b)
-            return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
-          })}
-        </g>
-      ))}
-    </g>
-  )
-}
-
 /** 立绘步骤可选的地面网格：以接地点为中心（接地点不在地面上时取默认位置），并画出地平线 */
 export function CharacterGrid() {
   const doc = useApp((s) => s.doc)
@@ -93,12 +53,12 @@ export function CharacterGrid() {
   const bg = doc.background
   if (!bg || step !== 'character' || !showGrid) return null
   const foot = doc.character ? characterGround(doc, bg, info?.bbox) : null
-  const anchor = foot && groundPoint(doc.camera, bg, foot) ? foot : undefined
+  const origin = foot && groundPoint(doc.camera, bg, foot) ? foot : guideOrigin(doc, null)!
   const handles = HANDLE_X.map((k) => docToScreen(view, horizonAt(doc.camera, bg, k * bg.width)))
   const [h0, h1] = extend(handles[0], handles[1], 3 * Math.max(bg.width, bg.height) * view.zoom)
   return (
     <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="character-grid">
-      <GroundGrid camera={doc.camera} size={bg} view={view} anchor={anchor} />
+      <GuideLayer camera={doc.camera} size={bg} view={view} kind="ground" origin={origin} boxSize={1} />
       <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke={HORIZON} strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="8 6" />
     </svg>
   )
@@ -106,17 +66,19 @@ export function CharacterGrid() {
 
 /**
  * 相机步骤的画布控件：地平线方式拖动地平线（两端的圆点改变高度和倾斜，线本身上下平移），
- * 平行线方式拖动两组线的端点并实时求解；两种方式都叠加地面网格。
+ * 平行线方式拖动两组线的端点并实时求解；两种方式都叠加可拖动的参考形状。
  */
 export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
-  const background = useApp((s) => s.doc.background)
-  const camera = useApp((s) => s.doc.camera)
+  const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
+  const guide = useCameraGuide()
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<Drag | null>(null)
 
+  const { background, camera } = doc
   if (!background || step !== 'camera') return null
+  const origin = guideOrigin(doc, guide.origin)!
 
   const toScreen = (p: Point) => docToScreen(view, p)
   const toDoc = (e: ReactPointerEvent) => {
@@ -131,8 +93,16 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
     e.stopPropagation()
     e.preventDefault()
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
-    useApp.getState().beginGesture()
+    // 移动参考形状不改变文档，不进撤销记录
+    if (drag.kind !== 'guide') useApp.getState().beginGesture()
     dragRef.current = drag
+  }
+
+  const beginGuide = (e: ReactPointerEvent<SVGElement>, target: GuideTarget) => {
+    if (target === 'x' || target === 'z') return begin(e, { id: e.pointerId, kind: 'rotate', axis: target, origin })
+    const p = toDoc(e)
+    const height = target === 'origin' ? 0 : grabHeight(camera, background, guide.kind, origin, p, guide.boxSize)
+    begin(e, { id: e.pointerId, kind: 'guide', origin, height, start: target === 'origin' ? origin : p })
   }
 
   const beginHorizon = (e: ReactPointerEvent<SVGElement>, which: 0 | 1 | 'both') => {
@@ -152,6 +122,16 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
     const { background: bg, camera: c } = s.doc
     if (!bg) return
     const p = toDoc(e)
+    if (d.kind === 'guide') {
+      const moved = dragOrigin(c, bg, d.origin, d.height, d.start, p)
+      if (moved) useCameraGuide.getState().setOrigin(bg.id, moved)
+      return
+    }
+    if (d.kind === 'rotate') {
+      const yaw = yawToward(c, bg, d.origin, p, d.axis)
+      if (yaw !== null) s.updateCamera({ yaw: e.shiftKey ? SNAP * Math.round(yaw / SNAP) : yaw })
+      return
+    }
     if (d.kind === 'horizon') {
       // 控制点只上下移动；拖动线本身时两端一起移动
       const dy = p.y - d.startY
@@ -169,9 +149,10 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
   }
 
   const end = (e: ReactPointerEvent<SVGElement>) => {
-    if (dragRef.current?.id !== e.pointerId) return
+    const d = dragRef.current
+    if (d?.id !== e.pointerId) return
     dragRef.current = null
-    useApp.getState().endGesture()
+    if (d.kind !== 'guide') useApp.getState().endGesture()
   }
 
   const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: end }
@@ -181,7 +162,18 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
 
   return (
     <svg ref={svgRef} className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="camera-gizmo">
-      <GroundGrid camera={camera} size={background} view={view} />
+      <GuideLayer
+        camera={camera}
+        size={background}
+        view={view}
+        kind={guide.kind}
+        origin={origin}
+        boxSize={guide.boxSize}
+        onGrab={beginGuide}
+        rotatable={camera.method === 'horizon'}
+        handlers={handlers}
+        passThrough={passThrough}
+      />
       <g data-testid="horizon">
         <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke="rgba(0,0,0,0.5)" strokeWidth={3} />
         <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke={HORIZON} strokeWidth={1.5} strokeDasharray={lineMode ? '8 6' : undefined} />
@@ -224,7 +216,7 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
             const [a, b] = seg.map((v) => ({ x: v.x * background.width, y: v.y * background.height }))
             const [sa, sb] = [toScreen(a), toScreen(b)]
             const [e0, e1] = extend(sa, sb, reach)
-            const color = PAIR_COLORS[pair]
+            const color = pairColor(pair, lineMode)
             return (
               <g key={`${pair}-${i}`} data-testid={`camera-line-${pair}-${i}`}>
                 <line x1={e0.x} y1={e0.y} x2={e1.x} y2={e1.y} stroke={color} strokeOpacity={0.45} strokeWidth={1} strokeDasharray="4 6" />

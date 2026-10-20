@@ -1,6 +1,7 @@
 // 界面文案。M6 增加英文时按相同结构新增语言文件。
 import type { Estimator } from '@/analysis/protocol'
 import type { SolveError } from '@/camera/geometry'
+import type { GuideKind } from '@/camera/guides'
 import type { CalibrationMethod, LineAxis } from '@/camera/model'
 import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
@@ -90,23 +91,38 @@ export const zhCN = {
     pitch: '俯仰',
     pitchHint: '向上为正。俯拍时地平线在画面中心以上。',
     roll: '倾斜',
-    yaw: '网格朝向',
-    yawHint: '只影响地面网格的方向，便于与地砖等对齐。',
-    linesHint: '沿照片中地面上同一方向的两条平行边（如地砖缝、路沿、墙脚）拖动橙色线的端点，沿与之垂直的方向拖动蓝色线的端点，结果实时更新。',
-    axis: '蓝色线的方向',
-    axes: { horizontal: '水平', vertical: '竖直' } as Record<LineAxis, string>,
-    axisHint: '水平：地面上与橙色线垂直的方向。竖直：墙角、柱子等竖直的边，俯拍或仰拍时它们在画面中汇聚。',
+    yaw: '参考方向',
+    yawHint: '参考形状绕竖直方向的朝向，也可以在画布上拖动红、蓝箭头旋转（按住 Shift 以 15° 为步进）。只用于对齐参考形状，不影响画面。',
+    linesHint: '沿照片中地面上同一方向的两条平行边（如地砖缝、路沿、墙脚）拖动红色线的端点，再沿与之垂直的方向拖动第二组线的端点，结果实时更新。参考形状的红轴沿红色线。',
+    axis: '第二组线的方向',
+    axes: { horizontal: '水平（蓝）', vertical: '竖直（绿）' } as Record<LineAxis, string>,
+    axisHint: '水平：地面上与红色线垂直的方向，对应蓝轴。竖直：墙角、柱子等竖直的边，对应绿轴，俯拍或仰拍时它们在画面中汇聚。',
     resetLines: '按当前标定重新放置',
     solved: '求解结果',
     solveErrors: {
-      'parallel-first': '橙色线在画面上平行，求不出消失点。请沿照片中会汇聚的边放置。',
-      'parallel-second': '蓝色线在画面上平行，求不出消失点。相机水平时竖直的边互相平行，这时请改用地平线方式。',
+      'parallel-first': '红色线在画面上平行，求不出消失点。请沿照片中会汇聚的边放置。',
+      'parallel-second': '第二组线在画面上平行，求不出消失点。相机水平时竖直的边互相平行，这时请改用地平线方式。',
       'not-orthogonal': '两组线的方向不可能互相垂直，请检查它们是否放在照片中互相垂直的边上。',
       'out-of-range': '求出的视场角、俯仰或倾斜超出了允许的范围。',
     } as Record<SolveError, string>,
     keepLast: '暂时保持上一个可用的结果。',
     height: '相机高度',
     heightHint: '相机离地面的高度，只用来换算地面网格的间距（每格 1 m）和人物的身高读数，不影响画面。',
+    guide: {
+      title: '参考形状',
+      kind: '形状',
+      kinds: {
+        ground: '地面网格',
+        wallX: '竖直网格（沿红轴）',
+        wallZ: '竖直网格（沿蓝轴）',
+        box: '立方体',
+        figure: '人形标尺（1.7 m）',
+        none: '不显示',
+      } as Record<GuideKind, string>,
+      boxSize: '立方体边长',
+      resetOrigin: '放回默认位置',
+      hint: '标定准确时，参考形状无论拖到画面哪里，都应与照片中的地面、墙面和物体贴合。拖动形状或白色原点在地面上移动它；拖动高处的部分时在同一高度上移动。网格每格 1 m。',
+    },
   },
   character: {
     noCharacter: '还没有立绘，请先在“素材”步骤中添加。',

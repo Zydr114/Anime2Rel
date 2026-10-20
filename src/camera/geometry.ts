@@ -8,15 +8,10 @@ import { focalLength } from '@/algo/normals'
 import type { Vec3 } from '@/algo/sh'
 import { homography, type Homography } from '@/fusion/warp'
 import { FOV_RANGE, PITCH_LIMIT, ROLL_LIMIT, type CameraDoc, type CameraLines, type Segment } from './model'
+import { add, cross, dot, mul, unit } from './vec'
 
 type Orientation = Pick<CameraDoc, 'pitch' | 'roll'>
 type Intrinsics = Pick<CameraDoc, 'fovDeg'>
-
-const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-const add = (a: Vec3, b: Vec3, k = 1): Vec3 => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k]
-const mul = (a: Vec3, k: number): Vec3 => [a[0] * k, a[1] * k, a[2] * k]
-const unit = (a: Vec3): Vec3 => mul(a, 1 / Math.hypot(a[0], a[1], a[2]))
 
 export const cameraFocal = (c: Intrinsics, size: Size) => focalLength(size.width, size.height, c.fovDeg)
 
@@ -33,8 +28,15 @@ export function groundAxes(c: Orientation): { right: Vec3; back: Vec3; up: Vec3 
   return { right, back: cross(right, up), up }
 }
 
+/** 参考形状的坐标轴：x（红）、z（蓝）水平，y（绿）向上；x 与相机横轴在地面上的投影成 yaw 角，x × y = z */
+export function sceneAxes(c: Orientation & Pick<CameraDoc, 'yaw'>): { x: Vec3; y: Vec3; z: Vec3 } {
+  const { right, back, up } = groundAxes(c)
+  const [cy, sy] = [Math.cos(c.yaw), Math.sin(c.yaw)]
+  return { x: add(mul(right, cy), back, sy), y: up, z: add(mul(back, cy), right, -sy) }
+}
+
 /** 穿过文档像素 p 的射线（未归一化，z = −f） */
-function ray(p: Point, size: Size, f: number): Vec3 {
+export function ray(p: Point, size: Size, f: number): Vec3 {
   return [p.x - size.width / 2, size.height / 2 - p.y, -f]
 }
 
@@ -77,44 +79,6 @@ export function groundPoint(c: CameraDoc, size: Size, p: Point, height = c.heigh
   return ur < -1e-9 ? mul(r, -height / ur) : null
 }
 
-export interface GridLine {
-  a: Point
-  b: Point
-}
-
-/** 网格的半径（格数） */
-const GRID_CELLS = 30
-
-/**
- * 地面网格（文档坐标的线段）：以 anchor 处的地面点为中心，间距 1 m，方向按相机的朝向。
- * anchor 不在地平线以下时为空。相机后方的部分被裁掉。
- */
-export function groundGrid(c: CameraDoc, size: Size, anchor: Point): GridLine[] {
-  const p0 = groundPoint(c, size, anchor)
-  if (!p0) return []
-  const f = cameraFocal(c, size)
-  const { right, back } = groundAxes(c)
-  const a = add(mul(right, Math.cos(c.yaw)), back, Math.sin(c.yaw))
-  const b = add(mul(back, Math.cos(c.yaw)), right, -Math.sin(c.yaw))
-  // 离相机太近的部分投影后无限长，按到相机的距离裁掉
-  const near = -0.05 * c.height
-  const lines: GridLine[] = []
-  const segment = (from: Vec3, to: Vec3) => {
-    let [p, q] = [from, to]
-    if (p[2] > near && q[2] > near) return
-    if (p[2] > near) p = add(q, add(p, q, -1), (near - q[2]) / (p[2] - q[2]))
-    else if (q[2] > near) q = add(p, add(q, p, -1), (near - p[2]) / (q[2] - p[2]))
-    const s = projectPoint(p, size, f)
-    const e = projectPoint(q, size, f)
-    if (s && e) lines.push({ a: s, b: e })
-  }
-  for (let i = -GRID_CELLS; i <= GRID_CELLS; i++) {
-    segment(add(add(p0, b, i), a, -GRID_CELLS), add(add(p0, b, i), a, GRID_CELLS))
-    segment(add(add(p0, a, i), b, -GRID_CELLS), add(add(p0, a, i), b, GRID_CELLS))
-  }
-  return lines
-}
-
 // ── 消失点标定 ──
 
 export type SolveError = 'parallel-first' | 'parallel-second' | 'not-orthogonal' | 'out-of-range'
@@ -133,7 +97,7 @@ function vanishingPoint([s, t]: [Segment, Segment], size: Size): [number, number
   return [(v[0] / v[2]) * k, (v[1] / v[2]) * k]
 }
 
-/** 两组平行线 → 视场角、俯仰、倾斜和网格朝向 */
+/** 两组平行线 → 视场角、俯仰、倾斜和参考方向（红轴沿第一组线） */
 export function solveLines(lines: CameraLines, size: Size): LineSolution {
   const fu = vanishingPoint(lines.first, size)
   if (!fu) return { ok: false, error: 'parallel-first' }
@@ -151,10 +115,10 @@ export function solveLines(lines: CameraLines, size: Size): LineSolution {
   const roll = Math.atan2(-up[0], up[1])
   if (fovDeg < FOV_RANGE[0] || fovDeg > FOV_RANGE[1] || Math.abs(pitch) > PITCH_LIMIT || Math.abs(roll) > ROLL_LIMIT) return { ok: false, error: 'out-of-range' }
   const { right, back } = groundAxes({ pitch, roll })
-  // 网格四个方向对称，朝向取 (−45°, 45°]
-  const quarter = Math.PI / 2
+  // 消失点不区分正反两个方向，红轴取指向画面右侧的一个，即 (−90°, 90°]
   let yaw = Math.atan2(dot(du, back), dot(du, right))
-  yaw -= quarter * Math.round(yaw / quarter)
+  if (yaw > Math.PI / 2) yaw -= Math.PI
+  else if (yaw <= -Math.PI / 2) yaw += Math.PI
   return { ok: true, camera: { fovDeg, pitch, roll, yaw } }
 }
 
@@ -189,9 +153,12 @@ const FALLBACK_LINES: CameraLines = {
   secondAxis: 'horizontal',
 }
 
+/** 水平方向与画面平行到这个程度（方向的 z 分量）时，消失点太远，平行线不好用 */
+const MIN_DEPTH = Math.sin((15 * Math.PI) / 180)
+
 /**
  * 与当前标定一致的平行线（文档 UV），切换到平行线方式时作为起点：
- * 第一组沿地面上与相机横轴成 45° 的方向，第二组沿与之垂直的水平方向或竖直方向。
+ * 第一组沿红轴，第二组沿蓝轴或竖直方向。红轴或蓝轴与画面接近平行时，改用与相机横轴成 45° 的两个方向。
  */
 export function linesFromCamera(c: CameraDoc, size: Size, secondAxis = c.lines?.secondAxis ?? 'horizontal'): CameraLines {
   const anchor = groundAnchor(c, size)
@@ -200,8 +167,10 @@ export function linesFromCamera(c: CameraDoc, size: Size, secondAxis = c.lines?.
   const f = cameraFocal(c, size)
   const { right, back, up } = groundAxes(c)
   const d = Math.hypot(...p0)
-  const a = unit(add(right, back, -1))
-  const b = unit(add(right, back))
+  const axes = sceneAxes(c)
+  const usable = Math.abs(axes.x[2]) > MIN_DEPTH && Math.abs(axes.z[2]) > MIN_DEPTH
+  const a = usable ? axes.x : unit(add(right, back, -1))
+  const b = usable ? axes.z : unit(add(right, back))
   const uv = (x: Vec3): Point => {
     const p = projectPoint(x, size, f) ?? { x: 0, y: 0 }
     return { x: p.x / size.width, y: p.y / size.height }

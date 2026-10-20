@@ -382,7 +382,7 @@ test('the camera is calibrated before the other steps, by the horizon or by para
   await expect(page.getByTestId('camera-locked')).toBeVisible()
   await page.getByTestId('step-light').click()
   await expect(page.getByTestId('camera-method')).toBeVisible()
-  await expect(page.getByTestId('camera-grid')).toHaveCount(1)
+  await expect(page.getByTestId('camera-guide')).toHaveAttribute('data-kind', 'ground')
 
   // 拖动地平线左端向上：相机倾斜；整条线向下：俯仰改变
   await dragBy(page, 'horizon-handle-0', 0, -40)

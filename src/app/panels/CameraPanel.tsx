@@ -1,9 +1,12 @@
 import { useCallback } from 'react'
 import { linesFromCamera, solveLines } from '@/camera/geometry'
+import { BOX_RANGE, GUIDE_KINDS } from '@/camera/guides'
 import { CALIBRATION_METHODS, FOV_RANGE, HEIGHT_RANGE, LINE_AXES, PITCH_LIMIT, ROLL_LIMIT, type CalibrationMethod, type CameraDoc, type LineAxis } from '@/camera/model'
 import { t } from '@/i18n'
+import { useCameraGuide } from '@/state/cameraGuide'
 import { useApp } from '@/state/store'
 import { Segmented } from '@/ui/Segmented'
+import { SelectField } from '@/ui/SelectField'
 import { SliderField } from '@/ui/SliderField'
 import { useGestureChange } from '../useGestureChange'
 import { Hint, Section } from './FusionSections'
@@ -30,6 +33,7 @@ export function CameraPanel() {
         <Hint>{method === 'horizon' ? t.camera.horizonHint : t.camera.linesHint}</Hint>
       </Section>
       {method === 'horizon' ? <HorizonSection /> : <LinesSection />}
+      <GuideSection />
       <HeightSection />
     </div>
   )
@@ -100,7 +104,7 @@ function HorizonSection() {
       <SliderField label={t.camera.pitch} value={camera.pitch * DEG} min={-PITCH_LIMIT * DEG} max={PITCH_LIMIT * DEG} step={0.1} format={formatDegrees} onChange={onPitch} testId="camera-pitch" />
       <Hint>{t.camera.pitchHint}</Hint>
       <SliderField label={t.camera.roll} value={camera.roll * DEG} min={-ROLL_LIMIT * DEG} max={ROLL_LIMIT * DEG} step={0.1} format={formatDegrees} onChange={onRoll} testId="camera-roll" />
-      <SliderField label={t.camera.yaw} value={camera.yaw * DEG} min={-45} max={45} step={0.5} format={formatDegrees} onChange={onYaw} testId="camera-yaw" />
+      <SliderField label={t.camera.yaw} value={camera.yaw * DEG} min={-180} max={180} step={0.5} format={formatDegrees} onChange={onYaw} testId="camera-yaw" />
       <Hint>{t.camera.yawHint}</Hint>
     </Section>
   )
@@ -131,6 +135,26 @@ function LinesSection() {
       <mdui-button variant="outlined" onClick={() => resetLines(axis)} data-testid="camera-reset-lines">
         <mdui-icon-restart-alt--outlined slot="icon" />
         {t.camera.resetLines}
+      </mdui-button>
+    </Section>
+  )
+}
+
+const GUIDE_OPTIONS = GUIDE_KINDS.map((value) => ({ value, label: t.camera.guide.kinds[value] }))
+
+function GuideSection() {
+  const { kind, boxSize, setKind, setBoxSize, resetOrigin } = useCameraGuide()
+  const g = t.camera.guide
+  return (
+    <Section title={g.title} testId="camera-guide-section">
+      <SelectField label={g.kind} value={kind} options={GUIDE_OPTIONS} onChange={setKind} testId="camera-guide-kind" />
+      {kind === 'box' && (
+        <SliderField label={g.boxSize} value={boxSize} min={BOX_RANGE[0]} max={BOX_RANGE[1]} step={0.05} format={(v) => `${v.toFixed(2)} m`} onChange={setBoxSize} testId="camera-box-size" />
+      )}
+      <Hint>{g.hint}</Hint>
+      <mdui-button variant="outlined" onClick={resetOrigin} data-testid="camera-guide-reset">
+        <mdui-icon-restart-alt--outlined slot="icon" />
+        {g.resetOrigin}
       </mdui-button>
     </Section>
   )
