@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { project } from '@/fusion/warp'
-import { heightAbove, horizonLine, linesFromCamera, mirrorHomography, orientationFromHorizon, pointAbove, solveLines, standingHeight, standingPerspective, standingScale } from './geometry'
+import { toAngles } from '@/algo/camera'
+import { cameraUp, fromGround, heightAbove, horizonLine, linesFromCamera, mirrorHomography, orientationFromHorizon, pointAbove, solveLines, standingHeight, standingPerspective, standingScale, toGround } from './geometry'
 import { DEFAULT_CAMERA, type CameraDoc } from './model'
 
 const size = { width: 800, height: 600 }
@@ -8,6 +9,17 @@ const deg = Math.PI / 180
 const tilted: CameraDoc = { ...DEFAULT_CAMERA, fovDeg: 50, pitch: -15 * deg, roll: 4 * deg }
 
 describe('camera geometry', () => {
+  it('measures light angles against the ground', () => {
+    const c = { ...DEFAULT_CAMERA, pitch: -0.4, roll: 0.1 }
+    // 世界的上方向仰角 90°；相机水平时地面坐标系就是相机空间
+    expect(toAngles(toGround(c, cameraUp(c))).elevation).toBeCloseTo(Math.PI / 2, 6)
+    expect(toGround(DEFAULT_CAMERA, [0.6, 0, 0.8])).toEqual([0.6, 0, 0.8])
+    const d = fromGround(c, [0.48, 0.6, -0.64])
+    const { azimuth, elevation } = toAngles(toGround(c, d))
+    expect(elevation).toBeCloseTo(Math.asin(0.6), 6)
+    expect(azimuth).toBeCloseTo(Math.atan2(0.48, -0.64), 6)
+  })
+
   it('round-trips the horizon', () => {
     const h = horizonLine(tilted, size)
     const a = { x: h.point.x - 300 * h.dir.x, y: h.point.y - 300 * h.dir.y }

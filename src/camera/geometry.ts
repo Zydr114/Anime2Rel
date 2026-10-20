@@ -28,6 +28,20 @@ export function groundAxes(c: Orientation): { right: Vec3; back: Vec3; up: Vec3 
   return { right, back: cross(right, up), up }
 }
 
+/**
+ * 相机空间的方向 → 地面坐标系的分量（右、上、朝向相机一侧），用于光源的方位角和仰角（docs/Plan.md §3.7 M8.6a）：
+ * 仰角是与地面的夹角，方位角在地面内从相机一侧（顺光）量起，正值来自右侧。相机水平时与相机空间相同。
+ */
+export function toGround(c: Orientation, d: Vec3): Vec3 {
+  const { right, back, up } = groundAxes(c)
+  return [dot(d, right), dot(d, up), dot(d, back)]
+}
+
+export function fromGround(c: Orientation, g: Vec3): Vec3 {
+  const { right, back, up } = groundAxes(c)
+  return add(add(mul(right, g[0]), up, g[1]), back, g[2])
+}
+
 /** 参考形状的坐标轴：x（红）、z（蓝）水平，y（绿）向上；x 与相机横轴在地面上的投影成 yaw 角，x × y = z */
 export function sceneAxes(c: Orientation & Pick<CameraDoc, 'yaw'>): { x: Vec3; y: Vec3; z: Vec3 } {
   const { right, back, up } = groundAxes(c)

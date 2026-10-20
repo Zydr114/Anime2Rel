@@ -2,6 +2,8 @@ import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react
 import { linearToHex, linearToSrgb } from '@/algo/color'
 import { shade } from '@/algo/shading'
 import type { Vec3 } from '@/algo/sh'
+import { fromGround, toGround } from '@/camera/geometry'
+import type { CameraDoc } from '@/camera/model'
 import type { Light } from '@/lighting/model'
 import type { BallPreview } from '@/lighting/preview'
 
@@ -10,6 +12,8 @@ const RADIUS = 80
 const HANDLE = 7
 
 interface Props {
+  /** 球按地面摆正：横线是地平线，上方是天空 */
+  camera: Pick<CameraDoc, 'pitch' | 'roll'>
   lights: Light[]
   preview: BallPreview | null
   selected: string | null
@@ -28,14 +32,17 @@ function directionAt(x: number, y: number, hemisphere: number): Vec3 {
 /**
  * 光照方向球：按灰球预览的光照着色的球面，方向光显示为可拖动的圆点（空心表示背光），
  * 点光源显示为它在灰球处的方向（菱形，不可拖动）。
+ * 球按地面摆正（docs/Plan.md §3.7 M8.6a）：从水平方向看过去，与相机的俯仰和倾斜无关；球面上的 (x, y, z) 是地面坐标系的分量。
  */
-export function DirectionSphere({ lights, preview, selected, onSelect, onDirection }: Props) {
+export function DirectionSphere({ camera, lights, preview, selected, onSelect, onDirection }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ id: number; light: string; hemisphere: number } | null>(null)
 
-  // 球面着色与画布上的灰球一致
+  const { pitch, roll } = camera
+  // 球面着色与画布上的灰球一致，只是转到了地面坐标系
   useEffect(() => {
+    const orientation = { pitch, roll }
     const canvas = canvasRef.current
     if (!canvas) return
     const dpr = window.devicePixelRatio || 1
@@ -53,7 +60,7 @@ export function DirectionSphere({ lights, preview, selected, onSelect, onDirecti
         const y = 1 - ((j + 0.5) / px) * 2
         const r2 = x * x + y * y
         if (r2 > 1) continue
-        const c = shade([x, y, Math.sqrt(1 - r2)], ambient, shadeLights)
+        const c = shade(fromGround(orientation, [x, y, Math.sqrt(1 - r2)]), ambient, shadeLights)
         const o = (j * px + i) * 4
         img.data[o] = Math.round(linearToSrgb(c[0]) * 255)
         img.data[o + 1] = Math.round(linearToSrgb(c[1]) * 255)
@@ -62,7 +69,7 @@ export function DirectionSphere({ lights, preview, selected, onSelect, onDirecti
         img.data[o + 3] = Math.round(Math.min(1, (1 - Math.sqrt(r2)) * px * 0.5) * 255)
       }
     ctx.putImageData(img, 0, 0)
-  }, [preview])
+  }, [preview, pitch, roll])
 
   const toSphere = (e: ReactPointerEvent) => {
     const rect = svgRef.current!.getBoundingClientRect()
@@ -75,7 +82,7 @@ export function DirectionSphere({ lights, preview, selected, onSelect, onDirecti
     e.stopPropagation()
     svgRef.current!.setPointerCapture(e.pointerId)
     onSelect(light.id)
-    const hemisphere = light.direction[2] < 0 ? -1 : 1
+    const hemisphere = toGround(camera, light.direction)[2] < 0 ? -1 : 1
     dragRef.current = { id: e.pointerId, light: light.id, hemisphere }
     onDirection(light.id, light.direction, 'start')
     return hemisphere
@@ -88,14 +95,14 @@ export function DirectionSphere({ lights, preview, selected, onSelect, onDirecti
     const hemisphere = begin(e, light)
     if (hemisphere === undefined) return
     const p = toSphere(e)
-    onDirection(light.id, directionAt(p.x, p.y, hemisphere), 'move')
+    onDirection(light.id, fromGround(camera, directionAt(p.x, p.y, hemisphere)), 'move')
   }
 
   const move = (e: ReactPointerEvent<SVGSVGElement>) => {
     const d = dragRef.current
     if (!d || d.id !== e.pointerId) return
     const p = toSphere(e)
-    onDirection(d.light, directionAt(p.x, p.y, d.hemisphere), 'move')
+    onDirection(d.light, fromGround(camera, directionAt(p.x, p.y, d.hemisphere)), 'move')
   }
 
   const end = (e: ReactPointerEvent<SVGSVGElement>) => {
@@ -107,7 +114,9 @@ export function DirectionSphere({ lights, preview, selected, onSelect, onDirecti
   }
 
   const at = (v: Vec3) => ({ x: SIZE / 2 + v[0] * RADIUS, y: SIZE / 2 - v[1] * RADIUS })
-  const pointMarkers = preview ? preview.ids.map((id, i) => ({ light: lights.find((l) => l.id === id), d: preview.lights[i].direction })).filter((m) => m.light?.type === 'point') : []
+  const pointMarkers = preview
+    ? preview.ids.map((id, i) => ({ light: lights.find((l) => l.id === id), d: toGround(camera, preview.lights[i].direction) })).filter((m) => m.light?.type === 'point')
+    : []
 
   return (
     <div className="relative mx-auto" style={{ width: SIZE, height: SIZE }}>
@@ -151,9 +160,10 @@ export function DirectionSphere({ lights, preview, selected, onSelect, onDirecti
         {lights
           .filter((l) => l.type === 'directional')
           .map((l) => {
-            const p = at(l.direction)
+            const g = toGround(camera, l.direction)
+            const p = at(g)
             const active = l.id === selected
-            const back = l.direction[2] < 0
+            const back = g[2] < 0
             const color = linearToHex(l.color)
             return (
               <circle

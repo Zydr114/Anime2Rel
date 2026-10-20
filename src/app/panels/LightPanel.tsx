@@ -6,6 +6,7 @@ import { kelvinToRgb } from '@/algo/kelvin'
 import type { Vec3 } from '@/algo/sh'
 import type { AnalysisResult } from '@/analysis/protocol'
 import { reanalyze } from '@/analysis/service'
+import { fromGround, toGround } from '@/camera/geometry'
 import { t } from '@/i18n'
 import { MAX_LIGHTS, newDirectionalLight, type Light, type LightType } from '@/lighting/model'
 import { computeBallPreview } from '@/lighting/preview'
@@ -34,6 +35,10 @@ const percent = (v: number) => `${Math.round(v * 100)}%`
 /** 自动识别的光源在列表中只显示置信度的高低，具体数值在分析详情中 */
 const confidenceLevel = (c: number) => t.light.confidence[c >= 0.6 ? 'high' : c >= 0.3 ? 'medium' : 'low']
 const INTRO_HINT = 'light-intro'
+
+/** 方位角与仰角相对地面（见 toGround） */
+const groundAngles = (d: Vec3) => toAngles(toGround(useApp.getState().doc.camera, d))
+const fromGroundAngles = (azimuth: number, elevation: number) => fromGround(useApp.getState().doc.camera, fromAngles(azimuth, elevation))
 
 export function LightPanel() {
   const background = useApp((s) => s.doc.background)
@@ -121,8 +126,9 @@ function AnalysisSection({ assetId }: { assetId: string }) {
 
 function AnalysisReport({ result }: { result: AnalysisResult }) {
   const lights = useApp((s) => s.doc.lighting.lights)
+  useApp((s) => s.doc.camera)
   const r = result.report
-  const sh = r.sh && toAngles(r.sh.direction)
+  const sh = r.sh && groundAngles(r.sh.direction)
   return (
     <div className="flex flex-col gap-2">
       <div className="text-on-surface-variant">{t.light.analyzed(formatMs(result.ms))}</div>
@@ -241,6 +247,7 @@ function useBallPreview() {
 
 function SphereSection() {
   const lights = useApp((s) => s.doc.lighting.lights)
+  const camera = useApp((s) => s.doc.camera)
   const selected = useLighting((s) => s.selected)
   const preview = useBallPreview()
 
@@ -253,7 +260,7 @@ function SphereSection() {
 
   return (
     <Section title={t.light.sphere}>
-      <DirectionSphere lights={lights} preview={preview} selected={selected} onSelect={useLighting.getState().select} onDirection={onDirection} />
+      <DirectionSphere camera={camera} lights={lights} preview={preview} selected={selected} onSelect={useLighting.getState().select} onDirection={onDirection} />
       <p className="text-xs leading-5 text-on-surface-variant">{t.light.sphereHint}</p>
     </Section>
   )
@@ -275,18 +282,20 @@ function LightEditor({ light }: { light: Light }) {
   const tool = useLighting((s) => s.tool)
   const id = light.id
   const update = useCallback((u: Partial<Light>) => useApp.getState().updateLight(id, u), [id])
-  const { azimuth, elevation } = toAngles(light.direction)
-  const back = light.direction[2] < 0
+  const camera = useApp((s) => s.doc.camera)
+  const ground = toGround(camera, light.direction)
+  const { azimuth, elevation } = toAngles(ground)
+  const back = ground[2] < 0
 
-  const onAzimuth = useGestureChange(useCallback((v: number) => update({ direction: fromAngles(v * RAD, toAngles(currentDirection(id)).elevation) }), [id, update]))
+  const onAzimuth = useGestureChange(useCallback((v: number) => update({ direction: fromGroundAngles(v * RAD, groundAngles(currentDirection(id)).elevation) }), [id, update]))
   // 仰角到达 ±90° 时方位角无法从方向中恢复，记住最近一次有效的方位角
   const azimuthRef = useRef(azimuth)
   const onElevation = useGestureChange(
     useCallback(
       (v: number) => {
-        const d = currentDirection(id)
+        const d = toGround(useApp.getState().doc.camera, currentDirection(id))
         if (Math.hypot(d[0], d[2]) > 1e-4) azimuthRef.current = Math.atan2(d[0], d[2])
-        update({ direction: fromAngles(azimuthRef.current, v * RAD) })
+        update({ direction: fromGroundAngles(azimuthRef.current, v * RAD) })
       },
       [id, update],
     ),
@@ -299,8 +308,10 @@ function LightEditor({ light }: { light: Light }) {
   const backRef = useRef<Switch>(null)
   useDomEvent(backRef, 'change', (e, el) => {
     if (e.target !== el) return
-    const d = currentDirection(id)
-    if (el.checked !== d[2] < 0) update({ direction: [d[0], d[1], -d[2]] })
+    // 背光：把方向在地面内前后翻转
+    const c = useApp.getState().doc.camera
+    const d = toGround(c, currentDirection(id))
+    if (el.checked !== d[2] < 0) update({ direction: fromGround(c, [d[0], d[1], -d[2]]) })
   })
 
   // 取色器只决定色相和饱和度：颜色按最大分量归一化，亮度由强度控制
