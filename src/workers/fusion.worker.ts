@@ -11,7 +11,8 @@ import { quantiles, resizeBilinear } from '@/algo/raster'
 import type { Vec3 } from '@/algo/sh'
 import { estimateForeground } from '@/fusion/matte'
 import { characterNormals, rimMap } from '@/fusion/normals'
-import { ROW_BINS, type BackgroundInfo, type BackgroundInput, type CharacterInfo, type CharacterInput, type FusionStats, type FusionWorkerApi, type MatteMap, type NormalMap, type NormalRequest, type StatsRequest } from '@/fusion/protocol'
+import { rasterizeWarp, warpMesh } from '@/fusion/warp'
+import { ROW_BINS, type BackgroundInfo, type BackgroundInput, type CharacterInfo, type CharacterInput, type FusionStats, type FusionWorkerApi, type MatteMap, type NormalMap, type NormalRequest, type StatsRequest, type WarpedGeometry, type WarpRequest } from '@/fusion/protocol'
 import { labStats, noiseSigma, whitePoint } from '@/fusion/stats'
 
 /** 统计用的分辨率（长边） */
@@ -24,6 +25,11 @@ const TILE_GRID = 4
 const CLIP = 250
 /** 深度相近的尺度（归一化逆深度） */
 const DEPTH_SIGMA = 0.12
+/** 不透明区域贴着立绘底边、且最下方几行大部分不透明时，视为被裁切的半身像 */
+const CUT_EDGE = 0.995
+const CUT_COVERAGE = 0.45
+/** 变形后统计几何的栅格长边上限 */
+const WARP_EDGE = 2048
 
 interface Background {
   id: string
@@ -77,6 +83,55 @@ function estimateNoise(bitmap: ImageBitmap): Vec3 {
       noiseSigma(rgb, size, size).forEach((v, c) => per[c].push(v))
     }
   return per.map((list) => list.sort((a, b) => a - b)[list.length >> 1] ?? 0) as Vec3
+}
+
+const emptyRows = () => new Float32Array(ROW_BINS * 2).fill(-1)
+
+/**
+ * 不透明区域（alpha > 0.5）的包围盒和每行的左右边界（相对栅格尺寸 [0,1]），
+ * 以及包围盒最下方 1% 的行中不透明像素占包围盒宽度的比例（被裁切的半身像接近 1，双脚通常较小）。没有不透明像素时为 null。
+ */
+function opaqueGeometry(alpha: Float32Array, width: number, height: number) {
+  let x0 = width
+  let y0 = height
+  let x1 = -1
+  let y1 = -1
+  const rows = emptyRows()
+  for (let y = 0; y < height; y++) {
+    const bin = Math.min(ROW_BINS - 1, Math.floor((y / height) * ROW_BINS))
+    for (let x = 0; x < width; x++) {
+      if (alpha[y * width + x] <= 0.5) continue
+      x0 = Math.min(x0, x)
+      x1 = Math.max(x1, x)
+      y0 = Math.min(y0, y)
+      y1 = Math.max(y1, y)
+      const left = x / width
+      const right = (x + 1) / width
+      if (rows[bin * 2] < 0 || left < rows[bin * 2]) rows[bin * 2] = left
+      rows[bin * 2 + 1] = Math.max(rows[bin * 2 + 1], right)
+    }
+  }
+  if (x1 < 0) return null
+  const bottom = Math.max(1, Math.round((y1 - y0 + 1) * 0.01))
+  let covered = 0
+  for (let y = y1 - bottom + 1; y <= y1; y++) for (let x = x0; x <= x1; x++) if (alpha[y * width + x] > 0.5) covered++
+  const bottomCoverage = covered / (bottom * (x1 - x0 + 1))
+  return { bbox: { x0: x0 / width, y0: y0 / height, x1: (x1 + 1) / width, y1: (y1 + 1) / height }, rows, bottomCoverage }
+}
+
+/** 双线性采样单通道图像（坐标为 UV，边缘夹取） */
+function sampleBilinear(src: Float32Array, width: number, height: number, u: number, v: number): number {
+  const x = Math.min(width - 1, Math.max(0, u * width - 0.5))
+  const y = Math.min(height - 1, Math.max(0, v * height - 0.5))
+  const x0 = Math.floor(x)
+  const y0 = Math.floor(y)
+  const x1 = Math.min(width - 1, x0 + 1)
+  const y1 = Math.min(height - 1, y0 + 1)
+  const fx = x - x0
+  const fy = y - y0
+  const top = src[y0 * width + x0] * (1 - fx) + src[y0 * width + x1] * fx
+  const bottom = src[y1 * width + x0] * (1 - fx) + src[y1 * width + x1] * fx
+  return top * (1 - fy) + bottom * fy
 }
 
 const api: FusionWorkerApi = {
@@ -146,33 +201,12 @@ const api: FusionWorkerApi = {
       character.matte = previous.matte
     }
 
-    let x0 = width
-    let y0 = height
-    let x1 = -1
-    let y1 = -1
-    const rows = new Float32Array(ROW_BINS * 2).fill(-1)
-    for (let y = 0; y < height; y++) {
-      const bin = Math.min(ROW_BINS - 1, Math.floor((y / height) * ROW_BINS))
-      for (let x = 0; x < width; x++) {
-        if (alpha[y * width + x] <= 0.5) continue
-        x0 = Math.min(x0, x)
-        x1 = Math.max(x1, x)
-        y0 = Math.min(y0, y)
-        y1 = Math.max(y1, y)
-        const left = x / width
-        const right = (x + 1) / width
-        if (rows[bin * 2] < 0 || left < rows[bin * 2]) rows[bin * 2] = left
-        rows[bin * 2 + 1] = Math.max(rows[bin * 2 + 1], right)
-      }
-    }
     const opaque = Uint8Array.from(alpha, (a) => (a > 0.5 ? 1 : 0))
     const reliefMedian = (input.depth?.length === n ? quantiles(input.depth, [0.5], opaque)?.[0] : undefined) ?? 0.5
-    if (x1 < 0) return { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 }, reliefMedian, rows, bottomCoverage: 0 }
-    const bottom = Math.max(1, Math.round((y1 - y0 + 1) * 0.01))
-    let covered = 0
-    for (let y = y1 - bottom + 1; y <= y1; y++) for (let x = x0; x <= x1; x++) if (alpha[y * width + x] > 0.5) covered++
-    const bottomCoverage = covered / (bottom * (x1 - x0 + 1))
-    return { bbox: { x0: x0 / width, y0: y0 / height, x1: (x1 + 1) / width, y1: (y1 + 1) / height }, reliefMedian, rows, bottomCoverage }
+    const geometry = opaqueGeometry(alpha, width, height)
+    if (!geometry) return { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 }, reliefMedian, cut: false, rows: emptyRows(), rowSpan: [0, 1] }
+    const cut = geometry.bbox.y1 >= CUT_EDGE && geometry.bottomCoverage > CUT_COVERAGE
+    return { bbox: geometry.bbox, reliefMedian, cut, rows: geometry.rows, rowSpan: [0, 1] }
   },
 
   async normals(request: NormalRequest): Promise<NormalMap> {
@@ -211,6 +245,31 @@ const api: FusionWorkerApi = {
     const foreground = ch.matte.foreground.slice()
     const background = ch.matte.background.slice()
     return Comlink.transfer({ width: ch.width, height: ch.height, foreground, background }, [foreground.buffer, background.buffer])
+  },
+
+  async warpGeometry(request: WarpRequest): Promise<WarpedGeometry> {
+    const ch = character
+    if (!ch || ch.id !== request.id) throw new Error('立绘数据尚未就绪')
+    const mesh = warpMesh(request.warp)
+    const box = mesh.bounds
+    // 栅格的分辨率与立绘数据相同，长边不超过 WARP_EDGE
+    const k = Math.min(1, WARP_EDGE / Math.max((box.x1 - box.x0) * ch.width, (box.y1 - box.y0) * ch.height))
+    const width = Math.max(1, Math.round((box.x1 - box.x0) * ch.width * k))
+    const height = Math.max(1, Math.round((box.y1 - box.y0) * ch.height * k))
+    const alpha = new Float32Array(width * height)
+    rasterizeWarp(mesh, box, width, height, (i, u, v) => {
+      alpha[i] = sampleBilinear(ch.alpha, ch.width, ch.height, u, v)
+    })
+    const g = opaqueGeometry(alpha, width, height)
+    if (!g) return { bbox: box, rows: emptyRows(), rowSpan: [box.y0, box.y1] }
+    const sx = box.x1 - box.x0
+    const sy = box.y1 - box.y0
+    const rows = g.rows.map((x) => (x < 0 ? x : box.x0 + x * sx))
+    return {
+      bbox: { x0: box.x0 + g.bbox.x0 * sx, y0: box.y0 + g.bbox.y0 * sy, x1: box.x0 + g.bbox.x1 * sx, y1: box.y0 + g.bbox.y1 * sy },
+      rows,
+      rowSpan: [box.y0, box.y1],
+    }
   },
 
   async stats(request: StatsRequest): Promise<FusionStats> {

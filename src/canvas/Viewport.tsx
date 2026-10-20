@@ -12,7 +12,7 @@ import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useEngine } from '@/state/engine'
 import { isExporting, useExport } from '@/state/export'
-import { characterBBox, useFusion } from '@/state/fusion'
+import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { FocusGizmo } from './FocusGizmo'
@@ -77,7 +77,7 @@ export function Viewport() {
         const syncBall = () => {
           const { doc, step } = useApp.getState()
           const show = step === 'light' && useLighting.getState().showBall
-          e.setBallPreview(show ? computeBallPreview(doc, getAnalysis(doc.background?.id), getDepthResult(doc.background?.id), characterBBox(doc.character?.id)) : null)
+          e.setBallPreview(show ? computeBallPreview(doc, getAnalysis(doc.background?.id), getDepthResult(doc.background?.id), characterInfo(doc)?.bbox) : null)
         }
         // 遮罩只在景深步骤显示
         const syncFusion = () => {
@@ -133,7 +133,7 @@ export function Viewport() {
         })
         const offFusion = useFusion.subscribe((next, prev) => {
           if (isExporting()) return
-          if (next.character !== prev.character) syncBall()
+          if (next.character !== prev.character || next.warped !== prev.warped) syncBall()
           syncFusion()
         })
         unsubscribe = () => {

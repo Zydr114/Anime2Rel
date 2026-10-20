@@ -10,7 +10,7 @@ import { t } from '@/i18n'
 import { MAX_LIGHTS, newDirectionalLight, type Light, type LightType } from '@/lighting/model'
 import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
-import { useFusion } from '@/state/fusion'
+import { useCharacterInfo } from '@/state/fusion'
 import { useHints } from '@/state/hints'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
@@ -235,8 +235,7 @@ function useBallPreview() {
   const analysis = useLighting((s) => s.analyses[doc.background?.id ?? ''])
   // 深度结果存在模块级缓存里，结果更新时 resultsVersion 变化会让选择器重新读取
   const depth = useDepth(() => getDepthResult(doc.background?.id))
-  const character = useFusion((s) => s.character)
-  const bbox = character?.id === doc.character?.id ? character?.info.bbox : undefined
+  const bbox = useCharacterInfo(doc)?.bbox
   return useMemo(() => computeBallPreview(doc, analysis?.state === 'done' ? analysis.result : undefined, depth, bbox), [doc, analysis, depth, bbox])
 }
 

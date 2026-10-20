@@ -2,6 +2,7 @@
 import type { Mat3 } from '@/algo/cat'
 import type { Size } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
+import type { CharWarp } from './warp'
 import type { NormalWeights } from './normals'
 import type { LabStats } from './stats'
 
@@ -34,14 +35,24 @@ export interface CharacterInput {
 }
 
 export interface CharacterInfo {
-  /** 不透明区域（alpha > 0.5）的包围盒，相对立绘尺寸 [0,1] */
+  /** 不透明区域（alpha > 0.5）的包围盒（立绘 UV）。立绘变形后为变形后的范围，可以超出 [0,1] */
   bbox: { x0: number; y0: number; x1: number; y1: number }
   /** 不透明区域内立绘自身深度的中位数，作为起伏的基准；深度未就绪时为 0.5 */
   reliefMedian: number
-  /** 包围盒最下方 1% 的行中不透明像素占包围盒宽度的比例：被裁切的半身像接近 1，双脚通常较小 */
-  bottomCoverage: number
-  /** 按高度分成 ROW_BINS 行，每行不透明区域的左右边界（立绘 UV，交错存放）；没有不透明像素的行为 -1 */
+  /** 立绘底部被裁切（半身像）：不透明区域贴着立绘底边，且最下方几行大部分不透明。按原立绘判断，不受变形影响 */
+  cut: boolean
+  /** 把 rowSpan 的纵向范围分成 ROW_BINS 行，每行不透明区域的左右边界（立绘 UV，交错存放）；没有不透明像素的行为 -1 */
   rows: Float32Array
+  /** rows 覆盖的纵向范围（立绘 UV）：未变形时为 [0, 1] */
+  rowSpan: [number, number]
+}
+
+/** 立绘变形后重新统计的部分 */
+export type WarpedGeometry = Pick<CharacterInfo, 'bbox' | 'rows' | 'rowSpan'>
+
+export interface WarpRequest {
+  id: string
+  warp: CharWarp
 }
 
 /** CharacterInfo.rows 的行数 */
@@ -96,5 +107,7 @@ export interface FusionWorkerApi {
   setCharacter(input: CharacterInput): Promise<CharacterInfo>
   normals(request: NormalRequest): Promise<NormalMap>
   matte(id: string): Promise<MatteMap>
+  /** 按变形重新统计立绘不透明区域的包围盒与每行的左右边界 */
+  warpGeometry(request: WarpRequest): Promise<WarpedGeometry>
   stats(request: StatsRequest): Promise<FusionStats>
 }

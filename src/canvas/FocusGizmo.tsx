@@ -1,9 +1,10 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
-import { clamp, docToLayerUV, docToScreen, screenToDoc, type Point } from '@/algo/geometry'
+import { clamp, docToScreen, screenToDoc, type Point } from '@/algo/geometry'
 import type { FocusTarget } from '@/focus/model'
 import { focusPoint } from '@/focus/params'
 import { pickAlpha } from '@/lighting/sampling'
-import { useFusion } from '@/state/fusion'
+import { useCharacterInfo } from '@/state/fusion'
+import { characterUV } from '@/fusion/placement'
 import { useApp, type DocState } from '@/state/store'
 
 /** 对焦框半边长（屏幕像素） */
@@ -19,8 +20,9 @@ function targetAt(doc: DocState, p: Point): FocusTarget | null {
   if (!bg) return null
   const ch = doc.character
   if (ch) {
-    const uv = docToLayerUV(doc.charTransform, ch, p)
-    if (pickAlpha(ch.id, uv) > HIT_ALPHA) return { kind: 'character', u: uv.x, v: uv.y }
+    // 焦点记录在原立绘的坐标中
+    const { point, inside } = characterUV(doc, p)
+    if (inside && pickAlpha(ch.id, point) > HIT_ALPHA) return { kind: 'character', u: point.x, v: point.y }
   }
   return { kind: 'background', x: clamp(p.x, 0, bg.width), y: clamp(p.y, 0, bg.height) }
 }
@@ -30,7 +32,7 @@ export function FocusGizmo({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
-  const info = useFusion((s) => (s.character && s.character.id === doc.character?.id ? s.character.info : undefined))
+  const info = useCharacterInfo(doc)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<number | null>(null)
 

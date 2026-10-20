@@ -1,18 +1,19 @@
 /**
  * 主线程侧的立绘融合调度（docs/Plan.md §3.3）：把背景和立绘送入融合 Worker，
- * 生成立绘法线，并在立绘移动、缩放或参数变化时重新计算立绘周围的背景统计。
+ * 生成立绘法线，并在立绘移动、缩放或参数变化时重新计算立绘周围的背景统计；立绘变形后重新统计不透明区域的几何。
  */
 import * as Comlink from 'comlink'
 import { guideSize } from '@/depth/pipeline'
 import type { DepthResult } from '@/depth/protocol'
 import { getAsset } from '@/state/assets'
 import { getDepthResult, useDepth } from '@/state/depth'
-import { useFusion } from '@/state/fusion'
+import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis } from '@/state/lighting'
 import { useApp, type DocState } from '@/state/store'
 import { fusionParams, whiteAdaptation, type FusionParams } from './params'
 import { characterBox, characterDepth } from './placement'
 import type { FusionWorkerApi, MatteMap, NormalMap } from './protocol'
+import { isIdentityWarp } from './warp'
 import { shadowParams, type ShadowParams } from './shadow'
 
 /** 法线参数变化后的防抖时间 */
@@ -64,6 +65,7 @@ async function syncCharacter(): Promise<void> {
   if (sentCharacter?.id !== ch?.id) {
     const fusion = useFusion.getState()
     fusion.setCharacter(null)
+    fusion.setWarped(null)
     fusion.setNormals(null)
     fusion.setMatte(null)
   }
@@ -79,6 +81,7 @@ async function syncCharacter(): Promise<void> {
   const info = await remote().setCharacter(Comlink.transfer({ id: asset.id, bitmap, depthNormal: depth?.normal ?? null, depth: depth?.depth ?? null }, [bitmap]))
   if (sentCharacter !== sent) return
   useFusion.getState().setCharacter({ id: asset.id, info })
+  requestWarp()
   void runNormals()
   if (useFusion.getState().matte?.id !== asset.id) void runMatte(asset.id)
   requestStats()
@@ -110,22 +113,38 @@ async function runMatte(id: string): Promise<void> {
   }
 }
 
-let statsBusy = false
-let statsDirty = false
-
-/** 立绘周围的背景统计：计算期间又有变化时，完成后用最新状态再算一次。 */
-function requestStats(): void {
-  statsDirty = true
-  if (statsBusy) return
-  statsBusy = true
-  void (async () => {
-    while (statsDirty) {
-      statsDirty = false
-      await runStats().catch(report)
-    }
-    statsBusy = false
-  })()
+/** 计算期间又有变化时，完成后用最新状态再算一次 */
+function coalesce(run: () => Promise<void>): () => void {
+  let busy = false
+  let dirty = false
+  return () => {
+    dirty = true
+    if (busy) return
+    busy = true
+    void (async () => {
+      while (dirty) {
+        dirty = false
+        await run().catch(report)
+      }
+      busy = false
+    })()
+  }
 }
+
+/** 立绘变形后的几何（包围盒、每行的边界），与移动立绘时的统计一样随拖动更新 */
+const requestWarp = coalesce(async () => {
+  const { doc } = useApp.getState()
+  const character = useFusion.getState().character
+  if (!character || doc.character?.id !== character.id || isIdentityWarp(doc.charWarp)) return
+  const geometry = await remote().warpGeometry({ id: character.id, warp: doc.charWarp })
+  if (useFusion.getState().character?.id !== character.id) return
+  useFusion.getState().setWarped({ id: character.id, geometry })
+  requestStats()
+})
+
+
+/** 立绘周围的背景统计 */
+const requestStats = coalesce(runStats)
 
 async function runStats(): Promise<void> {
   const { doc } = useApp.getState()
@@ -135,7 +154,8 @@ async function runStats(): Promise<void> {
     useFusion.getState().setStats(null)
     return
   }
-  const box = characterBox(doc, character.info.bbox)
+  const bbox = characterInfo(doc)?.bbox
+  const box = characterBox(doc, bbox)
   const xs = box.map((p) => p.x / bg.width)
   const ys = box.map((p) => p.y / bg.height)
   const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
@@ -144,7 +164,7 @@ async function runStats(): Promise<void> {
     characterId: character.id,
     cat: whiteAdaptation(doc.fusion.colorMatch, background.info.whitePoint),
     region: { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, rx: (x1 - x0) / 2, ry: (y1 - y0) / 2 },
-    depth: characterDepth(doc, getDepthResult(bg.id), character.info.bbox),
+    depth: characterDepth(doc, getDepthResult(bg.id), bbox),
   })
   const now = useFusion.getState()
   if (now.background?.id === bg.id && now.character?.id === character.id) now.setStats(stats)
@@ -167,12 +187,14 @@ export function startAutoFusion(): () => void {
     const doc = s.doc
     const old = prev.doc
     if (doc.background?.id !== old.background?.id || doc.character?.id !== old.character?.id) sync()
+    if (doc.charWarp !== old.charWarp) requestWarp()
     if (doc.fusion.normals !== old.fusion.normals) {
       clearTimeout(normalsTimer)
       normalsTimer = setTimeout(() => void runNormals(), NORMALS_DEBOUNCE)
     }
     if (
       doc.charTransform !== old.charTransform ||
+      doc.charWarp !== old.charWarp ||
       doc.fusion.depth !== old.fusion.depth ||
       doc.fusion.colorMatch.whiteBalance !== old.fusion.colorMatch.whiteBalance ||
       doc.background?.id !== old.background?.id ||
@@ -192,7 +214,7 @@ export function currentFusionParams(doc: DocState): FusionParams | null {
   const bg = doc.background
   const fusion = useFusion.getState()
   if (!bg || !doc.character || fusion.background?.id !== bg.id || fusion.character?.id !== doc.character.id) return null
-  const bbox = fusion.character.info.bbox
+  const bbox = characterInfo(doc)?.bbox
   const box = characterBox(doc, bbox)
   return fusionParams({
     fusion: doc.fusion,
@@ -209,9 +231,9 @@ export function currentFusionParams(doc: DocState): FusionParams | null {
 /** 当前的站立阴影参数；立绘信息未就绪时不画阴影 */
 export function currentShadowParams(doc: DocState): ShadowParams | null {
   const bg = doc.background
-  const character = useFusion.getState().character
-  if (!bg || !character || character.id !== doc.character?.id) return null
-  return shadowParams({ doc, background: getDepthResult(bg.id), info: character.info, ambient: getAnalysis(bg.id)?.ambient })
+  const info = characterInfo(doc)
+  if (!bg || !info) return null
+  return shadowParams({ doc, background: getDepthResult(bg.id), info, ambient: getAnalysis(bg.id)?.ambient })
 }
 
 /** 当前立绘去除残留底色用的数据 */

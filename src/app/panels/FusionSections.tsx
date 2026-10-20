@@ -7,7 +7,7 @@ import { characterDepth } from '@/fusion/placement'
 import { cutOff } from '@/fusion/shadow'
 import { t } from '@/i18n'
 import { getDepthResult, useDepth } from '@/state/depth'
-import { useFusion } from '@/state/fusion'
+import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 import { SliderField } from '@/ui/SliderField'
 import { useDomEvent } from '@/ui/useDomEvent'
@@ -95,7 +95,7 @@ export function FusionSections() {
 export function DepthSection({ children }: { children?: ReactNode }) {
   const manual = useApp((s) => s.doc.fusion.depth)
   const doc = useApp((s) => s.doc)
-  const bbox = useFusion((s) => (s.character?.id === doc.character?.id ? s.character?.info.bbox : undefined))
+  const bbox = useCharacterInfo(doc)?.bbox
   // 深度结果存在模块级缓存里，resultsVersion 变化会让选择器重新读取
   const depth = useDepth(() => getDepthResult(doc.background?.id))
   const value = characterDepth(doc, depth, bbox)
@@ -128,7 +128,7 @@ export function DepthSection({ children }: { children?: ReactNode }) {
 
 function ShadowSection() {
   const doc = useApp((s) => s.doc)
-  const info = useFusion((s) => (s.character?.id === doc.character?.id ? s.character?.info : undefined))
+  const info = useCharacterInfo(doc)
   return (
     <Section title={t.fusion.shadow} testId="fusion-shadow">
       <FusionSlider section="shadow" field="contact" label={t.fusion.contact} min={0} max={100} />

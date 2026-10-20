@@ -58,7 +58,7 @@ describe('depth of field', () => {
       character: asset('ch', 100, 200),
       charTransform: { x: 500, y: 700, scale: 1, rotation: 0, flipX: false },
     }
-    const info = { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 }, reliefMedian: 0.5, rows: new Float32Array(0), bottomCoverage: 0 }
+    const info = { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 }, reliefMedian: 0.5, rows: new Float32Array(0), rowSpan: [0, 1] as [number, number], cut: false }
     const input = (focus: DocState['focus']) => ({ doc: { ...doc, focus }, background, character, info })
 
     // 脚下（y = 800）的背景深度

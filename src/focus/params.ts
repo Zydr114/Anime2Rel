@@ -1,7 +1,7 @@
 /** 焦点深度与景深着色器参数（docs/Plan.md §3.4），GPU 实现见 src/engine/dof.ts。 */
-import { layerToDoc, type Point } from '@/algo/geometry'
+import type { Point } from '@/algo/geometry'
 import type { DepthResult } from '@/depth/protocol'
-import { characterBox, characterDepth, characterGround } from '@/fusion/placement'
+import { characterBox, characterDepth, characterGround, characterPoint } from '@/fusion/placement'
 import type { CharacterInfo } from '@/fusion/protocol'
 import { sampleDepth } from '@/lighting/sampling'
 import type { DocState } from '@/state/store'
@@ -65,7 +65,7 @@ export function focusPoint(doc: DocState, info: CharacterInfo | undefined): Poin
   const ch = doc.character
   if (target?.kind === 'background') return { x: target.x, y: target.y }
   if (!ch) return null
-  if (target) return layerToDoc(doc.charTransform, { x: (target.u - 0.5) * ch.width, y: (target.v - 0.5) * ch.height })
+  if (target) return characterPoint(doc, { x: target.u, y: target.v })
   const box = characterBox(doc, info?.bbox)
   return { x: box.reduce((s, p) => s + p.x, 0) / 4, y: box.reduce((s, p) => s + p.y, 0) / 4 }
 }

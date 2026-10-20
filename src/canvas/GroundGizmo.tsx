@@ -1,8 +1,8 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
-import { clamp, docToLayerUV, docToScreen, screenToDoc, type Point } from '@/algo/geometry'
+import { clamp, docToScreen, screenToDoc, type Point } from '@/algo/geometry'
 import { waterActive } from '@/focus/model'
-import { characterBox, characterGround } from '@/fusion/placement'
-import { useFusion } from '@/state/fusion'
+import { characterBox, characterGround, characterUV } from '@/fusion/placement'
+import { useCharacterInfo } from '@/state/fusion'
 import { useApp } from '@/state/store'
 
 /** 接地点标记的半宽（屏幕像素） */
@@ -16,7 +16,7 @@ export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
-  const bbox = useFusion((s) => (s.character && s.character.id === doc.character?.id ? s.character.info.bbox : undefined))
+  const bbox = useCharacterInfo(doc)?.bbox
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ id: number; offset: Point } | null>(null)
 
@@ -53,8 +53,9 @@ export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
     const ch = s.doc.character
     if (d?.id !== e.pointerId || !ch) return
     const p = toDoc(e)
-    const uv = docToLayerUV(s.doc.charTransform, ch, { x: p.x + d.offset.x, y: p.y + d.offset.y })
-    s.setCharGround({ u: clamp(uv.x, 0, 1), v: clamp(uv.y, 0, 1) })
+    // 接地点记录在原立绘的坐标中，拖到变形后的立绘之外时取外框上最近的点
+    const { point } = characterUV(s.doc, { x: p.x + d.offset.x, y: p.y + d.offset.y })
+    s.setCharGround({ u: clamp(point.x, 0, 1), v: clamp(point.y, 0, 1) })
   }
 
   const end = (e: ReactPointerEvent<SVGElement>) => {

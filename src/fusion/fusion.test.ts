@@ -9,7 +9,7 @@ import { DEFAULT_FUSION } from './model'
 import { characterNormals, inflateNormals, lineArtMask, rimMap } from './normals'
 import { fusionParams, toneCurve } from './params'
 import { characterDepth, characterGround } from './placement'
-import { ROW_BINS } from './protocol'
+import { ROW_BINS, type CharacterInfo } from './protocol'
 import { shadowParams } from './shadow'
 import { labStats, noiseSigma, whitePoint, type LabStats } from './stats'
 
@@ -199,7 +199,7 @@ describe('standing shadow', () => {
   // 不透明区域：脚部（底部几行）横跨 u = 0.4–0.6
   const rows = new Float32Array(ROW_BINS * 2).fill(-1)
   for (let b = 0; b < ROW_BINS * 0.9; b++) rows.set([0.4, 0.6], b * 2)
-  const info = { bbox: { x0: 0.25, y0: 0, x1: 0.75, y1: 0.9 }, reliefMedian: 0.5, rows, bottomCoverage: 0.2 }
+  const info: CharacterInfo = { bbox: { x0: 0.25, y0: 0, x1: 0.75, y1: 0.9 }, reliefMedian: 0.5, cut: false, rows, rowSpan: [0, 1] }
   const sun = { ...newDirectionalLight(1), direction: [-0.5, 0.7, 0.5] as Vec3, softness: 0 }
   const lighting = { ...DEFAULT_LIGHTING, lights: [sun] }
   const ambient = new Array(27).fill(0)
@@ -221,7 +221,7 @@ describe('standing shadow', () => {
   })
 
   it('does not draw shadows for a cut-off half-body character unless the ground point is set', () => {
-    const cut = { ...info, bbox: { ...info.bbox, y1: 1 }, bottomCoverage: 0.9 }
+    const cut = { ...info, bbox: { ...info.bbox, y1: 1 }, cut: true }
     expect(shadowParams({ doc, background, info: cut, ambient })).toBeNull()
     expect(shadowParams({ doc: { ...doc, fusion: { ...doc.fusion, ground: { u: 0.5, v: 0.9 } } }, background, info: cut, ambient })).not.toBeNull()
   })
