@@ -15,7 +15,7 @@ import { isExporting, useExport } from '@/state/export'
 import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
-import { CameraGizmo, CharacterGrid } from './CameraGizmo'
+import { CameraGizmo, CharacterGuide } from './CameraGizmo'
 import { FocusGizmo } from './FocusGizmo'
 import { GroundGizmo } from './GroundGizmo'
 import { LightGizmo } from './LightGizmo'
@@ -242,7 +242,7 @@ export function Viewport() {
         }}
       >
         <CameraGizmo passThrough={spaceHeld || panning} />
-        <CharacterGrid />
+        <CharacterGuide />
         <TransformGizmo passThrough={spaceHeld || panning} />
         <LightGizmo passThrough={spaceHeld || panning} />
         <FocusGizmo passThrough={spaceHeld || panning} />

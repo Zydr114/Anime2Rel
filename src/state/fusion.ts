@@ -27,8 +27,8 @@ interface FusionState {
   tool: CharacterTool
   /** 拖动立绘时按相机透视缩放（M8.5） */
   perspectiveMove: boolean
-  /** 立绘步骤中显示地面网格 */
-  showGrid: boolean
+  /** 立绘步骤中显示参考形状（种类与相机步骤共用，原点在立绘的接地点） */
+  showGuide: boolean
 
   setBackground: (v: FusionState['background']) => void
   setCharacter: (v: FusionState['character']) => void
@@ -41,7 +41,7 @@ interface FusionState {
   setShowMask: (on: boolean) => void
   setTool: (tool: CharacterTool) => void
   setPerspectiveMove: (on: boolean) => void
-  setShowGrid: (on: boolean) => void
+  setShowGuide: (on: boolean) => void
 }
 
 export const useFusion = create<FusionState>()((set) => ({
@@ -56,7 +56,7 @@ export const useFusion = create<FusionState>()((set) => ({
   showMask: false,
   tool: 'transform',
   perspectiveMove: true,
-  showGrid: false,
+  showGuide: false,
 
   setBackground: (background) => set({ background }),
   setCharacter: (character) => set({ character }),
@@ -69,7 +69,7 @@ export const useFusion = create<FusionState>()((set) => ({
   setShowMask: (showMask) => set({ showMask }),
   setTool: (tool) => set({ tool }),
   setPerspectiveMove: (perspectiveMove) => set({ perspectiveMove }),
-  setShowGrid: (showGrid) => set({ showGrid }),
+  setShowGuide: (showGuide) => set({ showGuide }),
 }))
 
 const merged = new WeakMap<WarpedGeometry, { info: CharacterInfo; result: CharacterInfo }>()

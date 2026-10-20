@@ -437,8 +437,8 @@ test('a character dragged in the calibrated camera keeps its height in the scene
   expect(await sliderValue(page, 'char-scale')).toBeCloseTo(kept, 3)
   await expect(height).not.toHaveText(meters)
 
-  await page.getByTestId('char-show-grid').click()
-  await expect(page.getByTestId('character-grid')).toHaveCount(1)
+  await page.getByTestId('char-show-guide').click()
+  await expect(page.getByTestId('character-guide')).toHaveCount(1)
 
   // 按相机透视写入四角透视，可撤销
   await page.locator('[data-testid="warp-tool"] mdui-segmented-button[value="perspective"]').click()

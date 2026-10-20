@@ -2,13 +2,16 @@ import { useCallback, useRef } from 'react'
 import { useGestureChange } from '../useGestureChange'
 import type { Switch } from 'mdui/components/switch.js'
 import { cameraCorners, characterMeters } from '@/camera/character'
+import { GUIDE_KINDS } from '@/camera/guides'
 import { hasGridWarp, hasPerspective, isValidWarp, WARP_GRID_SIZES, type WarpGridSize } from '@/fusion/warp'
 import { t } from '@/i18n'
+import { useCameraGuide } from '@/state/cameraGuide'
 import { CHARACTER_TOOLS, characterInfo, useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 import { SliderField } from '@/ui/SliderField'
 import { NumberField } from '@/ui/NumberField'
 import { Segmented } from '@/ui/Segmented'
+import { SelectField } from '@/ui/SelectField'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { notify } from '../notify'
 import { FusionSections, Hint, Section, ToggleRow } from './FusionSections'
@@ -18,6 +21,8 @@ const RAD = Math.PI / 180
 const formatPercent = (v: number) => `${Math.round(v)}%`
 const formatDegrees = (v: number) => `${v.toFixed(1)}°`
 const GRID_OPTIONS = WARP_GRID_SIZES.map(String)
+/** 立绘步骤用开关控制显示，种类里不含“不显示” */
+const GUIDE_OPTIONS = GUIDE_KINDS.filter((k) => k !== 'none').map((value) => ({ value, label: t.camera.guide.kinds[value] }))
 
 export function CharacterPanel() {
   const character = useApp((s) => s.doc.character)
@@ -57,6 +62,13 @@ export function CharacterPanel() {
   )
 }
 
+/** 显示参考形状；相机步骤中选了“不显示”时改回地面网格 */
+function setShowGuide(on: boolean): void {
+  useFusion.getState().setShowGuide(on)
+  const guide = useCameraGuide.getState()
+  if (on && guide.kind === 'none') guide.setKind('ground')
+}
+
 /** 按相机写入四角透视（一次撤销记录） */
 function applyCameraPerspective(): void {
   const s = useApp.getState()
@@ -70,14 +82,21 @@ function CameraSection() {
   const doc = useApp((s) => s.doc)
   const info = useCharacterInfo(doc)
   const perspectiveMove = useFusion((s) => s.perspectiveMove)
-  const showGrid = useFusion((s) => s.showGrid)
+  const kind = useCameraGuide((s) => s.kind)
+  const showGuide = useFusion((s) => s.showGuide) && kind !== 'none'
   const c = t.character.camera
   const meters = characterMeters(doc, info?.bbox)
   return (
     <Section title={c.title} testId="char-camera">
       <ToggleRow label={c.perspectiveMove} checked={perspectiveMove} onChange={useFusion.getState().setPerspectiveMove} testId="char-perspective-move" />
       <Hint>{c.perspectiveMoveHint}</Hint>
-      <ToggleRow label={c.showGrid} checked={showGrid} onChange={useFusion.getState().setShowGrid} testId="char-show-grid" />
+      <ToggleRow label={c.showGuide} checked={showGuide} onChange={setShowGuide} testId="char-show-guide" />
+      {showGuide && (
+        <>
+          <SelectField label={t.camera.guide.kind} value={kind} options={GUIDE_OPTIONS} onChange={useCameraGuide.getState().setKind} testId="char-guide-kind" />
+          <Hint>{c.guideHint}</Hint>
+        </>
+      )}
       <div className="flex flex-col gap-1">
         <span className="font-medium tabular-nums" data-testid="char-height">
           {meters === null ? c.heightUnknown : c.height(`${meters.toFixed(2)} m`)}

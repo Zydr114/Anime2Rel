@@ -99,22 +99,23 @@ function HorizonLabel({ from, to }: { from: Point; to: Point }) {
   )
 }
 
-/** 立绘步骤可选的地面网格：以接地点为中心（接地点不在地面上时取默认位置），并画出视平线 */
-export function CharacterGrid() {
+/** 立绘步骤可选的参考形状：原点在立绘的接地点（不在地面上时取默认位置），并画出视平线 */
+export function CharacterGuide() {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
-  const showGrid = useFusion((s) => s.showGrid)
+  const showGuide = useFusion((s) => s.showGuide)
+  const { kind, boxSize } = useCameraGuide()
   const info = useCharacterInfo(doc)
   const bg = doc.background
-  if (!bg || step !== 'character' || !showGrid) return null
+  if (!bg || step !== 'character' || !showGuide || kind === 'none') return null
   const foot = doc.character ? characterGround(doc, bg, info?.bbox) : null
   const origin = foot && groundPoint(doc.camera, bg, foot) ? foot : guideOrigin(doc, null)!
   const handles = HANDLE_X.map((k) => docToScreen(view, horizonAt(doc.camera, bg, k * bg.width)))
   const [h0, h1] = extend(handles[0], handles[1], 3 * Math.max(bg.width, bg.height) * view.zoom)
   return (
-    <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="character-grid">
-      <GuideLayer camera={doc.camera} size={bg} view={view} kind="ground" origin={origin} boxSize={1} />
+    <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="character-guide">
+      <GuideLayer camera={doc.camera} size={bg} view={view} kind={kind} origin={origin} boxSize={boxSize} />
       <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke={HORIZON} strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="8 6" />
       <HorizonLabel from={handles[0]} to={handles[1]} />
     </svg>
