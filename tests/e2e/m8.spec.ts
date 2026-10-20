@@ -29,9 +29,9 @@ async function setSlider(page: Page, testId: string, value: number) {
   }, value)
 }
 
-/** 改参数后等画面更新再导出 */
-async function exportAfter(page: Page, change: () => Promise<unknown>): Promise<ExportedImage> {
-  await page.getByTestId('step-character').click()
+/** 在 step 步骤改参数后等画面更新再导出 */
+async function exportAfter(page: Page, change: () => Promise<unknown>, step = 'character'): Promise<ExportedImage> {
+  await page.getByTestId(`step-${step}`).click()
   await change()
   await page.waitForTimeout(1500)
   return exportPixels(page)
@@ -284,4 +284,67 @@ test('the character warps by its perspective corners and mesh points, undoably a
     await page.getByTestId('undo').click()
   })
   expect(isRed(nearSeam(undone))).toBe(true)
+})
+
+const diff = (a: number[], b: number[]) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2])
+
+async function setSelect(page: Page, testId: string, value: string) {
+  const select = page.getByTestId(testId)
+  await select.click()
+  await select.locator(`mdui-menu-item[value="${value}"]`).click()
+  await expect(select).toHaveJSProperty('value', value)
+}
+
+test('a character standing in water is reflected below the waterline, tinted by the water colour, undoably', async ({ page }, info) => {
+  await page.goto(`/${rendererQuery(info.project.metadata.renderer)}`)
+  await importAndStart(page, [
+    ['drop-background', 'dark.png', makeImage(W, H, (x, y) => [40 + (x / W) * 40, 50 + (y / H) * 30, 70, 255])],
+    ['drop-character', 'halves.png', halves],
+  ])
+  // 原大摆在 (320, 150)：不透明部分 x 270–370、y 70–230，接地点（水线）在脚底 y ≈ 230
+  await page.getByTestId('step-character').click()
+  await setSlider(page, 'char-scale', 100)
+  await setSlider(page, 'char-y', 150)
+  await page.getByTestId('step-focus').click()
+  await page.getByTestId('focus-occlusion-enabled').click()
+  await setSelect(page, 'focus-occlusion-mode', 'water')
+  // 水线以上 30 px 处的左右两半，与它们在水线以下的镜像位置
+  const [redAbove, redBelow, blueBelow] = [
+    [295, 200],
+    [295, 260],
+    [345, 260],
+  ] as const
+  const plain = await exportAfter(page, async () => {}, 'focus')
+  expect(isRed(pixel(plain, ...redBelow))).toBe(false)
+  expect(isBlue(pixel(plain, ...blueBelow))).toBe(false)
+
+  const blur = page.getByTestId('focus-occlusion-reflectionBlur')
+  await expect(blur).toHaveCount(0)
+  const reflected = await exportAfter(page, () => setSlider(page, 'focus-occlusion-reflection', 100), 'focus')
+  expect(isRed(pixel(reflected, ...redBelow))).toBe(true)
+  expect(isBlue(pixel(reflected, ...blueBelow))).toBe(true)
+  expect(diff(pixel(reflected, ...redAbove), pixel(plain, ...redAbove))).toBeLessThan(4)
+
+  // 水色为绿色时红色的倒影被滤掉
+  const tinted = await exportAfter(
+    page,
+    async () => {
+      await expect(blur).toBeVisible()
+      await page.getByTestId('focus-occlusion-waterColor').click()
+      await page.getByTestId('focus-occlusion-waterColor-hex').fill('00ff00')
+      await page.keyboard.press('Escape')
+    },
+    'focus',
+  )
+  expect(pixel(tinted, ...redBelow)[0]).toBeLessThan(pixel(reflected, ...redBelow)[0] - 100)
+
+  const undone = await exportAfter(
+    page,
+    async () => {
+      await page.getByTestId('undo').click()
+      await page.getByTestId('undo').click()
+    },
+    'focus',
+  )
+  expect(diff(pixel(undone, ...redBelow), pixel(plain, ...redBelow))).toBeLessThan(4)
 })
