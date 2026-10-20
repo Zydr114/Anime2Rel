@@ -2,7 +2,7 @@
  * 站立阴影（docs/Plan.md §3.4 M4 遮挡扩展）：接地点处的接触阴影，以及沿主光源方向投到地面平面上的立绘剪影。
  * GPU 实现见 src/engine/shadow.ts。
  *
- * 地面平面过接地点（接地点的 2.5D 位置）、假设相机水平而取正上方为法线：光源方向是相机空间的，
+ * 地面平面过接地点（接地点的 2.5D 位置），法线为标定的相机给出的上方向（M8.5，相机水平时为正上方）；光源方向是相机空间的，
  * 这样光源仰角与灯光球上看到的一致；深度估计得到的平地法线会随伪深度的偏移明显倾斜，不用来定地面朝向。投影把立绘当作立在接地点上、
  * 朝向光源的竖直平面：地面上沿“背离光源”方向距离接地点 s 的点，对应立绘上高 s·tan(仰角) 的位置。
  * 阴影颜色 = 去掉主光源后的光照 / 全部光照，晴天偏天空色；没有方向明确的光源时投影自然消失。
@@ -12,6 +12,7 @@ import type { Point } from '@/algo/geometry'
 import { focalLength } from '@/algo/normals'
 import { shade, wrapDiffuse } from '@/algo/shading'
 import { LUMA, type ShRgb, type Vec3 } from '@/algo/sh'
+import { cameraUp, horizonLine } from '@/camera/geometry'
 import type { DepthResult } from '@/depth/protocol'
 import { waterActive } from '@/focus/model'
 import { effectiveLight } from '@/lighting/preview'
@@ -26,8 +27,6 @@ const FOOT_BAND = 0.06
 const MIN_SHADOW = 0.2
 /** 接触阴影在阴影颜色基础上再遮住的环境光比例 */
 const CONTACT_OCCLUSION = 0.55
-/** 地面法线：假设相机水平 */
-const UP: Vec3 = [0, 1, 0]
 
 export interface ShadowParams {
   /** 接地点（文档像素）与该处的伪深度 */
@@ -39,8 +38,9 @@ export interface ShadowParams {
   normal: Vec3
   contact: {
     strength: number
-    /** 椭圆中心（文档像素）与横、纵半轴 */
+    /** 椭圆中心（文档像素）、长轴方向（与地平线平行的单位向量）与长、短半轴 */
     center: Point
+    dir: Point
     axes: [number, number]
     softness: number
     /** 阴影最深处的颜色倍率 */
@@ -107,7 +107,7 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
   const ground = characterGround(doc, bg, bbox)
   const depth = characterDepth(doc, background, bbox)
   const at = unproject(ground, depth, bg, fov)
-  const normal = UP
+  const normal = cameraUp(doc.camera)
   const t = doc.charTransform
 
   // 接触阴影：宽度取脚部的不透明宽度，扁度取视线与地面法线夹角的余弦
@@ -153,7 +153,7 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
     groundZ: pseudoDepth(depth),
     focal: focalLength(bg.width, bg.height, fov),
     normal,
-    contact: { strength: s.contact, center, axes: [a, Math.max(1.5, a * aspect)], softness: s.contactSoftness, tint: contactTint },
+    contact: { strength: s.contact, center, dir: horizonLine(doc.camera, bg).dir, axes: [a, Math.max(1.5, a * aspect)], softness: s.contactSoftness, tint: contactTint },
     cast,
   }
 }

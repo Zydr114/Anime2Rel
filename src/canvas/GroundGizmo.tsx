@@ -1,5 +1,6 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { clamp, docToScreen, screenToDoc, type Point } from '@/algo/geometry'
+import { horizonLine } from '@/camera/geometry'
 import { waterActive } from '@/focus/model'
 import { characterBox, characterGround, characterUV } from '@/fusion/placement'
 import { useCharacterInfo, useFusion } from '@/state/fusion'
@@ -11,7 +12,10 @@ const HALF = 14
 /** 水线的颜色 */
 const WATER = 'rgb(125, 211, 252)'
 
-/** 立绘与景深步骤的接地点控件：拖动设置立绘脚下（或水线处）的接地点，双击恢复自动。水体遮挡开启时同时画出整条水线。立绘变形时只显示不响应。 */
+/**
+ * 立绘与景深步骤的接地点控件：拖动设置立绘脚下（或水线处）的接地点，双击恢复自动。水体遮挡开启时同时画出整条水线。立绘变形时只显示不响应。
+ * 标记和水线都与标定的地平线平行。
+ */
 export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
@@ -27,9 +31,15 @@ export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
   const ground = characterGround(doc, background, bbox)
   const at = docToScreen(view, ground)
   const manual = doc.fusion.ground !== null
-  // 水线横跨立绘不透明区域的左右范围，两端各多出一点
-  const xs = characterBox(doc, bbox).map((p) => docToScreen(view, p).x)
-  const water = waterActive(doc.focus) && { x0: Math.min(...xs) - HALF, x1: Math.max(...xs) + HALF }
+  const { dir } = horizonLine(doc.camera, background)
+  const angle = (Math.atan2(dir.y, dir.x) * 180) / Math.PI
+  // 水线沿地平线方向横跨立绘不透明区域，两端各多出一点
+  const ts = characterBox(doc, bbox).map((p) => {
+    const q = docToScreen(view, p)
+    return (q.x - at.x) * dir.x + (q.y - at.y) * dir.y
+  })
+  const along = (t: number) => ({ x: at.x + dir.x * t, y: at.y + dir.y * t })
+  const water = waterActive(doc.focus) && { a: along(Math.min(...ts) - HALF), b: along(Math.max(...ts) + HALF) }
 
   const toDoc = (e: ReactPointerEvent) => {
     const rect = svgRef.current!.getBoundingClientRect()
@@ -69,12 +79,12 @@ export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
     <svg ref={svgRef} className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="ground-gizmo">
       {water && (
         <g data-testid="waterline">
-          <line x1={water.x0} y1={at.y} x2={water.x1} y2={at.y} stroke="rgba(0,0,0,0.5)" strokeWidth={3} />
-          <line x1={water.x0} y1={at.y} x2={water.x1} y2={at.y} stroke={WATER} strokeWidth={1.5} strokeDasharray="6 4" />
+          <line x1={water.a.x} y1={water.a.y} x2={water.b.x} y2={water.b.y} stroke="rgba(0,0,0,0.5)" strokeWidth={3} />
+          <line x1={water.a.x} y1={water.a.y} x2={water.b.x} y2={water.b.y} stroke={WATER} strokeWidth={1.5} strokeDasharray="6 4" />
         </g>
       )}
       <g
-        transform={`translate(${at.x} ${at.y})`}
+        transform={`translate(${at.x} ${at.y}) rotate(${angle})`}
         style={{ pointerEvents: passThrough || warping ? 'none' : 'auto', cursor: 'move' }}
         onPointerDown={down}
         onPointerMove={move}

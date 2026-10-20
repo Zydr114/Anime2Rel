@@ -80,11 +80,14 @@ export function createTileMapping() {
     bgScale: uniform(new THREE.Vector2(1, 1)),
     /** 背景纹理像素 / 文档像素 */
     bgTexel: uniform(1),
+    /** 输出图像 UV 的单应变换（行优先，平时为单位矩阵）；渲染倒影时设为水面的镜像，见 Engine.renderMirror */
+    mirror: uniform(new THREE.Matrix3()),
   }
+  const q = u.mirror.mul(vec3(screenUV.mul(u.scale).add(u.offset), 1))
   return {
     uniforms: u,
     /** 输出图像的 UV（与文档 UV 相同） */
-    uv: screenUV.mul(u.scale).add(u.offset),
+    uv: q.xy.div(q.z),
     /** 输出图像的像素坐标，噪声和抖动按它取值，分块的接缝处连续 */
     pixel: screenCoordinate.xy.add(u.pixel),
     /** 输出图像 UV → 渲染目标 UV */

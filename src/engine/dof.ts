@@ -7,7 +7,7 @@
  * 采样半径取周围 16×16 像素块内弥散圆的最大值，按采样间距选用 mipmap 级别做预模糊。
  */
 import * as THREE from 'three/webgpu'
-import { abs, exp, float, floor, Fn, If, length, log2, Loop, max, min, mix, mx_noise_float, pow, screenCoordinate, screenUV, select, sign, smoothstep, texture, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, dot, exp, float, floor, Fn, If, length, log2, Loop, max, min, mix, mx_noise_float, pow, screenCoordinate, screenUV, select, sign, smoothstep, texture, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl'
 import { DEPTH_SHIFT, MIN_PSEUDO_DEPTH } from '@/focus/dof'
 import { MAX_REGIONS } from '@/focus/model'
 import { BOKEH_SAMPLES, type FocusParams } from '@/focus/params'
@@ -66,11 +66,14 @@ export function createDofUniforms() {
     ),
     /** 区域遮罩（文档空间）：四个通道是第 1–4 个区域的覆盖度 */
     regions: texture(emptyRegions()),
-    /** 水线（文档 y）与立绘不透明区域的高度（文档像素） */
-    waterline: uniform(0),
+    /** 水线：过接地点（文档像素）、与地平线平行；法线指向水下 */
+    waterPoint: uniform(new THREE.Vector2(0, 0)),
+    waterNormal: uniform(new THREE.Vector2(0, 1)),
+    /** 立绘不透明区域的高度（文档像素） */
     charHeight: uniform(1),
-    /** 焦距（文档像素），倒影的反射率按它换算视线与水面的夹角 */
+    /** 焦距（文档像素）与世界的上方向（相机空间），倒影的反射率按它们换算视线与水面的夹角 */
     focal: uniform(1),
+    up: uniform(new THREE.Vector3(0, 1, 0)),
     /** 1 时合成直接使用未模糊的图层（景深关闭、前后对比、法线视图） */
     bypass: uniform(1),
     showMask: uniform(0),
@@ -143,14 +146,20 @@ export function occlusionStyles(u: DofUniforms, uv: Vec2Node): StyleNodes[] {
   })
 }
 
-/** 水线的起伏 [-1, 1]，波长约为立绘高度的 5% */
+/** 沿水线的方向（法线顺时针转 90°，相机水平时为 +x） */
+const waterAlong = (u: DofUniforms): Vec2Node => vec2(u.waterNormal.y, u.waterNormal.x.negate())
+
+/** 水线的起伏 [-1, 1]，沿水线变化，波长约为立绘高度的 5% */
 export function waterWave(u: DofUniforms, p: Vec2Node): FloatNode {
-  return mx_noise_float(vec2(p.x.div(ofHeight(u, 0.05)), 0.37))
+  return mx_noise_float(vec2(dot(p, waterAlong(u)).div(ofHeight(u, 0.05)), 0.37))
 }
+
+/** 文档坐标 p 在水线以下的距离（不计起伏，文档像素） */
+export const belowWaterline = (u: DofUniforms, p: Vec2Node): FloatNode => dot(p.sub(u.waterPoint), u.waterNormal)
 
 /** 文档坐标 p 在水线以下的距离（文档像素），水线的起伏幅度随波纹增大 */
 export function waterDepth(u: DofUniforms, p: Vec2Node, wave: FloatNode, ripple: FloatNode): FloatNode {
-  return p.y.sub(u.waterline.add(wave.mul(ripple).mul(ofHeight(u, 0.012))))
+  return belowWaterline(u, p).sub(wave.mul(ripple).mul(ofHeight(u, 0.012)))
 }
 
 /** 水下部分的折射偏移（文档像素） */
@@ -169,20 +178,20 @@ export const REFLECTION_RIPPLE = 0.03
 /** 视线垂直于水面时的反射率（相对贴近水面时）。真实水面只有约 2%，这里留得较高，倒影强度仍然起作用 */
 const REFLECTANCE_FLOOR = 0.3
 
-/** 倒影的扭曲（文档像素）：横向为主，沿纵向变化快，形成一条条水平的波纹 */
+/** 倒影的扭曲（文档像素）：沿水线为主，垂直于水线变化快，形成一条条与水线平行的波纹 */
 export function reflectionOffset(u: DofUniforms, p: Vec2Node, ripple: FloatNode): Vec2Node {
-  const q = vec2(p.x.div(ofHeight(u, 0.08)), p.y.div(ofHeight(u, 0.012)))
-  const offset = vec2(mx_noise_float(q), mx_noise_float(q.add(vec2(23.1, 7.7))).mul(0.25))
+  const along = waterAlong(u)
+  const q = vec2(dot(p, along).div(ofHeight(u, 0.08)), dot(p, u.waterNormal).div(ofHeight(u, 0.012)))
+  const offset = along.mul(mx_noise_float(q)).add(u.waterNormal.mul(mx_noise_float(q.add(vec2(23.1, 7.7))).mul(0.25)))
   return offset.mul(ripple).mul(ofHeight(u, REFLECTION_RIPPLE))
 }
 
-/**
- * 水面的相对反射率（Schlick 近似）：视线越贴近水面越接近 1，越垂直越接近 REFLECTANCE_FLOOR。
- * 相机水平（地平线在画面中央），与站立阴影的假设一致。
- */
+/** 水面的相对反射率（Schlick 近似）：视线越贴近水面越接近 1，越垂直越接近 REFLECTANCE_FLOOR。 */
 export function reflectance(u: DofUniforms, p: Vec2Node, docSize: Vec2Node): FloatNode {
+  // 穿过 p 的视线（相机空间，y 向上）
   const c = p.sub(docSize.mul(0.5))
-  const cosI = abs(c.y).div(length(vec3(c, u.focal)))
+  const ray = vec3(c.x, c.y.negate(), u.focal.negate())
+  const cosI = abs(dot(ray, u.up)).div(length(ray))
   return mix(REFLECTANCE_FLOOR, 1, pow(float(1).sub(cosI), 5))
 }
 
@@ -362,7 +371,9 @@ export function applyFocusParams(u: DofUniforms, params: FocusParams): boolean {
     ;(u.styleB.array[i] as THREE.Vector4).set(s.highlight, s.ripple, s.reflection, s.reflectionBlur)
     ;(u.styleC.array[i] as THREE.Vector4).set(s.reflectionRipple, ...s.waterColor)
   })
-  u.waterline.value = o.waterline
+  u.waterPoint.value.set(o.water.point.x, o.water.point.y)
+  u.waterNormal.value.set(o.water.normal.x, o.water.normal.y)
+  u.up.value.set(...o.water.up)
   u.charHeight.value = Math.max(o.height, 1)
   u.focal.value = o.focal
   return changed || kernelChanged

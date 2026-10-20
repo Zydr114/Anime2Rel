@@ -1,7 +1,7 @@
 // 渲染各阶段使用的 TSL 材质。所有中间结果都是线性 sRGB；立绘使用预乘 alpha。
 import * as THREE from 'three/webgpu'
 import { abs, cos, dot, exp, float, fract, fwidth, length, log2, max, mix, saturate, screenCoordinate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
-import { cocPx, isMode, MODE, occlusionStyles, reflectance, REFLECTION_BLUR, reflectionOffset, refraction, sampleLevel, waterDepth, waterEdge, waterWave, type DofUniforms } from './dof'
+import { belowWaterline, cocPx, isMode, MODE, occlusionStyles, reflectance, REFLECTION_BLUR, reflectionOffset, refraction, sampleLevel, waterDepth, waterEdge, waterWave, type DofUniforms } from './dof'
 import { DEPTH_SHIFT } from '@/focus/dof'
 import { createFusionNode } from './fusion'
 import type { ShadowUniforms } from './shadow'
@@ -287,7 +287,7 @@ export function createCompositePass(input: { placement: Placement; background: T
   const docSize = placement.uniforms.docSize
   // 文档像素 → 渲染目标像素
   const toTarget = dof.targetLong.div(max(docSize.x, docSize.y))
-  const blurPx = max(p.y.sub(dof.waterline), 0).mul(reflectionBlur.mul(REFLECTION_BLUR)).mul(toTarget)
+  const blurPx = max(belowWaterline(dof, p), 0).mul(reflectionBlur.mul(REFLECTION_BLUR)).mul(toTarget)
   const planeCoc = cocPx(dof, float(1).div(dof.planeZ).sub(DEPTH_SHIFT))
   const reflectionLod = log2(max(length(vec2(blurPx, planeCoc)), 1))
   const reflectionUV = screenUV.add(reflectionOffset(dof, p, reflectionRipple).div(docSize).div(placement.tile.uniforms.scale))

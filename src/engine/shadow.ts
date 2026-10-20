@@ -20,6 +20,7 @@ export function createShadowUniforms() {
     normal: uniform(new THREE.Vector3(0, 1, 0)),
     contactStrength: uniform(0),
     contactCenter: uniform(new THREE.Vector2()),
+    contactDir: uniform(new THREE.Vector2(1, 0)),
     contactAxes: uniform(new THREE.Vector2(1, 1)),
     contactSoftness: uniform(0.5),
     contactTint: uniform(new THREE.Vector3(1, 1, 1)),
@@ -42,8 +43,9 @@ export function createShadowPass(u: ShadowUniforms, placement: Placement, charac
   const pu = placement.uniforms
   const p = placement.p
 
-  // 接触阴影：以脚部为中心的椭圆
-  const r = length(p.sub(u.contactCenter).div(u.contactAxes))
+  // 接触阴影：以脚部为中心、与地平线平行的椭圆
+  const d = p.sub(u.contactCenter)
+  const r = length(vec2(dot(d, u.contactDir), dot(d, vec2(u.contactDir.y.negate(), u.contactDir.x))).div(u.contactAxes))
   const contact = float(1).sub(smoothstep(float(1).sub(mix(0.25, 1, u.contactSoftness)), 1, r))
 
   // 当前像素的视线与地面平面的交点（伪深度 t）
@@ -82,6 +84,7 @@ export function applyShadowParams(u: ShadowUniforms, params: ShadowParams): void
   const { contact, cast } = params
   u.contactStrength.value = contact.strength
   u.contactCenter.value.set(contact.center.x, contact.center.y)
+  u.contactDir.value.set(contact.dir.x, contact.dir.y)
   u.contactAxes.value.set(...contact.axes)
   u.contactSoftness.value = contact.softness
   u.contactTint.value.set(...contact.tint)

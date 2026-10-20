@@ -966,20 +966,18 @@ export class Engine {
   }
 
   /**
-   * 倒影：按水线上下镜像的位置再渲染一次立绘层和立绘层调整（输出图像的 UV 纵向翻转），得到与当前渲染目标对齐的镜像立绘。
-   * 局部调整的系数沿用正常渲染的结果，按翻转后的 UV 取到立绘原处的系数；tone 按镜像重新计算。分块导出时每一块各自渲染镜像。
+   * 倒影：按水面镜像的位置再渲染一次立绘层和立绘层调整（输出图像的 UV 经过镜像的单应变换），得到与当前渲染目标对齐的镜像立绘。
+   * 相机水平时镜像就是关于水线的上下翻转。
+   * 局部调整的系数沿用正常渲染的结果，按镜像后的 UV 取到立绘原处的系数；tone 按镜像重新计算。分块导出时每一块各自渲染镜像。
    */
   private renderMirror(targets: LayerTargets, effects: Effects): void {
     const r = this.renderer
     const { width, height } = targets.character
     for (const key of MIRROR_KEYS) if (targets[key].width !== width || targets[key].height !== height) targets[key].setSize(width, height)
-    const t = this.tile.uniforms
-    const { y: offset } = t.offset.value
-    const { y: scale } = t.scale.value
-    const waterline = this.dof.waterline.value / this.docSize!.height
+    const mirror = this.tile.uniforms.mirror.value
     const character = this.layerNodes.character
-    t.offset.value.y = 2 * waterline - offset
-    t.scale.value.y = -scale
+    const [a, b, c, d, e, f, g, h, i] = this.focus!.occlusion.water.mirror
+    mirror.set(a, b, c, d, e, f, g, h, i)
     try {
       r.setRenderTarget(targets.mirror)
       this.quads.character.render(r)
@@ -992,8 +990,7 @@ export class Engine {
       this.quads.characterAdjust.render(r)
     } finally {
       character.value = targets.character.texture
-      t.offset.value.y = offset
-      t.scale.value.y = scale
+      mirror.identity()
     }
   }
 
@@ -1106,7 +1103,11 @@ export class Engine {
     const water = effects.occlusion ? u.charHeight.value * (0.008 + (effects.reflection ? REFLECTION_RIPPLE : 0)) : 0
     // 倒影在画面底部的 mip 模糊半径（输出像素），与弥散圆一样需要对齐和扩展
     const blur = effects.reflection ? Math.max(...this.focus!.occlusion.styles.map((s) => (s.reflection > 0 ? s.reflectionBlur : 0))) : 0
-    const reflection = blur * REFLECTION_BLUR * Math.max(this.docSize!.height - u.waterline.value, 0) * scale
+    // 画面中离水线最远的一角
+    const { width: w, height: h } = this.docSize!
+    const { point, normal } = this.focus!.occlusion.water
+    const below = Math.max(0, ...[0, w].flatMap((x) => [0, h].map((y) => (x - point.x) * normal.x + (y - point.y) * normal.y)))
+    const reflection = blur * REFLECTION_BLUR * below * scale
     return tilePlan({
       long,
       scale,
