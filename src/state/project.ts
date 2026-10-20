@@ -21,6 +21,7 @@ import {
   type OcclusionStyle,
 } from '@/focus/model'
 import { DEFAULT_FUSION, RELIGHT_STYLES, type FusionDoc } from '@/fusion/model'
+import { conformWarp, IDENTITY_WARP } from '@/fusion/warp'
 import { conformGrade, conformPost, embedLuts, gradeForFile, lutResolver } from '@/grade/preset'
 import { bool, fields, num, oneOf, record, text, type Json } from '@/io/conform'
 import { DEFAULT_INTENSITY, DEFAULT_LIGHTING, MAX_LIGHTS, newLightId, type Light, type LightingDoc } from '@/lighting/model'
@@ -77,6 +78,7 @@ export function projectManifest(doc: DocState, step: StepId, assets: { backgroun
       background: slot(doc.background, assets.background),
       character: doc.character && assets.character ? slot(doc.character, assets.character) : null,
       charTransform: doc.charTransform,
+      charWarp: doc.charWarp,
       lighting: { ...lighting, analyzed: analyzedFor === doc.background.id },
       fusion: doc.fusion,
       focus: doc.focus,
@@ -263,6 +265,7 @@ export function conformProject(manifest: Json, slots: { background: AssetRef; ch
     background,
     character,
     charTransform: conformTransform(o.charTransform),
+    charWarp: character ? conformWarp(o.charWarp) : IDENTITY_WARP,
     lighting,
     fusion: conformFusion(o.fusion, !!character),
     focus: conformFocus(o.focus, !!character),

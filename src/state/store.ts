@@ -3,6 +3,7 @@ import type { AssetRef } from './assets'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
 import { DEFAULT_FOCUS, DEFAULT_STYLE, MAX_REGIONS, newRegionId, type BrushStroke, type FocusDoc, type FocusSection, type OcclusionRegion, type OcclusionStyle } from '@/focus/model'
 import { DEFAULT_FUSION, type FusionDoc, type FusionSection } from '@/fusion/model'
+import { IDENTITY_WARP, resampleGrid, UNIT_CORNERS, gridPoints, type CharWarp, type WarpGridSize } from '@/fusion/warp'
 import {
   DEFAULT_ADJUST,
   DEFAULT_CREATIVE,
@@ -30,6 +31,8 @@ export interface DocState {
   background: AssetRef | null
   character: AssetRef | null
   charTransform: LayerTransform
+  /** 立绘变形，在立绘自身的坐标中、移动缩放之前进行 */
+  charWarp: CharWarp
   lighting: LightingDoc
   fusion: FusionDoc
   focus: FocusDoc
@@ -45,6 +48,7 @@ export const initialDoc: DocState = {
   background: null,
   character: null,
   charTransform: emptyTransform,
+  charWarp: IDENTITY_WARP,
   lighting: DEFAULT_LIGHTING,
   fusion: DEFAULT_FUSION,
   focus: DEFAULT_FOCUS,
@@ -79,6 +83,11 @@ interface AppState {
   setCharacter: (asset: AssetRef | null) => void
   setCharTransform: (update: Partial<LayerTransform>) => void
   resetCharTransform: () => void
+  setCharWarp: (warp: CharWarp) => void
+  /** 换一种网格密度，保持当前的形状 */
+  setWarpGrid: (grid: WarpGridSize) => void
+  /** 恢复透视或网格变形中的一种 */
+  resetCharWarp: (part: 'perspective' | 'grid') => void
 
   setLighting: (update: Partial<Omit<LightingDoc, 'lights'>>) => void
   /** 添加光源；达到上限时返回 false */
@@ -260,10 +269,11 @@ export const useApp = create<AppState>()((set, get) => ({
       // 立绘上的焦点和接地点只对原来的立绘有意义
       const focus = d.focus.target?.kind === 'character' ? { ...d.focus, target: null } : d.focus
       const fusion = d.fusion.ground ? { ...d.fusion, ground: null } : d.fusion
-      if (!asset) return { ...d, character: null, focus, fusion }
+      if (!asset) return { ...d, character: null, focus, fusion, charWarp: IDENTITY_WARP }
+      // 换成同样尺寸的立绘（例如修改过的版本）时保留摆放和变形
       const keep = d.character && d.character.width === asset.width && d.character.height === asset.height
       const charTransform = keep || !d.background ? d.charTransform : defaultLayerTransform(d.background, asset)
-      return { ...d, character: asset, charTransform, focus, fusion }
+      return { ...d, character: asset, charTransform, charWarp: keep ? d.charWarp : IDENTITY_WARP, focus, fusion }
     })
   },
 
@@ -275,6 +285,25 @@ export const useApp = create<AppState>()((set, get) => ({
     const { background, character } = get().doc
     if (!background || !character) return
     get().setDoc((d) => ({ ...d, charTransform: defaultLayerTransform(background, character) }))
+  },
+
+  setCharWarp: (charWarp) => {
+    get().setDoc((d) => (d.charWarp === charWarp ? d : { ...d, charWarp }))
+  },
+
+  setWarpGrid: (grid) => {
+    get().setDoc((d) => {
+      const charWarp = resampleGrid(d.charWarp, grid)
+      return charWarp === d.charWarp ? d : { ...d, charWarp }
+    })
+  },
+
+  resetCharWarp: (part) => {
+    get().setDoc((d) => {
+      const w = d.charWarp
+      const charWarp = part === 'perspective' ? { ...w, corners: UNIT_CORNERS.map((p) => ({ ...p })) } : { ...w, points: gridPoints(w.grid) }
+      return { ...d, charWarp }
+    })
   },
 
   setLighting: (update) => {
