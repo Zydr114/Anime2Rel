@@ -967,7 +967,7 @@ export class Engine {
 
   /**
    * 倒影：按水线上下镜像的位置再渲染一次立绘层和立绘层调整（输出图像的 UV 纵向翻转），得到与当前渲染目标对齐的镜像立绘。
-   * 局部调整的系数沿用正常渲染的结果（按输出图像的 UV 采样），tone 按镜像重新计算。分块导出时每一块各自渲染镜像。
+   * 局部调整的系数沿用正常渲染的结果，按翻转后的 UV 取到立绘原处的系数；tone 按镜像重新计算。分块导出时每一块各自渲染镜像。
    */
   private renderMirror(targets: LayerTargets, effects: Effects): void {
     const r = this.renderer
