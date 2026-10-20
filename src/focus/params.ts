@@ -1,5 +1,8 @@
 /** 焦点深度与景深着色器参数（docs/Plan.md §3.4），GPU 实现见 src/engine/dof.ts。 */
+import { hexToLinear } from '@/algo/color'
 import type { Point } from '@/algo/geometry'
+import { focalLength } from '@/algo/normals'
+import type { Vec3 } from '@/algo/sh'
 import type { DepthResult } from '@/depth/protocol'
 import { characterBox, characterDepth, characterGround, characterPoint } from '@/fusion/placement'
 import type { CharacterInfo } from '@/fusion/protocol'
@@ -89,19 +92,18 @@ export interface FocusParams {
     /** 水线（文档 y，过接地点的水平线）与立绘不透明区域的高度（文档像素），水体的深浅和波纹按它换算 */
     waterline: number
     height: number
+    /** 焦距（文档像素），倒影的菲涅尔反射率按视线与水面的夹角计算 */
+    focal: number
   }
 }
 
-/** 着色器使用的遮挡方式：mode 为 OCCLUSION_MODES 中的序号 */
-export type StyleParams = Omit<OcclusionStyle, 'mode'> & { mode: number }
+/** 着色器使用的遮挡方式：mode 为 OCCLUSION_MODES 中的序号，水色为线性 RGB */
+export type StyleParams = Omit<OcclusionStyle, 'mode' | 'waterColor'> & { mode: number; waterColor: Vec3 }
 
-const styleParams = ({ mode, clarity, density, detail, highlight, ripple }: OcclusionStyle): StyleParams => ({
+const styleParams = ({ mode, waterColor, ...rest }: OcclusionStyle): StyleParams => ({
+  ...rest,
   mode: OCCLUSION_MODES.indexOf(mode),
-  clarity,
-  density,
-  detail,
-  highlight,
-  ripple,
+  waterColor: hexToLinear(waterColor) ?? [1, 1, 1],
 })
 
 /** 水线：过接地点的水平线（文档 y） */
@@ -111,6 +113,7 @@ export function waterline(doc: DocState, info: CharacterInfo | undefined): numbe
 
 export function focusParams(input: FocusInputs): FocusParams {
   const { dof, occlusion } = input.doc.focus
+  const bg = input.doc.background
   const relief = characterRelief(input)
   const focus = focusDepth(input, relief)
   const enabled = dof.enabled && dof.aperture > 0
@@ -131,6 +134,7 @@ export function focusParams(input: FocusInputs): FocusParams {
       styles: Array.from({ length: 1 + MAX_REGIONS }, (_, i) => styleParams((i > 0 && occlusion.regions[i - 1]) || occlusion)),
       waterline: waterline(input.doc, input.info),
       height: characterHeight(input.doc, input.info),
+      focal: bg ? focalLength(bg.width, bg.height, input.doc.lighting.fovDeg) : 1,
     },
   }
 }

@@ -23,7 +23,7 @@ import {
 import { DEFAULT_FUSION, RELIGHT_STYLES, type FusionDoc } from '@/fusion/model'
 import { conformWarp, IDENTITY_WARP } from '@/fusion/warp'
 import { conformGrade, conformPost, embedLuts, gradeForFile, lutResolver } from '@/grade/preset'
-import { bool, fields, num, oneOf, record, text, type Json } from '@/io/conform'
+import { bool, fields, hex, num, oneOf, record, text, type Json } from '@/io/conform'
 import { DEFAULT_INTENSITY, DEFAULT_LIGHTING, MAX_LIGHTS, newLightId, type Light, type LightingDoc } from '@/lighting/model'
 import type { AssetRef } from './assets'
 import { rescaleDoc, type DocState, type StepId } from './store'
@@ -208,7 +208,10 @@ function conformFusion(v: unknown, hasCharacter: boolean): FusionDoc {
   }
 }
 
-const conformStyle = (v: unknown): OcclusionStyle => fields(v, DEFAULT_STYLE, {}, { mode: OCCLUSION_MODES })
+const conformStyle = (v: unknown): OcclusionStyle => ({
+  ...fields(v, DEFAULT_STYLE, {}, { mode: OCCLUSION_MODES }),
+  waterColor: hex(record(v).waterColor, DEFAULT_STYLE.waterColor),
+})
 
 function conformStroke(v: unknown): BrushStroke | null {
   const o = record(v)
@@ -238,15 +241,14 @@ function conformFocus(v: unknown, hasCharacter: boolean): FocusDoc {
   const d = DEFAULT_FOCUS
   const dof = record(o.dof)
   const occlusion = record(o.occlusion)
-  const { regions: _regions, enabled, tolerance, softness, snap, ...style } = d.occlusion
-  void _regions
+  const { enabled, tolerance, softness, snap } = d.occlusion
   return {
     dof: { ...fields(dof, d.dof, { aperture: [0, 0.05], range: [0, 0.2], rotation: [0, Math.PI] }), blades: oneOf(dof.blades, BOKEH_BLADES, 0) },
     target: conformTarget(o.target, hasCharacter),
     thickness: num(o.thickness, d.thickness, 0, 0.5),
     occlusion: {
       ...fields(occlusion, { enabled, tolerance, softness, snap }, { tolerance: [0, 0.3], softness: [0, 0.2] }),
-      ...fields(occlusion, style, {}, { mode: OCCLUSION_MODES }),
+      ...conformStyle(occlusion),
       regions: (Array.isArray(occlusion.regions) ? occlusion.regions.slice(0, MAX_REGIONS) : []).map(conformRegion),
     },
   }

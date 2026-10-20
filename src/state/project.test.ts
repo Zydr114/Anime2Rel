@@ -27,7 +27,7 @@ function sampleDoc(): DocState {
       ...DEFAULT_FOCUS,
       dof: { ...DEFAULT_FOCUS.dof, blades: 6 },
       target: { kind: 'background', x: 100, y: 80 },
-      occlusion: { ...DEFAULT_FOCUS.occlusion, enabled: true, mode: 'water', regions: [{ ...DEFAULT_STYLE, mode: 'medium', id: 'region-x', strokes: [{ erase: false, radius: 12, points: [10, 20, 30, 40] }] }] },
+      occlusion: { ...DEFAULT_FOCUS.occlusion, enabled: true, mode: 'water', reflection: 0.6, waterColor: '#9fc4d0', regions: [{ ...DEFAULT_STYLE, mode: 'medium', id: 'region-x', strokes: [{ erase: false, radius: 12, points: [10, 20, 30, 40] }] }] },
     },
     grade: { ...initialDoc.grade, creative: { ...initialDoc.grade.creative, layers: [{ ...newBlendLayer(), opacity: 0.3 }] } },
     post: {

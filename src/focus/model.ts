@@ -28,6 +28,14 @@ export interface OcclusionStyle {
   highlight: number
   /** 水体：水线起伏与水下部分的折射扰动 */
   ripple: number
+  /** 水体：立绘倒影的强度，0 为没有倒影 */
+  reflection: number
+  /** 水体：倒影离水线越远越模糊的程度 */
+  reflectionBlur: number
+  /** 水体：倒影随波纹扭曲的幅度 */
+  reflectionRipple: number
+  /** 水体：倒影按这个颜色过滤（sRGB 十六进制），白色为不改变 */
+  waterColor: string
 }
 
 /** 画笔笔画：文档坐标的折线，按半径画出圆头粗线；橡皮擦除之前画过的部分 */
@@ -88,7 +96,18 @@ export function waterActive(focus: FocusDoc): boolean {
   return o.enabled && (o.mode === 'water' || o.regions.some((r) => r.mode === 'water' && r.strokes.length > 0))
 }
 
-export const DEFAULT_STYLE: OcclusionStyle = { mode: 'opaque', clarity: 0.6, density: 0.3, detail: 0.3, highlight: 0.3, ripple: 0.2 }
+export const DEFAULT_STYLE: OcclusionStyle = {
+  mode: 'opaque',
+  clarity: 0.6,
+  density: 0.3,
+  detail: 0.3,
+  highlight: 0.3,
+  ripple: 0.2,
+  reflection: 0,
+  reflectionBlur: 0.3,
+  reflectionRipple: 0.3,
+  waterColor: '#ffffff',
+}
 
 export const DEFAULT_FOCUS: FocusDoc = {
   dof: { enabled: true, aperture: 0.01, range: 0.03, blades: 0, rotation: 0 },
