@@ -6,8 +6,11 @@ import {
   IDENTITY_WARP,
   isIdentityWarp,
   isValidWarp,
+  moveCorner,
+  moveGridPoint,
   rasterizeWarp,
   resampleGrid,
+  resetCorner,
   unwarpPoint,
   warpMesh,
   warpPoint,
@@ -93,6 +96,24 @@ describe('character warp', () => {
       expect(v).toBeCloseTo((Math.floor(i / 8) + 0.5) / 8, 6)
     })
     expect(new Set(seen).size).toBe(64)
+  })
+
+  it('moves corners and control points to where they are dragged', () => {
+    const target = { x: 0.15, y: -0.1 }
+    const cornered = moveCorner(both, 0, target)!
+    close(warpPoint(cornered, { x: 0, y: 0 }), target)
+    // 其余三个角不动，网格变形不变
+    close(warpPoint(cornered, { x: 1, y: 1 }), warpPoint(both, { x: 1, y: 1 }))
+    expect(cornered.points).toBe(both.points)
+    // 拖过对角线时四角交叉，不接受
+    expect(moveCorner(both, 0, { x: 1.3, y: 1.2 })).toBeNull()
+    // 透视之后的控制点落在拖到的位置
+    const node = { x: 2 / 3, y: 1 / 3 }
+    const moved = moveGridPoint(both, 6, { x: 0.7, y: 0.2 })!
+    close(warpPoint(moved, node), { x: 0.7, y: 0.2 })
+    // 四个角逐一去掉透视后回到只有网格变形
+    const flat = [0, 1, 2, 3].reduce<CharWarp>((w, i) => resetCorner(w, i)!, both)
+    for (const p of [node, { x: 0.2, y: 0.9 }]) close(warpPoint(flat, p), warpPoint(bent, p))
   })
 
   it('conforms warps read from files', () => {

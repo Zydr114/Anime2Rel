@@ -20,6 +20,7 @@ import { GroundGizmo } from './GroundGizmo'
 import { LightGizmo } from './LightGizmo'
 import { RegionBrush } from './RegionBrush'
 import { TransformGizmo } from './TransformGizmo'
+import { WarpGizmo } from './WarpGizmo'
 import { useSpaceHeld } from './useSpaceHeld'
 
 const WHEEL_ZOOM_SPEED = 0.0015
@@ -244,6 +245,7 @@ export function Viewport() {
         <FocusGizmo passThrough={spaceHeld || panning} />
         <RegionBrush passThrough={spaceHeld || panning} />
         <GroundGizmo passThrough={spaceHeld || panning} />
+        <WarpGizmo passThrough={spaceHeld || panning} />
       </div>
       {dragOver && (
         <div className="pointer-events-none absolute inset-4 flex items-center justify-center rounded-3xl border-2 border-dashed border-primary/70 bg-primary/10 text-lg">

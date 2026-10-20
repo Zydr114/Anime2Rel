@@ -381,6 +381,56 @@ export function rasterizeWarp(mesh: WarpMesh, box: Bounds, width: number, height
   })
 }
 
+// ── 编辑 ──
+
+const inRange = (p: Point) => p.x >= WARP_MIN && p.x <= WARP_MAX && p.y >= WARP_MIN && p.y <= WARP_MAX
+const clampPoint = (p: Point): Point => ({ x: Math.min(WARP_MAX, Math.max(WARP_MIN, p.x)), y: Math.min(WARP_MAX, Math.max(WARP_MIN, p.y)) })
+
+/**
+ * 把变形后立绘的第 i 个角（左上、右上、右下、左下）移到 target（变形后的立绘 UV），网格变形不变：
+ * 重新求把网格四角映射到新四角的透视。四角不再构成凸四边形或变形不可用时返回 null。
+ */
+export function moveCorner(w: CharWarp, i: number, target: Point): CharWarp | null {
+  const dst = UNIT_CORNERS.map((c, k) => (k === i ? target : warpPoint(w, c)))
+  if (!isConvex(dst)) return null
+  const h = homography(
+    gridCornerIndices(w.grid).map((k) => w.points[k]),
+    dst,
+  )
+  if (!h) return null
+  const corners = UNIT_CORNERS.map((c) => project(h, c))
+  if (!corners.every((c) => c.w > 0 && inRange(c))) return null
+  const next = { ...w, corners: corners.map(({ x, y }) => ({ x, y })) }
+  return isValidWarp(next) ? next : null
+}
+
+/** 把第 k 个控制点移到 target（透视之后，变形后的立绘 UV），超出范围时限制在范围内。变形不可用时返回 null */
+export function moveGridPoint(w: CharWarp, k: number, target: Point): CharWarp | null {
+  let p = target
+  const { h } = compile(w)
+  if (h) {
+    const inv = invertHomography(h)
+    const q = inv && project(inv, target)
+    if (!q || !(q.w > 0)) return null
+    p = q
+  }
+  const next = { ...w, points: w.points.map((v, i) => (i === k ? clampPoint(p) : v)) }
+  return isValidWarp(next) ? next : null
+}
+
+/** 去掉第 i 个角的透视：这个角回到只有网格变形时的位置 */
+export function resetCorner(w: CharWarp, i: number): CharWarp | null {
+  return hasPerspective(w) ? moveCorner(w, i, w.points[gridCornerIndices(w.grid)[i]]) : w
+}
+
+/** 第 k 个控制点回到默认位置 */
+export function resetGridPoint(w: CharWarp, k: number): CharWarp | null {
+  const d = gridPoints(w.grid)[k]
+  if (near(w.points[k], d)) return w
+  const next = { ...w, points: w.points.map((v, i) => (i === k ? d : v)) }
+  return isValidWarp(next) ? next : null
+}
+
 // ── 工程文件 ──
 
 function conformPoints(v: unknown, count: number): Point[] | null {

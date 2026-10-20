@@ -2,7 +2,7 @@ import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { clamp, docToScreen, screenToDoc, type Point } from '@/algo/geometry'
 import { waterActive } from '@/focus/model'
 import { characterBox, characterGround, characterUV } from '@/fusion/placement'
-import { useCharacterInfo } from '@/state/fusion'
+import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 
 /** 接地点标记的半宽（屏幕像素） */
@@ -11,11 +11,12 @@ const HALF = 14
 /** 水线的颜色 */
 const WATER = 'rgb(125, 211, 252)'
 
-/** 立绘与景深步骤的接地点控件：拖动设置立绘脚下（或水线处）的接地点，双击恢复自动。水体遮挡开启时同时画出整条水线。 */
+/** 立绘与景深步骤的接地点控件：拖动设置立绘脚下（或水线处）的接地点，双击恢复自动。水体遮挡开启时同时画出整条水线。立绘变形时只显示不响应。 */
 export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
+  const warping = useFusion((s) => s.tool !== 'transform') && step === 'character'
   const bbox = useCharacterInfo(doc)?.bbox
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ id: number; offset: Point } | null>(null)
@@ -74,7 +75,7 @@ export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
       )}
       <g
         transform={`translate(${at.x} ${at.y})`}
-        style={{ pointerEvents: passThrough ? 'none' : 'auto', cursor: 'move' }}
+        style={{ pointerEvents: passThrough || warping ? 'none' : 'auto', cursor: 'move' }}
         onPointerDown={down}
         onPointerMove={move}
         onPointerUp={end}

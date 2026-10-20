@@ -1,10 +1,13 @@
 import { useCallback, useRef } from 'react'
 import { useGestureChange } from '../useGestureChange'
 import type { Switch } from 'mdui/components/switch.js'
+import { hasGridWarp, hasPerspective, WARP_GRID_SIZES, type WarpGridSize } from '@/fusion/warp'
 import { t } from '@/i18n'
+import { CHARACTER_TOOLS, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 import { SliderField } from '@/ui/SliderField'
 import { NumberField } from '@/ui/NumberField'
+import { Segmented } from '@/ui/Segmented'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { FusionSections } from './FusionSections'
 
@@ -12,6 +15,7 @@ const RAD = Math.PI / 180
 
 const formatPercent = (v: number) => `${Math.round(v)}%`
 const formatDegrees = (v: number) => `${v.toFixed(1)}°`
+const GRID_OPTIONS = WARP_GRID_SIZES.map(String)
 
 export function CharacterPanel() {
   const character = useApp((s) => s.doc.character)
@@ -44,8 +48,44 @@ export function CharacterPanel() {
         </mdui-button>
         <p className="text-xs leading-5 text-on-surface-variant">{t.character.gizmoHint}</p>
       </section>
+      <WarpSection />
       <FusionSections />
     </div>
+  )
+}
+
+function WarpSection() {
+  const warp = useApp((s) => s.doc.charWarp)
+  const tool = useFusion((s) => s.tool)
+  const w = t.character.warp
+  return (
+    <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3" data-testid="warp-section">
+      <h3 className="text-sm font-medium">{w.title}</h3>
+      <span className="text-sm">{w.tool}</span>
+      <Segmented value={tool} options={CHARACTER_TOOLS} label={(v) => w.tools[v]} onChange={useFusion.getState().setTool} testId="warp-tool" />
+      {tool === 'mesh' && (
+        <>
+          <span className="text-sm">{w.grid}</span>
+          <Segmented
+            value={String(warp.grid)}
+            options={GRID_OPTIONS}
+            label={(v) => `${v} × ${v}`}
+            onChange={(v) => useApp.getState().setWarpGrid(Number(v) as WarpGridSize)}
+            testId="warp-grid"
+          />
+        </>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <mdui-button variant="outlined" disabled={!hasPerspective(warp) || undefined} onClick={() => useApp.getState().resetCharWarp('perspective')} data-testid="warp-reset-perspective">
+          {w.resetPerspective}
+        </mdui-button>
+        <mdui-button variant="outlined" disabled={!hasGridWarp(warp) || undefined} onClick={() => useApp.getState().resetCharWarp('grid')} data-testid="warp-reset-grid">
+          {w.resetGrid}
+        </mdui-button>
+      </div>
+      <p className="text-xs leading-5 text-on-surface-variant">{w.hints[tool]}</p>
+      <p className="text-xs leading-5 text-on-surface-variant">{w.limit}</p>
+    </section>
   )
 }
 

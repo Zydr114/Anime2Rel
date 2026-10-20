@@ -1,5 +1,8 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
-import { docToScreen, layerCorners, screenToDoc, type LayerTransform, type Point } from '@/algo/geometry'
+import { docToScreen, screenToDoc, type LayerTransform, type Point } from '@/algo/geometry'
+import { characterOutline, characterPoint } from '@/fusion/placement'
+import { UNIT_CORNERS } from '@/fusion/warp'
+import { useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 
 const HANDLE_RADIUS = 6
@@ -18,18 +21,19 @@ interface Drag {
 
 const angleOf = (p: Point, c: Point) => Math.atan2(p.y - c.y, p.x - c.x)
 
-/** 立绘变换控件：拖动主体移动，四角等比缩放，上方圆点旋转。 */
+/** 立绘变换控件：拖动主体移动，四角等比缩放，上方圆点旋转。控件跟随变形后立绘的外框；立绘步骤选择变形工具时隐藏。 */
 export function TransformGizmo({ passThrough }: { passThrough: boolean }) {
-  const character = useApp((s) => s.doc.character)
-  const transform = useApp((s) => s.doc.charTransform)
+  const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
+  const tool = useFusion((s) => s.tool)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<Drag | null>(null)
 
-  if (!character || (step !== 'assets' && step !== 'character')) return null
+  const { character, charTransform: transform } = doc
+  if (!character || (step !== 'assets' && step !== 'character') || (step === 'character' && tool !== 'transform')) return null
 
-  const corners = layerCorners(transform, character).map((p) => docToScreen(view, p))
+  const corners = UNIT_CORNERS.map((c) => docToScreen(view, characterPoint(doc, c)))
   const center = docToScreen(view, transform)
   const topMid = { x: (corners[0].x + corners[1].x) / 2, y: (corners[0].y + corners[1].y) / 2 }
   // 旋转手柄沿立绘“上方”方向偏移固定的屏幕距离
@@ -80,7 +84,10 @@ export function TransformGizmo({ passThrough }: { passThrough: boolean }) {
   }
 
   const handlers = { onPointerDown: begin, onPointerMove: move, onPointerUp: end, onPointerCancel: end }
-  const points = corners.map((p) => `${p.x},${p.y}`).join(' ')
+  const points = characterOutline(doc)
+    .map((p) => docToScreen(view, p))
+    .map((p) => `${p.x},${p.y}`)
+    .join(' ')
   const interactive = passThrough ? 'none' : 'auto'
 
   return (
