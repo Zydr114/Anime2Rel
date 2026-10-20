@@ -450,6 +450,7 @@ test('a character dragged in the calibrated camera keeps its height in the scene
 
   // 向地平线拖动：缩小，身高读数不变
   const height = page.getByTestId('char-height')
+  await expect(height).toHaveAttribute('data-state', 'ready')
   await expect(height).toContainText(' m')
   const meters = await height.innerText()
   const scale = await sliderValue(page, 'char-scale')

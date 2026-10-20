@@ -98,7 +98,8 @@ function CameraSection() {
         </>
       )}
       <div className="flex flex-col gap-1">
-        <span className="font-medium tabular-nums" data-testid="char-height">
+        {/* 立绘的不透明区域在后台算出之前，读数按整张图估算 */}
+        <span className="font-medium tabular-nums" data-testid="char-height" data-state={info ? 'ready' : 'pending'}>
           {meters === null ? c.heightUnknown : c.height(`${meters.toFixed(2)} m`)}
         </span>
         <Hint>{c.heightHint}</Hint>
