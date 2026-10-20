@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { pixelToRay } from '@/algo/camera'
 import { renderScene } from '@/analysis/synthetic'
+import { docPixels } from './canvas'
 import { exportPixels, pixel, type ExportedImage } from './export'
 import { figure } from './figure'
 import { encodePng, makeImage } from './png'
@@ -443,10 +444,15 @@ test('the camera is calibrated before the other steps, by the horizon or by para
 test('a character dragged in the calibrated camera keeps its height in the scene and can be put into its perspective', async ({ page }, info) => {
   await page.goto(`/${rendererQuery(info.project.metadata.renderer)}`)
   await importAndStart(page, [['drop-background', 'bg.png', gradient], ['drop-character', 'figure.png', figure(240, 480)]], false)
+  // 标定时只显示背景原图：脸所在处是背景，确认后才画出立绘
+  const face = async () => Math.min(...(await docPixels(page, [[0.5, 0.34]]))[0])
+  await page.waitForTimeout(1000)
+  expect(await face()).toBeLessThan(120)
   await setSlider(page, 'camera-pitch', -15)
   await setSlider(page, 'camera-roll', 4)
   await page.getByTestId('camera-confirm').click()
   await page.getByTestId('step-character').click()
+  await expect.poll(face).toBeGreaterThan(150)
 
   // 向地平线拖动：缩小，身高读数不变
   const height = page.getByTestId('char-height')

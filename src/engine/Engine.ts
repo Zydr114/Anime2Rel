@@ -167,6 +167,8 @@ export interface FusionDisplay {
   showNormals: boolean
   /** 预览中用红色叠加显示深度遮挡的遮罩 */
   showMask: boolean
+  /** 预览只显示背景原图，不画立绘，也不做任何处理（相机标定步骤） */
+  original: boolean
 }
 
 interface Effects {
@@ -320,7 +322,7 @@ export class Engine {
   private matte: { map: MatteMap; foreground: THREE.DataTexture; background: THREE.DataTexture } | null = null
   private matteApplied = false
   private readonly mattePlaceholders = [makePlaceholder(), makePlaceholder()] as const
-  private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false }
+  private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
@@ -697,10 +699,18 @@ export class Engine {
     }
     applyFinishParams(this.finish, this.grade?.creative ?? null, effects.grade)
     applyPostParams(this.post, this.postParams, effects.post)
-    this.present.uniforms.dither.value = effects.dither ? 1 : 0
     this.encode.dither.value = effects.dither ? 1 : 0
+    this.syncPresent()
     this.docDirty = true
     this.schedule()
+  }
+
+  /** 视口显示合成结果，或者背景原图；原图的像素正好落在量化级上，不需要抖动 */
+  private syncPresent(): void {
+    const original = this.display.original && !!this.bgTexture
+    this.present.document.value = original ? this.bgTexture! : this.docRT.texture
+    this.present.uniforms.dither.value = !original && this.effects(this.display).dither ? 1 : 0
+    this.viewDirty = true
   }
 
   /** 设置去除残留底色用的前景色与背景色；同一个对象不会重复上传。 */
@@ -774,6 +784,7 @@ export class Engine {
     }
     this.backgroundNode.value = this.bgTexture ?? this.placeholder
     this.backgroundDirty = true
+    this.syncPresent()
   }
 
   private syncCharacter(doc: DocState): void {
@@ -998,7 +1009,8 @@ export class Engine {
     if (this.disposed) return
     const r = this.renderer
     if (this.warpDirty && !this.exporting) this.applyWarp()
-    if (this.docDirty && this.docSize && !this.exporting) {
+    // 只显示原图时不渲染文档，回到其他步骤时再渲染
+    if (this.docDirty && this.docSize && !this.exporting && !this.display.original) {
       this.renderDocument(this.layers, this.docRT, this.effects(this.display), 'preview', this.backgroundDirty)
       this.backgroundDirty = false
       this.docDirty = false
@@ -1028,7 +1040,7 @@ export class Engine {
     const bg = this.doc?.background
     if (!size || !bg || !this.docSize) throw new Error('没有可导出的文档')
     // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
-    const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false }
+    const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false }
     const effects = this.effects(display)
     const skip: SkipLayers = {
       backgroundDof: !effects.dof,

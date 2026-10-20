@@ -93,9 +93,9 @@ export function Viewport() {
           e.setShadow(currentShadowParams(doc))
           e.setGrade(gradeParams(doc.grade))
           e.setPost(postParams(doc.post, doc.lighting, doc.background, doc.camera.fovDeg, doc.focus.dof))
-          // 调色、后期步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果
+          // 调色、后期步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果；相机标定只看背景原图
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
-          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus' })
+          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus', original: step === 'camera' })
         }
         const syncAll = () => {
           e.setDocument(useApp.getState().doc)
