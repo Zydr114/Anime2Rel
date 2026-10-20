@@ -241,31 +241,43 @@ export function homographyToUV(h: Homography, size: Size): Homography {
   return mat3(mat3(inv, h), s)
 }
 
+/**
+ * 立在 foot 处地面上的竖直线上、画面中最接近 top 的点离地面的高度（米，可能为负）；foot 不在地面上时为 null。
+ * 用于测量杆和身高读数。
+ */
+export function heightAbove(c: CameraDoc, size: Size, foot: Point, top: Point): number | null {
+  const p0 = groundPoint(c, size, foot)
+  if (!p0) return null
+  const up = cameraUp(c)
+  // 竖直线 p0 + s·up 与穿过 top 的射线最接近的位置
+  const r = ray(top, size, cameraFocal(c, size))
+  const b = dot(up, r)
+  const cc = dot(r, r)
+  const denom = cc - b * b
+  return denom < 1e-12 ? null : (b * dot(r, p0) - cc * dot(up, p0)) / denom
+}
+
+/** foot 处地面上方 height 米的点在画面上的位置；看不到时为 null */
+export function pointAbove(c: CameraDoc, size: Size, foot: Point, height: number): Point | null {
+  const p0 = groundPoint(c, size, foot)
+  return p0 && projectPoint(add(p0, cameraUp(c), height), size, cameraFocal(c, size))
+}
+
 /** 画面中立在 foot 处、高 heightPx 像素的物体，在世界中的高度（米）；foot 不在地面上时为 null */
 export function standingHeight(c: CameraDoc, size: Size, foot: Point, heightPx: number): number | null {
   const p0 = groundPoint(c, size, foot)
   if (!p0) return null
-  const f = cameraFocal(c, size)
-  const up = cameraUp(c)
   // 画面中物体向上的方向：竖直线的投影
-  const tip = projectPoint(add(p0, up, 1e-3 * Math.hypot(...p0)), size, f)
+  const tip = pointAbove(c, size, foot, 1e-3 * Math.hypot(...p0))
   if (!tip) return null
   const len = Math.hypot(tip.x - foot.x, tip.y - foot.y) || 1
-  const top = { x: foot.x + ((tip.x - foot.x) / len) * heightPx, y: foot.y + ((tip.y - foot.y) / len) * heightPx }
-  // 竖直线 p0 + s·up 与穿过 top 的射线最接近的位置
-  const r = ray(top, size, f)
-  const b = dot(up, r)
-  const cc = dot(r, r)
-  const denom = cc - b * b
-  if (denom < 1e-12) return null
-  const s = (b * dot(r, p0) - cc * dot(up, p0)) / denom
-  return s > 0 ? s : null
+  const s = heightAbove(c, size, foot, { x: foot.x + ((tip.x - foot.x) / len) * heightPx, y: foot.y + ((tip.y - foot.y) / len) * heightPx })
+  return s !== null && s > 0 ? s : null
 }
 
 /** 立在地面上、世界中高 height 米的物体在 foot 处的画面高度（像素）；看不到时为 null */
 function standingPixels(c: CameraDoc, size: Size, foot: Point, height: number): number | null {
-  const p0 = groundPoint(c, size, foot)
-  const top = p0 && projectPoint(add(p0, cameraUp(c), height), size, cameraFocal(c, size))
+  const top = pointAbove(c, size, foot, height)
   return top ? Math.hypot(top.x - foot.x, top.y - foot.y) : null
 }
 

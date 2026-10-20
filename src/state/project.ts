@@ -7,7 +7,7 @@
 import type { LayerTransform, Point } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
 import type { Estimator } from '@/analysis/protocol'
-import { CALIBRATION_METHODS, DEFAULT_CAMERA, FOV_RANGE, HEIGHT_RANGE, LINE_AXES, PITCH_LIMIT, ROLL_LIMIT, type CameraDoc, type CameraLines, type Segment } from '@/camera/model'
+import { CALIBRATION_METHODS, DEFAULT_CAMERA, FOV_RANGE, HEIGHT_RANGE, HEIGHT_SOURCES, LINE_AXES, PITCH_LIMIT, ROLL_LIMIT, type CameraDoc, type CameraLines, type Segment } from '@/camera/model'
 import {
   BOKEH_BLADES,
   DEFAULT_FOCUS,
@@ -219,6 +219,7 @@ function conformCamera(v: unknown): CameraDoc {
     roll: num(o.roll, d.roll, -ROLL_LIMIT, ROLL_LIMIT),
     yaw: num(o.yaw, d.yaw, -Math.PI, Math.PI),
     height: num(o.height, d.height, ...HEIGHT_RANGE),
+    heightSource: oneOf(o.heightSource, HEIGHT_SOURCES, d.heightSource),
     method: oneOf(o.method, CALIBRATION_METHODS, d.method),
     lines: conformLines(o.lines),
     confirmed: bool(o.confirmed, false),

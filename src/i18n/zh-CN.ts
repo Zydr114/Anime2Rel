@@ -2,7 +2,7 @@
 import type { Estimator } from '@/analysis/protocol'
 import type { SolveError } from '@/camera/geometry'
 import type { GuideKind } from '@/camera/guides'
-import type { CalibrationMethod, LineAxis } from '@/camera/model'
+import type { CalibrationMethod, HeightSource, LineAxis } from '@/camera/model'
 import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
 import type { FlareElementType, FlarePresetId } from '@/grade/flare'
@@ -98,7 +98,7 @@ export const zhCN = {
     axes: { horizontal: '水平（蓝）', vertical: '竖直（绿）' } as Record<LineAxis, string>,
     axisHint: '水平：地面上与红色线垂直的方向，对应蓝轴。竖直：墙角、柱子等竖直的边，对应绿轴，俯拍或仰拍时它们在画面中汇聚。',
     resetLines: '按当前标定重新放置',
-    solved: '求解结果',
+
     solveErrors: {
       'parallel-first': '红色线在画面上平行，求不出消失点。请沿照片中会汇聚的边放置。',
       'parallel-second': '第二组线在画面上平行，求不出消失点。相机水平时竖直的边互相平行，这时请改用地平线方式。',
@@ -106,8 +106,32 @@ export const zhCN = {
       'out-of-range': '求出的视场角、俯仰或倾斜超出了允许的范围。',
     } as Record<SolveError, string>,
     keepLast: '暂时保持上一个可用的结果。',
-    height: '相机高度',
-    heightHint: '相机离地面的高度，只用来换算地面网格的间距（每格 1 m）和人物的身高读数，不影响画面。',
+    result: {
+      title: '标定结果',
+      hfov: '横向视场角',
+      vfov: '纵向视场角',
+      height: '相机高度',
+      sources: { default: '默认值', manual: '手动填写', measured: '测量杆' } as Record<HeightSource, string>,
+    },
+    scale: {
+      title: '场景尺寸',
+      why: '为什么要标定：一张照片只能求出相机的朝向和视场角，求不出大小。同样的画面，可能是真实的街道，也可能是缩小的模型。只有告诉程序画面中某个东西有多高，才能确定相机离地面多高，从而知道画面各处的实际尺寸。',
+      use: '场景尺寸决定参考形状的大小和立绘步骤中的身高读数。不标定时，人物可能被摆得像巨人或小人而不自知；之后的 3D 视图也按它确定距离。它不直接改变画面。',
+      sources: {
+        default: '尚未标定，按默认的相机高度 1.6 m 估算',
+        manual: '已手动填写相机高度',
+        measured: '已按测量杆标定',
+      } as Record<HeightSource, string>,
+      rod: '测量杆高度',
+      rodUnknown: '底端不在地面上',
+      real: '实际高度（m）',
+      apply: '按测量杆设定',
+      applyFailed: '测量杆的底端不在地面上，无法换算',
+      rodHint: '把画布上白色测量杆的底端拖到照片中某个物体的脚下（地面上），顶端拖到它的顶部，填入它的实际高度后按“按测量杆设定”。常见高度：门约 2.0 m，成年人 1.6–1.8 m，轿车约 1.5 m，一层楼约 3 m。设定之后，把测量杆拖到别的物体上可以读出它们的高度，用来检查。',
+      height: '相机高度',
+      heightHint: '也可以直接填写相机离地面的高度，例如三脚架的高度；站着手持拍摄约 1.5 m。',
+      unset: '场景尺寸尚未标定，参考形状和身高读数按默认相机高度 1.6 m 估算。可以在下方“场景尺寸”中用测量杆标定。',
+    },
     guide: {
       title: '参考形状',
       kind: '形状',
@@ -142,7 +166,7 @@ export const zhCN = {
       showGrid: '显示地面网格',
       height: (meters: string) => `身高约 ${meters}`,
       heightUnknown: '接地点在地平线以上，无法换算身高',
-      heightHint: '按相机步骤中的相机高度换算，帮助判断大小是否合理。',
+      heightHint: '按相机步骤中标定的场景尺寸换算，帮助判断大小是否合理。尚未标定场景尺寸时，按默认的相机高度 1.6 m 估算。',
       apply: '按相机透视',
       applyHint: '按相机的俯仰和倾斜给立绘加上竖直方向的透视（俯拍时上宽下窄），写入四角透视，人物在画面中的高度不变。之后可以继续调整或重置透视。',
       applyFailed: '接地点不在地面上，无法按相机透视',

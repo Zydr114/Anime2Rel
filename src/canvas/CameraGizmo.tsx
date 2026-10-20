@@ -1,10 +1,10 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent, type SVGProps } from 'react'
 import { clamp, docToScreen, screenToDoc, type Point, type Size } from '@/algo/geometry'
-import { groundPoint, horizonLine, orientationFromHorizon, solveLines } from '@/camera/geometry'
-import { AXIS_COLORS, dragOrigin, grabHeight, yawToward } from '@/camera/guides'
+import { groundPoint, heightAbove, horizonLine, orientationFromHorizon, pointAbove, solveLines } from '@/camera/geometry'
+import { AXIS_COLORS, dragOrigin, grabHeight, ROD_HEIGHT, yawToward } from '@/camera/guides'
 import type { CameraDoc, CameraLines } from '@/camera/model'
 import { characterGround } from '@/fusion/placement'
-import { guideOrigin, useCameraGuide } from '@/state/cameraGuide'
+import { guideOrigin, guideRod, useCameraGuide } from '@/state/cameraGuide'
 import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
 import { GuideLayer, type GuideTarget } from './CameraGuide'
@@ -23,6 +23,9 @@ const HANDLE_X = [0.15, 0.85] as const
 const HANDLE_R = 7
 /** 相机步骤中暗化照片的程度 */
 const DIM = 0.45
+/** 测量杆的颜色和最小高度（米） */
+const ROD = 'rgb(250, 250, 250)'
+const ROD_MIN = 0.05
 
 /** 空心的准星控制点：圆环加中心的小点，不挡住要对准的位置 */
 function Crosshair({ at, color, ...rest }: { at: Point; color: string } & SVGProps<SVGCircleElement>) {
@@ -42,6 +45,10 @@ type Drag =
   | { id: number; kind: 'line'; pair: Pair; segment: 0 | 1; end: 0 | 1; offset: Point }
   | { id: number; kind: 'guide'; origin: Point; height: number; start: Point }
   | { id: number; kind: 'rotate'; axis: 'x' | 'z'; origin: Point }
+  | { id: number; kind: 'rod'; part: 'foot' | 'top' | 'body'; foot: Point; meters: number; offset: Point }
+
+/** 只改变界面状态、不进撤销记录的拖动 */
+const undoable = (d: Drag) => d.kind !== 'guide' && d.kind !== 'rod'
 
 /** 地平线上横坐标为 x 的点（文档坐标） */
 function horizonAt(c: CameraDoc, size: Size, x: number): Point {
@@ -96,6 +103,9 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
   const { background, camera } = doc
   if (!background || step !== 'camera') return null
   const origin = guideOrigin(doc, guide.origin)!
+  const rod = guideRod(doc, guide.rod)!
+  const rodMeters = heightAbove(camera, background, rod.foot, rod.top)
+  const rodTop = pointAbove(camera, background, rod.foot, Math.max(rodMeters ?? 0, ROD_MIN)) ?? rod.top
 
   const toScreen = (p: Point) => docToScreen(view, p)
   const toDoc = (e: ReactPointerEvent) => {
@@ -118,7 +128,7 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
     e.preventDefault()
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     // 移动参考形状不改变文档，不进撤销记录
-    if (drag.kind !== 'guide') useApp.getState().beginGesture()
+    if (undoable(drag)) useApp.getState().beginGesture()
     dragRef.current = drag
     return true
   }
@@ -128,6 +138,13 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
     const p = toDoc(e)
     const height = target === 'origin' ? 0 : grabHeight(camera, background, guide.kind, origin, p, guide.boxSize)
     if (begin(e, { id: e.pointerId, kind: 'guide', origin, height, start: target === 'origin' ? origin : p }) && target === 'origin') focusOn(origin)
+  }
+
+  const beginRod = (e: ReactPointerEvent<SVGElement>, part: 'foot' | 'top' | 'body') => {
+    const p = toDoc(e)
+    const at = part === 'top' ? rodTop : rod.foot
+    const drag: Drag = { id: e.pointerId, kind: 'rod', part, foot: rod.foot, meters: rodMeters ?? ROD_HEIGHT, offset: { x: at.x - p.x, y: at.y - p.y } }
+    if (begin(e, drag)) focusOn(at, [rod.foot, rodTop], ROD)
   }
 
   const beginHorizon = (e: ReactPointerEvent<SVGElement>, which: 0 | 1 | 'both') => {
@@ -153,6 +170,17 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
       const moved = dragOrigin(c, bg, d.origin, d.height, d.start, p)
       if (moved) useCameraGuide.getState().setOrigin(bg.id, moved)
       if (moved && focus) focusOn(moved)
+      return
+    }
+    if (d.kind === 'rod') {
+      const q = { x: p.x + d.offset.x, y: p.y + d.offset.y }
+      // 移动时高度不变；拖动顶端时沿竖直方向改变高度
+      const foot = d.part === 'top' ? d.foot : q
+      const meters = d.part === 'top' ? heightAbove(c, bg, d.foot, q) : d.meters
+      const top = meters !== null && groundPoint(c, bg, foot) ? pointAbove(c, bg, foot, Math.max(meters, ROD_MIN)) : null
+      if (!top) return
+      useCameraGuide.getState().setRod(bg.id, foot, top)
+      focusOn(d.part === 'top' ? top : foot, [foot, top], ROD)
       return
     }
     if (d.kind === 'rotate') {
@@ -185,7 +213,7 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
     if (d?.id !== e.pointerId) return
     dragRef.current = null
     setFocus(null)
-    if (d.kind !== 'guide') useApp.getState().endGesture()
+    if (undoable(d)) useApp.getState().endGesture()
   }
 
   const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: end }
@@ -210,6 +238,14 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
         rotatable={camera.method === 'horizon'}
         handlers={handlers}
         passThrough={passThrough}
+      />
+      <MeasuringRod
+        foot={toScreen(rod.foot)}
+        top={toScreen(rodTop)}
+        meters={rodMeters}
+        interactive={interactive}
+        onGrab={beginRod}
+        handlers={handlers}
       />
       <g data-testid="horizon">
         <line x1={h0.x} y1={h0.y} x2={h1.x} y2={h1.y} stroke="rgba(0,0,0,0.5)" strokeWidth={3} />
@@ -275,5 +311,51 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
     </svg>
     {focus && <Loupe assetId={background.id} view={view} focus={focus} />}
     </>
+  )
+}
+
+/** 测量杆：竖直的杆，旁边标出高度。拖动底端或杆身在地面上移动，拖动顶端改变高度 */
+function MeasuringRod({
+  foot,
+  top,
+  meters,
+  interactive,
+  onGrab,
+  handlers,
+}: {
+  foot: Point
+  top: Point
+  meters: number | null
+  interactive: 'none' | 'auto'
+  onGrab: (e: ReactPointerEvent<SVGElement>, part: 'foot' | 'top' | 'body') => void
+  handlers: Pick<SVGProps<SVGElement>, 'onPointerMove' | 'onPointerUp' | 'onPointerCancel'>
+}) {
+  const len = Math.hypot(top.x - foot.x, top.y - foot.y) || 1
+  // 两端的短横线垂直于杆
+  const n = { x: (-(top.y - foot.y) / len) * 6, y: ((top.x - foot.x) / len) * 6 }
+  const tick = (p: Point) => `M${p.x - n.x},${p.y - n.y}L${p.x + n.x},${p.y + n.y}`
+  const path = `M${foot.x},${foot.y}L${top.x},${top.y}${tick(foot)}${tick(top)}`
+  return (
+    <g data-testid="camera-rod">
+      <path d={path} stroke="rgba(0,0,0,0.55)" strokeWidth={4.5} fill="none" strokeLinecap="round" pointerEvents="none" />
+      <path d={path} stroke={ROD} strokeWidth={2} fill="none" strokeLinecap="round" pointerEvents="none" />
+      <line
+        x1={foot.x}
+        y1={foot.y}
+        x2={top.x}
+        y2={top.y}
+        stroke="transparent"
+        strokeWidth={14}
+        style={{ pointerEvents: interactive, cursor: 'move' }}
+        onPointerDown={(e) => onGrab(e, 'body')}
+        {...handlers}
+        data-testid="rod-body"
+      />
+      <Crosshair at={foot} color={ROD} style={{ pointerEvents: interactive, cursor: 'move' }} onPointerDown={(e) => onGrab(e, 'foot')} {...handlers} data-testid="rod-foot" />
+      <Crosshair at={top} color={ROD} style={{ pointerEvents: interactive, cursor: 'ns-resize' }} onPointerDown={(e) => onGrab(e, 'top')} {...handlers} data-testid="rod-top" />
+      <text x={top.x + 12} y={top.y + 4} fill="white" stroke="rgba(0,0,0,0.7)" strokeWidth={3} paintOrder="stroke" fontSize={13} fontWeight={600} pointerEvents="none" data-testid="rod-label">
+        {meters === null ? '—' : `${meters.toFixed(2)} m`}
+      </text>
+    </g>
   )
 }

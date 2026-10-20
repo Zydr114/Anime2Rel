@@ -5,6 +5,10 @@
  */
 import type { Point } from '@/algo/geometry'
 
+/** 场景尺寸（相机高度）的来源：默认值、手动填写、按测量杆换算 */
+export const HEIGHT_SOURCES = ['default', 'manual', 'measured'] as const
+export type HeightSource = (typeof HEIGHT_SOURCES)[number]
+
 export const CALIBRATION_METHODS = ['horizon', 'lines'] as const
 export type CalibrationMethod = (typeof CALIBRATION_METHODS)[number]
 
@@ -32,8 +36,9 @@ export interface CameraDoc {
   roll: number
   /** 参考形状的方向（弧度）：红轴绕世界的上方向，相对相机横轴在地面上的投影的角度。只用于显示 */
   yaw: number
-  /** 相机离地的高度（米）：只用来换算地面网格的间距和人物的身高读数 */
+  /** 相机离地的高度（米），即场景尺寸：只用来换算参考形状的大小和人物的身高读数 */
   height: number
+  heightSource: HeightSource
   method: CalibrationMethod
   /** 平行线方式的线段；还没有用过这种方式时为 null，切换过去时按当前的标定生成 */
   lines: CameraLines | null
@@ -54,6 +59,7 @@ export const DEFAULT_CAMERA: CameraDoc = {
   roll: 0,
   yaw: 0,
   height: 1.6,
+  heightSource: 'default',
   method: 'horizon',
   lines: null,
   confirmed: false,

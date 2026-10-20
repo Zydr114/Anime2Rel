@@ -1,13 +1,15 @@
 import { useCallback } from 'react'
-import { linesFromCamera, solveLines } from '@/camera/geometry'
+import { cameraFocal, heightAbove, linesFromCamera, solveLines } from '@/camera/geometry'
 import { BOX_RANGE, GUIDE_KINDS } from '@/camera/guides'
 import { CALIBRATION_METHODS, FOV_RANGE, HEIGHT_RANGE, LINE_AXES, PITCH_LIMIT, ROLL_LIMIT, type CalibrationMethod, type CameraDoc, type LineAxis } from '@/camera/model'
 import { t } from '@/i18n'
-import { useCameraGuide } from '@/state/cameraGuide'
+import { guideRod, useCameraGuide } from '@/state/cameraGuide'
 import { useApp } from '@/state/store'
 import { Segmented } from '@/ui/Segmented'
 import { SelectField } from '@/ui/SelectField'
 import { SliderField } from '@/ui/SliderField'
+import { NumberField } from '@/ui/NumberField'
+import { notify } from '../notify'
 import { useGestureChange } from '../useGestureChange'
 import { Hint, Section, ToggleRow } from './FusionSections'
 
@@ -33,8 +35,9 @@ export function CameraPanel() {
         <Hint>{method === 'horizon' ? t.camera.horizonHint : t.camera.linesHint}</Hint>
       </Section>
       {method === 'horizon' ? <HorizonSection /> : <LinesSection />}
+      <ResultSection />
+      <ScaleSection />
       <GuideSection />
-      <HeightSection />
     </div>
   )
 }
@@ -70,6 +73,7 @@ function ConfirmSection() {
           <span className="font-medium">{t.camera.confirmed}</span>
         </div>
         <Hint>{t.camera.confirmedHint}</Hint>
+        <ScaleNotice />
       </section>
     )
   }
@@ -80,11 +84,22 @@ function ConfirmSection() {
         <span className="font-medium">{t.camera.locked}</span>
       </div>
       <Hint>{t.camera.lockedHint}</Hint>
+      <ScaleNotice />
       <mdui-button variant="filled" onClick={() => useApp.getState().confirmCamera()} data-testid="camera-confirm">
         {t.camera.confirm}
       </mdui-button>
     </section>
   )
+}
+
+/** 场景尺寸尚未标定时的提示 */
+function ScaleNotice() {
+  const unset = useApp((s) => s.doc.camera.heightSource === 'default')
+  return unset ? (
+    <p className="text-xs leading-5 text-champagne" data-testid="camera-scale-unset">
+      {t.camera.scale.unset}
+    </p>
+  ) : null
 }
 
 function useCameraSlider(key: 'fovDeg' | 'pitch' | 'roll' | 'yaw', k = 1) {
@@ -120,18 +135,12 @@ function LinesSection() {
       <span>{t.camera.axis}</span>
       <Segmented value={axis} options={LINE_AXES} label={(v) => t.camera.axes[v]} onChange={resetLines} testId="camera-axis" />
       <Hint>{t.camera.axisHint}</Hint>
-      <div className="flex flex-col gap-1 rounded-xl bg-white/5 px-3 py-2" data-testid="camera-solution">
-        <span className="text-on-surface-variant">{t.camera.solved}</span>
-        <span className="tabular-nums">
-          {t.camera.fov} {formatDegrees(camera.fovDeg)} · {t.camera.pitch} {formatDegrees(camera.pitch * DEG)} · {t.camera.roll} {formatDegrees(camera.roll * DEG)}
+      {solved && !solved.ok && (
+        <span className="text-xs leading-5 text-error" data-testid="camera-solve-error">
+          {t.camera.solveErrors[solved.error]}
+          {t.camera.keepLast}
         </span>
-        {solved && !solved.ok && (
-          <span className="text-xs leading-5 text-error" data-testid="camera-solve-error">
-            {t.camera.solveErrors[solved.error]}
-            {t.camera.keepLast}
-          </span>
-        )}
-      </div>
+      )}
       <mdui-button variant="outlined" onClick={() => resetLines(axis)} data-testid="camera-reset-lines">
         <mdui-icon-restart-alt--outlined slot="icon" />
         {t.camera.resetLines}
@@ -161,13 +170,85 @@ function GuideSection() {
   )
 }
 
-function HeightSection() {
-  const height = useApp((s) => s.doc.camera.height)
-  const onHeight = useGestureChange(useCallback((v: number) => useApp.getState().updateCamera({ height: toHeight(v) }), []))
+/** 两种方式统一的标定结果 */
+function ResultSection() {
+  const camera = useApp((s) => s.doc.camera)
+  const background = useApp((s) => s.doc.background)
+  if (!background) return null
+  const f = cameraFocal(camera, background)
+  const fov = (side: number) => formatDegrees(2 * Math.atan(side / 2 / f) * DEG)
+  const r = t.camera.result
+  const rows: [string, string][] = [
+    [r.hfov, fov(background.width)],
+    [r.vfov, fov(background.height)],
+    [t.camera.pitch, formatDegrees(camera.pitch * DEG)],
+    [t.camera.roll, formatDegrees(camera.roll * DEG)],
+    [t.camera.yaw, formatDegrees(camera.yaw * DEG)],
+    [r.height, `${formatMeters(camera.height)}（${r.sources[camera.heightSource]}）`],
+  ]
   return (
-    <Section title={t.camera.height}>
-      <SliderField label={t.camera.height} value={fromHeight(height)} min={0} max={100} step={0.1} format={formatHeight} onChange={onHeight} testId="camera-height" />
-      <Hint>{t.camera.heightHint}</Hint>
+    <Section title={r.title} testId="camera-solution">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+        {rows.map(([k, v]) => (
+          <div key={k} className="contents">
+            <dt className="text-on-surface-variant">{k}</dt>
+            <dd className="text-right tabular-nums">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </Section>
+  )
+}
+
+const formatMeters = (m: number) => `${Number(m.toPrecision(3))} m`
+
+/** 按测量杆的读数与实际高度之比换算相机高度 */
+function applyRod(): void {
+  const s = useApp.getState()
+  const { camera, background } = s.doc
+  const g = useCameraGuide.getState()
+  const rod = guideRod(s.doc, g.rod)
+  const measured = rod && background ? heightAbove(camera, background, rod.foot, rod.top) : null
+  if (!measured || measured <= 0 || g.rodReal <= 0) return notify(t.camera.scale.applyFailed)
+  const height = Math.min(H1, Math.max(H0, (camera.height * g.rodReal) / measured))
+  s.updateCamera({ height, heightSource: 'measured' })
+}
+
+function ScaleSection() {
+  const doc = useApp((s) => s.doc)
+  const { rod, rodReal, setRodReal } = useCameraGuide()
+  const { camera, background } = doc
+  const current = guideRod(doc, rod)
+  const measured = current && background ? heightAbove(camera, background, current.foot, current.top) : null
+  const onHeight = useGestureChange(
+    useCallback((v: number) => {
+      const c = useApp.getState().doc.camera
+      // 程序赋值（撤销、按测量杆设定）后滑块也会发出 change，与当前值相差不到半步时不当作手动填写
+      if (Math.abs(fromHeight(c.height) - v) < 0.05) return
+      useApp.getState().updateCamera({ height: toHeight(v), heightSource: 'manual' })
+    }, []),
+  )
+  const sc = t.camera.scale
+  return (
+    <Section title={sc.title} testId="camera-scale">
+      <Hint>{sc.why}</Hint>
+      <Hint>{sc.use}</Hint>
+      <p className={camera.heightSource === 'default' ? 'font-medium text-champagne' : 'font-medium'} data-testid="camera-scale-status">
+        {sc.sources[camera.heightSource]}
+      </p>
+      <div className="flex items-baseline justify-between px-1">
+        <span className="text-on-surface-variant">{sc.rod}</span>
+        <span className="font-medium tabular-nums" data-testid="camera-rod-reading">
+          {measured === null ? sc.rodUnknown : `${measured.toFixed(2)} m`}
+        </span>
+      </div>
+      <NumberField label={sc.real} value={rodReal} onCommit={(v) => v > 0 && setRodReal(v)} testId="camera-rod-real" />
+      <mdui-button variant="tonal" onClick={applyRod} data-testid="camera-rod-apply">
+        {sc.apply}
+      </mdui-button>
+      <Hint>{sc.rodHint}</Hint>
+      <SliderField label={sc.height} value={fromHeight(camera.height)} min={0} max={100} step={0.1} format={formatHeight} onChange={onHeight} testId="camera-height" />
+      <Hint>{sc.heightHint}</Hint>
     </Section>
   )
 }

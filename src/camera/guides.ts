@@ -4,7 +4,7 @@
  */
 import type { Point, Size } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
-import { cameraFocal, groundAxes, groundPoint, horizonLine, projectPoint, ray, sceneAxes } from './geometry'
+import { cameraFocal, groundAxes, groundPoint, horizonLine, pointAbove, projectPoint, ray, sceneAxes } from './geometry'
 import type { CameraDoc } from './model'
 import { add, dot, mul } from './vec'
 
@@ -141,6 +141,19 @@ export function defaultOrigin(c: CameraDoc, size: Size): Point {
   if (groundPoint(c, size, p)) return p
   const h = horizonLine(c, size)
   return { x: h.point.x + h.normal.x * 0.25 * size.height, y: h.point.y + h.normal.y * 0.25 * size.height }
+}
+
+/** 测量杆的初始高度（米） */
+export const ROD_HEIGHT = 1.7
+
+/** 测量杆的默认位置：底端在画面左下部，高 ROD_HEIGHT */
+export function defaultRod(c: CameraDoc, size: Size): { foot: Point; top: Point } {
+  let foot = { x: size.width * 0.3, y: size.height * 0.85 }
+  if (!groundPoint(c, size, foot)) {
+    const o = defaultOrigin(c, size)
+    foot = { x: o.x - size.width * 0.2, y: o.y }
+  }
+  return { foot, top: pointAbove(c, size, foot, ROD_HEIGHT) ?? { x: foot.x, y: foot.y - size.height * 0.2 } }
 }
 
 /** 参考形状在画面上的样子；origin 不在地面上或 kind 为 none 时为 null */

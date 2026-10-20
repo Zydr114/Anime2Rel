@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { project } from '@/fusion/warp'
-import { horizonLine, linesFromCamera, mirrorHomography, orientationFromHorizon, solveLines, standingHeight, standingPerspective, standingScale } from './geometry'
+import { heightAbove, horizonLine, linesFromCamera, mirrorHomography, orientationFromHorizon, pointAbove, solveLines, standingHeight, standingPerspective, standingScale } from './geometry'
 import { DEFAULT_CAMERA, type CameraDoc } from './model'
 
 const size = { width: 800, height: 600 }
@@ -62,6 +62,10 @@ describe('camera geometry', () => {
     // 向地平线移动一半的距离，画面中的大小减半
     expect(standingScale(c, size, { x: 400, y: 500 }, { x: 300, y: 400 }, 200)).toBeCloseTo(0.5, 6)
     expect(standingScale(c, size, { x: 400, y: 500 }, { x: 400, y: 250 }, 200)).toBeNull()
+    // 测量杆：俯视且倾斜时，量出的高度与立起的高度一致
+    const tilted = { ...c, pitch: -15 * deg, roll: 4 * deg }
+    const top = pointAbove(tilted, size, { x: 250, y: 480 }, 2.3)!
+    expect(heightAbove(tilted, size, { x: 250, y: 480 }, top)).toBeCloseTo(2.3, 6)
   })
 
   it('stands the character up in perspective', () => {
