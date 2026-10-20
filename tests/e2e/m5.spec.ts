@@ -46,6 +46,7 @@ async function open(page: Page, renderer: string) {
     await (await chooser).setFiles({ name, mimeType: 'image/png', buffer })
   }
   await page.getByTestId('start').click()
+  await page.getByTestId('camera-confirm').click()
   // 等光源分析和融合统计就绪，之后立绘的颜色不再变化
   await page.getByTestId('step-light').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })

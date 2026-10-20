@@ -38,6 +38,7 @@ async function open(page: Page, renderer: string) {
     await (await chooser).setFiles({ name, mimeType: 'image/png', buffer })
   }
   await page.getByTestId('start').click()
+  await page.getByTestId('camera-confirm').click()
   // 等深度、光源分析和融合统计都就绪，之后立绘的颜色不再变化；自动对焦也需要立绘的不透明包围盒
   await page.getByTestId('step-depth').click()
   for (const layer of ['background', 'character'])

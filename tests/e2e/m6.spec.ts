@@ -72,6 +72,7 @@ test('a project survives a reload and round-trips through a .a2r file', async ({
     await (await chooser).setFiles({ name, mimeType: 'image/png', buffer })
   }
   await page.getByTestId('start').click()
+  await page.getByTestId('camera-confirm').click()
   await settle(page)
 
   // 改动几类参数：立绘位置与翻转、遮挡区域之外的景深参数、LUT、后期
@@ -137,6 +138,7 @@ async function importAndStart(page: Page, files: [testId: string, name: string, 
     await (await chooser).setFiles({ name, mimeType: 'image/png', buffer })
   }
   await page.getByTestId('start').click()
+  await page.getByTestId('camera-confirm').click()
 }
 
 /** 各通道差值的最大值、平均值，以及超过 tolerance 的比例 */

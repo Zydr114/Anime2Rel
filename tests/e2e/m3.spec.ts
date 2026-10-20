@@ -38,6 +38,7 @@ async function open(page: Page, renderer: string, background: Buffer) {
     await (await chooser).setFiles({ name, mimeType: 'image/png', buffer })
   }
   await page.getByTestId('start').click()
+  await page.getByTestId('camera-confirm').click()
 }
 
 async function fusionReady(page: Page) {

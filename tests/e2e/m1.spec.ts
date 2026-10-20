@@ -54,6 +54,7 @@ async function start(page: Page, renderer: string) {
   await page.getByTestId('drop-background').click()
   await (await chooser).setFiles({ name: 'scene.png', mimeType: 'image/png', buffer: image })
   await page.getByTestId('start').click()
+  await page.getByTestId('camera-confirm').click()
   await page.getByTestId('step-depth').click()
 }
 

@@ -33,6 +33,7 @@ async function open(page: Page, renderer: string, image: Buffer) {
   await page.getByTestId('drop-background').click()
   await (await chooser).setFiles({ name: 'scene.png', mimeType: 'image/png', buffer: image })
   await page.getByTestId('start').click()
+  await page.getByTestId('camera-confirm').click()
   await page.getByTestId('step-light').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
 }

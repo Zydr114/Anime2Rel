@@ -12,13 +12,17 @@ test.setTimeout(180_000)
 
 const rendererQuery = (renderer: unknown) => (renderer === 'webgl' ? '?renderer=webgl' : '')
 
-async function importAndStart(page: Page, files: [testId: string, name: string, buffer: Buffer][]) {
-  for (const [testId, name, buffer] of files) {
-    const chooser = page.waitForEvent('filechooser')
-    await page.getByTestId(testId).click()
-    await (await chooser).setFiles({ name, mimeType: 'image/png', buffer })
-  }
+async function choose(page: Page, testId: string, name: string, buffer: Buffer) {
+  const chooser = page.waitForEvent('filechooser')
+  await page.getByTestId(testId).click()
+  await (await chooser).setFiles({ name, mimeType: 'image/png', buffer })
+}
+
+/** 导入素材并开始；confirm 时直接确认默认的相机 */
+async function importAndStart(page: Page, files: [testId: string, name: string, buffer: Buffer][], confirm = true) {
+  for (const file of files) await choose(page, ...file)
   await page.getByTestId('start').click()
+  if (confirm) await page.getByTestId('camera-confirm').click()
 }
 
 async function setSlider(page: Page, testId: string, value: number) {
@@ -355,4 +359,101 @@ test('a character standing in water is reflected below the waterline, tinted by 
     'focus',
   )
   expect(diff(pixel(undone, ...redBelow), pixel(plain, ...redBelow))).toBeLessThan(4)
+})
+
+const sliderValue = (page: Page, testId: string) => page.getByTestId(testId).evaluate((el) => (el as HTMLElement & { value: number }).value)
+
+/** 拖动控件中心 (dx, dy) 屏幕像素 */
+async function dragBy(page: Page, testId: string, dx: number, dy: number) {
+  const box = (await page.getByTestId(testId).boundingBox())!
+  const [x, y] = [box.x + box.width / 2, box.y + box.height / 2]
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + dx, y + dy, { steps: 8 })
+  await page.mouse.up()
+}
+
+const gradient = makeImage(W, H, (x, y) => [40 + (x / W) * 40, 50 + (y / H) * 30, 70, 255])
+
+test('the camera is calibrated before the other steps, by the horizon or by parallel lines, undoably', async ({ page }, info) => {
+  await page.goto(`/${rendererQuery(info.project.metadata.renderer)}`)
+  await importAndStart(page, [['drop-background', 'bg.png', gradient]], false)
+  // 未确认相机时其他步骤不可进入
+  await expect(page.getByTestId('camera-locked')).toBeVisible()
+  await page.getByTestId('step-light').click()
+  await expect(page.getByTestId('camera-method')).toBeVisible()
+  await expect(page.getByTestId('camera-grid')).toHaveCount(1)
+
+  // 拖动地平线左端向上：相机倾斜；整条线向下：俯仰改变
+  await dragBy(page, 'horizon-handle-0', 0, -40)
+  expect(Math.abs(await sliderValue(page, 'camera-roll'))).toBeGreaterThan(1)
+  const pitch = await sliderValue(page, 'camera-pitch')
+  await dragBy(page, 'horizon-line', 0, 60)
+  expect(await sliderValue(page, 'camera-pitch')).toBeGreaterThan(pitch + 3)
+  // 一次拖动是一次撤销
+  await page.getByTestId('undo').click()
+  await expect.poll(() => sliderValue(page, 'camera-pitch')).toBeCloseTo(pitch, 3)
+
+  // 平行线：按当前的标定生成线段，求解结果不变；拖动端点后重新求解
+  await page.locator('[data-testid="camera-method"] mdui-segmented-button[value="lines"]').click()
+  const solution = page.getByTestId('camera-solution')
+  await expect(solution).toContainText('60.0°')
+  await dragBy(page, 'camera-handle-first-0-0', 0, -60)
+  await expect(solution).not.toContainText('60.0°')
+  await expect(page.getByTestId('camera-solve-error')).toHaveCount(0)
+
+  await page.getByTestId('camera-confirm').click()
+  await expect(page.getByTestId('camera-confirmed')).toBeVisible()
+  await page.getByTestId('step-depth').click()
+  await expect(page.getByTestId('depth-job-background')).toBeVisible()
+
+  // 更换背景后需要重新标定
+  await page.getByTestId('step-assets').click()
+  await choose(page, 'replace-background', 'other.png', makeImage(W, H, () => [90, 90, 90, 255]))
+  await expect(page.getByTestId('camera-locked')).toBeVisible()
+  await expect(solution).toHaveCount(0)
+})
+
+test('a character dragged in the calibrated camera keeps its height in the scene and can be put into its perspective', async ({ page }, info) => {
+  await page.goto(`/${rendererQuery(info.project.metadata.renderer)}`)
+  await importAndStart(page, [['drop-background', 'bg.png', gradient], ['drop-character', 'figure.png', figure(240, 480)]], false)
+  await setSlider(page, 'camera-pitch', -15)
+  await setSlider(page, 'camera-roll', 4)
+  await page.getByTestId('camera-confirm').click()
+  await page.getByTestId('step-character').click()
+
+  // 向地平线拖动：缩小，身高读数不变
+  const height = page.getByTestId('char-height')
+  await expect(height).toContainText(' m')
+  const meters = await height.innerText()
+  const scale = await sliderValue(page, 'char-scale')
+  await dragBy(page, 'gizmo-body', 0, -40)
+  expect(await sliderValue(page, 'char-scale')).toBeLessThan(scale - 3)
+  await expect(height).toHaveText(meters)
+  // 关闭后拖动不缩放，身高随之改变
+  await page.getByTestId('char-perspective-move').click()
+  const kept = await sliderValue(page, 'char-scale')
+  await dragBy(page, 'gizmo-body', 0, -40)
+  expect(await sliderValue(page, 'char-scale')).toBeCloseTo(kept, 3)
+  await expect(height).not.toHaveText(meters)
+
+  await page.getByTestId('char-show-grid').click()
+  await expect(page.getByTestId('character-grid')).toHaveCount(1)
+
+  // 按相机透视写入四角透视，可撤销
+  await page.locator('[data-testid="warp-tool"] mdui-segmented-button[value="perspective"]').click()
+  const reset = page.getByTestId('warp-reset-perspective')
+  await expect(reset).toHaveAttribute('disabled')
+  await page.getByTestId('char-camera-perspective').click()
+  await expect(reset).not.toHaveAttribute('disabled')
+  await page.getByTestId('undo').click()
+  await expect(reset).toHaveAttribute('disabled')
+
+  // 水线沿地平线方向倾斜
+  await page.getByTestId('step-focus').click()
+  await page.getByTestId('focus-occlusion-enabled').click()
+  await setSelect(page, 'focus-occlusion-mode', 'water')
+  const line = page.getByTestId('waterline').locator('line').first()
+  const [y1, y2] = await Promise.all([line.getAttribute('y1'), line.getAttribute('y2')])
+  expect(Math.abs(Number(y1) - Number(y2))).toBeGreaterThan(10)
 })

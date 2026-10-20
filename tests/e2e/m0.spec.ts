@@ -39,6 +39,7 @@ test('import, place, flip, undo and export', async ({ page }, info) => {
   await choose(page, 'drop-background', 'bg.png', background)
   await choose(page, 'drop-character', 'char.png', character)
   await page.getByTestId('start').click()
+  await page.getByTestId('camera-confirm').click()
   await expect(page.getByTestId('inspector')).toBeVisible()
 
   // 关于对话框中的渲染后端应与项目设置一致
@@ -70,6 +71,7 @@ test('dragging the character is a single undo step', async ({ page }) => {
   await choose(page, 'drop-background', 'bg.png', background)
   await choose(page, 'drop-character', 'char.png', character)
   await page.getByTestId('start').click()
+  await page.getByTestId('camera-confirm').click()
   await page.getByTestId('step-character').click()
 
   const x = page.getByTestId('char-x')
