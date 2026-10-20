@@ -15,6 +15,7 @@ import { useCharacterInfo } from '@/state/fusion'
 import { useHints } from '@/state/hints'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
+import { useView3d } from '@/state/view3d'
 import { ColorSwatch } from '@/ui/ColorSwatch'
 import { cn } from '@/ui/lib/cn'
 import { SliderField } from '@/ui/SliderField'
@@ -46,6 +47,7 @@ export function LightPanel() {
   return (
     <div className="flex flex-col gap-4">
       <IntroSection />
+      <View3dSection />
       <AnalysisSection assetId={background.id} />
       <LightsSection />
       <SphereSection />
@@ -377,6 +379,23 @@ function currentLight(id: string): Light | undefined {
 
 function currentDirection(id: string): Vec3 {
   return currentLight(id)?.direction ?? [0, 0, 1]
+}
+
+function View3dSection() {
+  const open = useView3d((s) => s.open)
+  const ref = useRef<Switch>(null)
+  useDomEvent(ref, 'change', (e, el) => {
+    if (e.target === el) useView3d.getState().setOpen(el.checked)
+  })
+  return (
+    <Section title={t.light.view3d}>
+      <div className="flex items-center justify-between">
+        <span>{t.light.view3d}</span>
+        <mdui-switch ref={ref} checked={open} data-testid="light-view3d" />
+      </div>
+      <p className="text-xs leading-5 text-on-surface-variant">{t.light.view3dHint}</p>
+    </Section>
+  )
 }
 
 function PreviewSection() {

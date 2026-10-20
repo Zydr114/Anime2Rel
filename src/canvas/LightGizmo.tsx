@@ -9,6 +9,7 @@ import { pickColor, sampleDepth } from '@/lighting/sampling'
 import { getDepthResult } from '@/state/depth'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
+import { useView3d } from '@/state/view3d'
 
 const HANDLE = 9
 /** 方向光投影落在文档外这个比例以内时仍画在投影处，可以拖动；更远时画在画面边缘 */
@@ -56,8 +57,9 @@ export function LightGizmo({ passThrough }: { passThrough: boolean }) {
   const tool = useLighting((s) => s.tool)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<Drag | null>(null)
+  const view3d = useView3d((s) => s.open)
 
-  if (!background || step !== 'light') return null
+  if (!background || step !== 'light' || view3d) return null
 
   const toScreen = (p: Point) => docToScreen(view, p)
   const toDoc = (e: ReactPointerEvent) => {

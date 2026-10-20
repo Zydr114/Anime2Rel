@@ -15,12 +15,14 @@ import { isExporting, useExport } from '@/state/export'
 import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
+import { currentScene, useView3d } from '@/state/view3d'
 import { CameraGizmo, CharacterGuide } from './CameraGizmo'
 import { FocusGizmo } from './FocusGizmo'
 import { GroundGizmo } from './GroundGizmo'
 import { LightGizmo } from './LightGizmo'
 import { RegionBrush } from './RegionBrush'
 import { TransformGizmo } from './TransformGizmo'
+import { View3D } from './View3D'
 import { WarpGizmo } from './WarpGizmo'
 import { useSpaceHeld } from './useSpaceHeld'
 
@@ -97,20 +99,32 @@ export function Viewport() {
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
           e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus', original: step === 'camera' })
         }
+        // 3D 视图只在光源步骤中显示
+        const sync3d = () => {
+          const { doc, step } = useApp.getState()
+          const { open, view } = useView3d.getState()
+          const s = open && view && step === 'light' ? currentScene(view) : null
+          e.setScene3d(s && view && doc.background ? { ...s, cameraView: view.kind === 'camera', camera: doc.camera, size: doc.background, depth: getDepthResult(doc.background.id) } : null)
+        }
         const syncAll = () => {
           e.setDocument(useApp.getState().doc)
           syncDepth()
           syncBall()
           syncFusion()
+          sync3d()
         }
         syncAll()
         // 导出期间引擎逐块渲染，文档的变化等导出结束后再一起同步
         const offExport = useExport.subscribe((next, prev) => {
           if (next.progress === null && prev.progress !== null) syncAll()
         })
+        const offView3d = useView3d.subscribe(() => {
+          if (!isExporting()) sync3d()
+        })
         const offApp = useApp.subscribe((next, prev) => {
           if (next.view !== prev.view || next.viewport !== prev.viewport) e.setView(next.view, next.viewport)
           if (isExporting()) return
+          if (next.doc !== prev.doc || next.step !== prev.step || next.view !== prev.view || next.viewport !== prev.viewport) sync3d()
           if (next.doc !== prev.doc) {
             e.setDocument(next.doc)
             syncDepth()
@@ -126,6 +140,7 @@ export function Viewport() {
           if (next.resultsVersion !== prev.resultsVersion) {
             syncBall()
             syncFusion()
+            sync3d()
           }
         })
         const offLighting = useLighting.subscribe((next, prev) => {
@@ -135,10 +150,14 @@ export function Viewport() {
         })
         const offFusion = useFusion.subscribe((next, prev) => {
           if (isExporting()) return
-          if (next.character !== prev.character || next.warped !== prev.warped) syncBall()
+          if (next.character !== prev.character || next.warped !== prev.warped) {
+            syncBall()
+            sync3d()
+          }
           syncFusion()
         })
         unsubscribe = () => {
+          offView3d()
           offExport()
           offApp()
           offDepth()
@@ -249,6 +268,7 @@ export function Viewport() {
         <RegionBrush passThrough={spaceHeld || panning} />
         <GroundGizmo passThrough={spaceHeld || panning} />
         <WarpGizmo passThrough={spaceHeld || panning} />
+        <View3D />
       </div>
       {dragOver && (
         <div className="pointer-events-none absolute inset-4 flex items-center justify-center rounded-3xl border-2 border-dashed border-primary/70 bg-primary/10 text-lg">

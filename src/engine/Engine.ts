@@ -45,6 +45,7 @@ import {
   type LayerTextures,
 } from './passes'
 import { applyPostParams, createPostPasses, createPostUniforms, disposePostPasses, renderPost, resizePostPasses, BLOOM_SIZE } from './post'
+import { Scene3D, type Scene3dInput } from './scene3d'
 import { applyShadowParams, createShadowPass, createShadowUniforms } from './shadow'
 import { planTiles, tilePlan, WHOLE_PIXELS, type Rect } from './tiling'
 import { createWarpPass, WARP_LAYERS, type WarpLayer } from './warp'
@@ -396,6 +397,10 @@ export class Engine {
   private doc: DocState | null = null
   private docSize: Size | null = null
 
+  /** 3D 视图：打开时画布显示三维场景，二维合成照常渲染到 docRT */
+  private scene3d: Scene3D | null = null
+  private view3d = false
+
   private docDirty = false
   /** 背景预处理、弥散圆统计和背景景深需要重算（背景、深度、焦点或光圈变化） */
   private backgroundDirty = true
@@ -524,6 +529,20 @@ export class Engine {
       this.warpDirty = true
     }
     this.docDirty = true
+    this.schedule()
+  }
+
+  /** 打开 3D 视图并更新场景；null 为回到二维视图 */
+  setScene3d(input: Scene3dInput | null): void {
+    if (input) {
+      if (!this.scene3d) {
+        this.scene3d = new Scene3D()
+        this.scene3d.setBackground(this.bgTexture)
+      }
+      this.scene3d.update(input)
+    }
+    this.view3d = !!input
+    this.viewDirty = true
     this.schedule()
   }
 
@@ -784,6 +803,7 @@ export class Engine {
     }
     this.backgroundNode.value = this.bgTexture ?? this.placeholder
     this.backgroundDirty = true
+    this.scene3d?.setBackground(this.bgTexture)
     this.syncPresent()
   }
 
@@ -1018,8 +1038,11 @@ export class Engine {
     }
     if (this.viewDirty) {
       r.setRenderTarget(null)
-      if (!this.docSize) this.present.uniforms.docSize.value.set(0, 0)
-      this.quads.present.render(r)
+      if (this.view3d && this.scene3d && this.docSize) this.scene3d.render(r)
+      else {
+        if (!this.docSize) this.present.uniforms.docSize.value.set(0, 0)
+        this.quads.present.render(r)
+      }
       this.viewDirty = false
     }
   }
@@ -1205,6 +1228,7 @@ export class Engine {
     this.bgTexture?.dispose()
     this.charSource?.dispose()
     this.charRT.dispose()
+    this.scene3d?.dispose()
     for (const rt of Object.values(this.warpTargets)) rt.dispose()
     this.warpPass.dispose()
     this.docRT.dispose()
