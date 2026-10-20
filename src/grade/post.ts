@@ -114,10 +114,10 @@ export interface PostParams {
 }
 
 /** 按画面中的位置选择光束的光源：手动指定的光源，或自动选择最强的光源（优先方向光）。光源在相机后方时返回 null */
-export function raysLight(lighting: LightingDoc, id: string | null, size: Size): { light: Light; uv: Point } | null {
+export function raysLight(lighting: LightingDoc, id: string | null, size: Size, fovDeg: number): { light: Light; uv: Point } | null {
   const project = (l: Light): Point | null => {
     if (l.type === 'point') return { x: l.position.x / size.width, y: l.position.y / size.height }
-    const p = rayToPixel(l.direction, size, lighting.fovDeg)
+    const p = rayToPixel(l.direction, size, fovDeg)
     return p && { x: p.x / size.width, y: p.y / size.height }
   }
   if (id !== null) {
@@ -145,10 +145,10 @@ export function flareFade(uv: Point, size: Size): number {
 }
 
 /** aperture：景深的光圈叶片数和旋转角，跟随光圈的鬼影使用 */
-export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null, aperture = { blades: 0, rotation: 0 }): PostParams {
+export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null, fovDeg: number, aperture = { blades: 0, rotation: 0 }): PostParams {
   const scatter = (radius: number) => SCATTER_MIN + (SCATTER_MAX - SCATTER_MIN) * radius
-  const light = size && (p.rays.intensity > 0 || p.rays.rim > 0) ? raysLight(lighting, p.rays.light, size) : null
-  const flare = size && flareActive(p.flare) ? raysLight(lighting, p.flare.light, size) : null
+  const light = size && (p.rays.intensity > 0 || p.rays.rim > 0) ? raysLight(lighting, p.rays.light, size, fovDeg) : null
+  const flare = size && flareActive(p.flare) ? raysLight(lighting, p.flare.light, size, fovDeg) : null
   const fade = flare && size ? flareFade(flare.uv, size) : 0
   const mid = 0.3 + 0.6 * p.lens.midpoint
   const width = 0.05 + 0.9 * p.lens.feather

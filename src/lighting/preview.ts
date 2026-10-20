@@ -59,7 +59,8 @@ export function computeBallPreview(
   const bg = doc.background
   if (!bg) return null
   const { center, radius } = ballPlacement(doc, bg)
-  const { fovDeg, ambient: k, lights } = doc.lighting
+  const { ambient: k, lights } = doc.lighting
+  const { fovDeg } = doc.camera
   const at = unproject(center, characterDepth(doc, depth, bbox), bg, fovDeg)
   const enabled = lights.filter((l) => l.enabled)
   return {

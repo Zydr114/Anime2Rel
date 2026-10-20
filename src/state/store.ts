@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AssetRef } from './assets'
+import { DEFAULT_CAMERA, type CameraDoc } from '@/camera/model'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
 import { DEFAULT_FOCUS, DEFAULT_STYLE, MAX_REGIONS, newRegionId, type BrushStroke, type FocusDoc, type FocusSection, type OcclusionRegion, type OcclusionStyle } from '@/focus/model'
 import { DEFAULT_FUSION, type FusionDoc, type FusionSection } from '@/fusion/model'
@@ -24,7 +25,7 @@ import { DEFAULT_POST, type PostDoc, type PostSection, type ToneMapping } from '
 import { matchesPreset, type Preset } from '@/grade/preset'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
-export type StepId = 'assets' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
+export type StepId = 'assets' | 'camera' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
 
 /** 可撤销的文档状态。所有字段必须可序列化（资源只保存引用）。 */
 export interface DocState {
@@ -33,6 +34,7 @@ export interface DocState {
   charTransform: LayerTransform
   /** 立绘变形，在立绘自身的坐标中、移动缩放之前进行 */
   charWarp: CharWarp
+  camera: CameraDoc
   lighting: LightingDoc
   fusion: FusionDoc
   focus: FocusDoc
@@ -49,6 +51,7 @@ export const initialDoc: DocState = {
   character: null,
   charTransform: emptyTransform,
   charWarp: IDENTITY_WARP,
+  camera: DEFAULT_CAMERA,
   lighting: DEFAULT_LIGHTING,
   fusion: DEFAULT_FUSION,
   focus: DEFAULT_FOCUS,
@@ -88,6 +91,13 @@ interface AppState {
   setWarpGrid: (grid: WarpGridSize) => void
   /** 恢复透视或网格变形中的一种 */
   resetCharWarp: (part: 'perspective' | 'grid') => void
+
+  updateCamera: (update: Partial<Omit<CameraDoc, 'confirmed'>>) => void
+  /**
+   * 确认当前背景的相机标定。不产生撤销记录：撤销历史中同一张背景的所有快照一起标为已确认，
+   * 撤销其后的修改不会回到未确认的状态。
+   */
+  confirmCamera: () => void
 
   setLighting: (update: Partial<Omit<LightingDoc, 'lights'>>) => void
   /** 添加光源；达到上限时返回 false */
@@ -153,6 +163,13 @@ interface AppState {
   setStep: (step: StepId) => void
   start: () => void
 }
+
+/** 背景的相机标定还没有确认时，只能停留在素材和相机两个步骤 */
+export function stepLocked(doc: DocState, step: StepId): boolean {
+  return !!doc.background && !doc.camera.confirmed && step !== 'assets' && step !== 'camera'
+}
+
+const allowedStep = (doc: DocState, step: StepId): StepId => (stepLocked(doc, step) ? 'camera' : step)
 
 /** 文档坐标按 (kx, ky) 缩放：立绘位置与大小、背景上的焦点、遮挡区域和点光源的位置随之变化 */
 export function rescaleDoc(d: DocState, kx: number, ky: number): DocState {
@@ -221,7 +238,7 @@ export const useApp = create<AppState>()((set, get) => ({
 
   loadDoc: (doc, step) => {
     const { viewport, viewInsets } = get()
-    set({ doc, past: [], future: [], gestureBase: null, step, view: doc.background ? fitView(doc.background, viewport, undefined, viewInsets) : get().view })
+    set({ doc, past: [], future: [], gestureBase: null, step: allowedStep(doc, step), view: doc.background ? fitView(doc.background, viewport, undefined, viewInsets) : get().view })
   },
 
   beginGesture: () => {
@@ -236,32 +253,37 @@ export const useApp = create<AppState>()((set, get) => ({
   },
 
   undo: () => {
-    const { past, doc, future, gestureBase } = get()
+    const { past, doc, future, gestureBase, step } = get()
     if (gestureBase || past.length === 0) return
-    set({ doc: past[past.length - 1], past: past.slice(0, -1), future: [doc, ...future] })
+    const prev = past[past.length - 1]
+    set({ doc: prev, past: past.slice(0, -1), future: [doc, ...future], step: allowedStep(prev, step) })
   },
 
   redo: () => {
-    const { past, doc, future, gestureBase } = get()
+    const { past, doc, future, gestureBase, step } = get()
     if (gestureBase || future.length === 0) return
-    set({ doc: future[0], past: pushPast(past, doc), future: future.slice(1) })
+    set({ doc: future[0], past: pushPast(past, doc), future: future.slice(1), step: allowedStep(future[0], step) })
   },
 
   setBackground: (asset) => {
-    const { doc, viewport, viewInsets } = get()
+    const { doc, viewport, viewInsets, started } = get()
     const sizeChanged = !doc.background || doc.background.width !== asset.width || doc.background.height !== asset.height
+    // 换了背景，相机标定作废
+    const camera = doc.background?.id === asset.id ? doc.camera : DEFAULT_CAMERA
     if (!doc.background) {
       // 首次导入背景是文档的起点，不进入撤销历史（避免撤销回到没有背景的空状态）
       const charTransform = doc.character ? defaultLayerTransform(asset, doc.character) : doc.charTransform
-      set({ doc: { ...doc, background: asset, charTransform }, past: [], future: [] })
+      set({ doc: { ...doc, background: asset, charTransform, camera }, past: [], future: [] })
     } else {
       get().setDoc((d) => {
         // 更换尺寸不同的背景时，按比例保持立绘、背景焦点和遮挡区域的相对位置
-        if (!d.background || !sizeChanged) return { ...d, background: asset }
-        return { ...rescaleDoc(d, asset.width / d.background.width, asset.height / d.background.height), background: asset }
+        if (!d.background || !sizeChanged) return { ...d, background: asset, camera }
+        return { ...rescaleDoc(d, asset.width / d.background.width, asset.height / d.background.height), background: asset, camera }
       })
     }
     if (sizeChanged) set({ view: fitView(asset, viewport, undefined, viewInsets) })
+    // 在编辑器中换背景后直接进入相机步骤
+    if (started && !camera.confirmed) set({ step: 'camera' })
   },
 
   setCharacter: (asset) => {
@@ -304,6 +326,24 @@ export const useApp = create<AppState>()((set, get) => ({
       const charWarp = part === 'perspective' ? { ...w, corners: UNIT_CORNERS.map((p) => ({ ...p })) } : { ...w, points: gridPoints(w.grid) }
       return { ...d, charWarp }
     })
+  },
+
+  updateCamera: (update) => {
+    get().setDoc((d) => {
+      const c = d.camera
+      // 滑块和分段按钮在撤销后被程序赋值时也会触发 change，值没有变化时不产生撤销记录
+      if ((Object.keys(update) as (keyof typeof update)[]).every((k) => c[k] === update[k])) return d
+      return { ...d, camera: { ...c, ...update } }
+    })
+  },
+
+  confirmCamera: () => {
+    const { doc, past, future, gestureBase } = get()
+    const id = doc.background?.id
+    if (!id || doc.camera.confirmed) return
+    const confirm = (d: DocState): DocState => (d.background?.id === id && !d.camera.confirmed ? { ...d, camera: { ...d.camera, confirmed: true } } : d)
+    const next = confirm(doc)
+    set({ doc: next, past: past.map(confirm), future: future.map(confirm), gestureBase: gestureBase === doc ? next : gestureBase && confirm(gestureBase) })
   },
 
   setLighting: (update) => {
@@ -522,6 +562,12 @@ export const useApp = create<AppState>()((set, get) => ({
     const { doc, viewport, viewInsets } = get()
     if (doc.background) set({ view: fitView(doc.background, viewport, undefined, viewInsets) })
   },
-  setStep: (step) => set({ step }),
-  start: () => set({ started: true }),
+  setStep: (step) => {
+    if (!stepLocked(get().doc, step)) set({ step })
+  },
+  start: () => {
+    const { doc, step } = get()
+    // 背景的相机还没有确认时，进入编辑器后直接打开相机步骤
+    set({ started: true, step: doc.background && !doc.camera.confirmed ? 'camera' : step })
+  },
 }))

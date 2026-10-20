@@ -49,6 +49,7 @@ interface Drag {
 export function LightGizmo({ passThrough }: { passThrough: boolean }) {
   const background = useApp((s) => s.doc.background)
   const lighting = useApp((s) => s.doc.lighting)
+  const fovDeg = useApp((s) => s.doc.camera.fovDeg)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
   const selected = useLighting((s) => s.selected)
@@ -88,7 +89,7 @@ export function LightGizmo({ passThrough }: { passThrough: boolean }) {
       const q = { x: Math.min(bg.width, Math.max(0, p.x)), y: Math.min(bg.height, Math.max(0, p.y)) }
       s.updateLight(light.id, { position: { ...q, depth: sampleDepth(getDepthResult(bg.id), q, bg).depth } })
     } else {
-      s.updateLight(light.id, { direction: pixelToRay(p, bg, s.doc.lighting.fovDeg) })
+      s.updateLight(light.id, { direction: pixelToRay(p, bg, s.doc.camera.fovDeg) })
     }
   }
 
@@ -109,7 +110,7 @@ export function LightGizmo({ passThrough }: { passThrough: boolean }) {
     const p = toDoc(e)
     const l = useLighting.getState()
     if (l.tool === 'add') {
-      const light = newLightAt(p, bg, s.doc.lighting.fovDeg, sampleDepth(getDepthResult(bg.id), p, bg))
+      const light = newLightAt(p, bg, s.doc.camera.fovDeg, sampleDepth(getDepthResult(bg.id), p, bg))
       if (s.addLight(light)) l.select(light.id)
       else notify(t.light.full(MAX_LIGHTS))
     } else if (l.tool === 'pick' && l.selected) {
@@ -126,7 +127,7 @@ export function LightGizmo({ passThrough }: { passThrough: boolean }) {
   return (
     <svg ref={svgRef} className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="light-gizmo">
       {lighting.lights.map((light) => {
-        const place = placement(light, background, lighting.fovDeg, toScreen)
+        const place = placement(light, background, fovDeg, toScreen)
         if (!place) return null
         const active = light.id === selected
         const color = linearToHex(light.color)

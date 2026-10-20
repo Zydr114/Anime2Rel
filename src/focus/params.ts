@@ -41,7 +41,7 @@ export function characterRelief({ doc, background, character, info }: FocusInput
   const bg = doc.background
   const reference = info?.reliefMedian ?? 0.5
   if (!doc.character || !bg || !character) return { plane, reference, scale: 0 }
-  return { plane, reference, scale: reliefScale(doc.focus.thickness, characterHeight(doc, info), plane, bg, doc.lighting.fovDeg) }
+  return { plane, reference, scale: reliefScale(doc.focus.thickness, characterHeight(doc, info), plane, bg, doc.camera.fovDeg) }
 }
 
 /** 立绘 UV 处的自身起伏（引导分辨率，最近邻） */
@@ -134,7 +134,7 @@ export function focusParams(input: FocusInputs): FocusParams {
       styles: Array.from({ length: 1 + MAX_REGIONS }, (_, i) => styleParams((i > 0 && occlusion.regions[i - 1]) || occlusion)),
       waterline: waterline(input.doc, input.info),
       height: characterHeight(input.doc, input.info),
-      focal: bg ? focalLength(bg.width, bg.height, input.doc.lighting.fovDeg) : 1,
+      focal: bg ? focalLength(bg.width, bg.height, input.doc.camera.fovDeg) : 1,
     },
   }
 }

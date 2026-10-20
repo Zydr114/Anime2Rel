@@ -57,11 +57,12 @@ async function saveCustom() {
 export function FlareSection() {
   const flare = useApp((s) => s.doc.post.flare)
   const lighting = useApp((s) => s.doc.lighting)
+  const fovDeg = useApp((s) => s.doc.camera.fovDeg)
   const background = useApp((s) => s.doc.background)
   const custom = useFlares((s) => s.custom)
   const [selectedId, select] = useState<string | null>(null)
-  const used = background ? raysLight(lighting, flare.light, background) : null
-  const auto = background ? raysLight(lighting, null, background) : null
+  const used = background ? raysLight(lighting, flare.light, background, fovDeg) : null
+  const auto = background ? raysLight(lighting, null, background, fovDeg) : null
   const lightOptions = [
     { value: AUTO, label: t.effects.raysAuto(auto ? lightName(lighting.lights, auto.light) : null) },
     ...lighting.lights.map((l) => ({ value: l.id, label: lightName(lighting.lights, l) })),

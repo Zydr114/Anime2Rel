@@ -88,12 +88,13 @@ function HalationSection() {
 function RaysSection() {
   const rays = useApp((s) => s.doc.post.rays)
   const lighting = useApp((s) => s.doc.lighting)
+  const fovDeg = useApp((s) => s.doc.camera.fovDeg)
   const background = useApp((s) => s.doc.background)
   const fusionRim = useApp((s) => s.doc.fusion.relight.rim)
   // 深度结果存在模块级缓存里，结果更新时 resultsVersion 变化会让选择器重新读取
   const hasDepth = useDepth(() => !!getDepthResult(background?.id))
-  const used = background ? raysLight(lighting, rays.light, background) : null
-  const auto = background ? raysLight(lighting, null, background) : null
+  const used = background ? raysLight(lighting, rays.light, background, fovDeg) : null
+  const auto = background ? raysLight(lighting, null, background, fovDeg) : null
   const options = [
     { value: AUTO, label: t.effects.raysAuto(auto ? lightName(lighting.lights, auto.light) : null) },
     ...lighting.lights.map((l) => ({ value: l.id, label: lightName(lighting.lights, l) })),

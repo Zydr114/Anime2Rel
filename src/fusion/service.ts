@@ -219,6 +219,7 @@ export function currentFusionParams(doc: DocState): FusionParams | null {
   return fusionParams({
     fusion: doc.fusion,
     lighting: doc.lighting,
+    fovDeg: doc.camera.fovDeg,
     size: bg,
     background: fusion.background.info,
     stats: fusion.stats,

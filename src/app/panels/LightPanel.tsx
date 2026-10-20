@@ -371,13 +371,13 @@ function currentDirection(id: string): Vec3 {
 function PreviewSection() {
   const showBall = useLighting((s) => s.showBall)
   const ambient = useApp((s) => s.doc.lighting.ambient)
-  const fovDeg = useApp((s) => s.doc.lighting.fovDeg)
+  const fovDeg = useApp((s) => s.doc.camera.fovDeg)
   const ballRef = useRef<Switch>(null)
   useDomEvent(ballRef, 'change', (e, el) => {
     if (e.target === el) useLighting.getState().setShowBall(el.checked)
   })
   const onAmbient = useGestureChange(useCallback((v: number) => useApp.getState().setLighting({ ambient: v / 100 }), []))
-  const onFov = useGestureChange(useCallback((v: number) => useApp.getState().setLighting({ fovDeg: v }), []))
+  const onFov = useGestureChange(useCallback((v: number) => useApp.getState().updateCamera({ fovDeg: v }), []))
 
   return (
     <Section title={t.light.preview}>

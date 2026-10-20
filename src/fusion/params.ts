@@ -123,6 +123,8 @@ const HEMISPHERE: Vec3[] = Array.from({ length: HEMISPHERE_SAMPLES }, (_, i) => 
 export interface FusionInputs {
   fusion: FusionDoc
   lighting: LightingDoc
+  /** 相机视场角（长边，度） */
+  fovDeg: number
   size: Size
   background: BackgroundInfo | null
   stats: FusionStats | null
@@ -134,7 +136,7 @@ export interface FusionInputs {
 }
 
 export function fusionParams(input: FusionInputs): FusionParams {
-  const { fusion, lighting, size, background, stats } = input
+  const { fusion, lighting, size, background, stats, fovDeg } = input
   const { colorMatch: cm, relight: rl, edge } = fusion
   const character = stats?.character ?? null
   const local = stats?.local ?? null
@@ -150,7 +152,6 @@ export function fusionParams(input: FusionInputs): FusionParams {
   const tint: [number, number] = hasStats ? [local.mean[0] * cm.chroma, local.mean[1] * cm.chroma] : [0, 0]
 
   // 光源：相机空间中立绘中心的位置
-  const { fovDeg } = lighting
   const at = unproject(input.center, input.depth, size, fovDeg)
   const referenceDistance = Math.hypot(...at)
   const visibility =

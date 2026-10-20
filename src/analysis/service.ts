@@ -1,5 +1,5 @@
 /**
- * 主线程侧的光源分析调度：背景的深度结果就绪后自动分析，
+ * 主线程侧的光源分析调度：背景的深度结果就绪、相机标定确认后自动分析（分析要用到视场角），
  * 分析完成后，如果当前光源列表不是来自这张背景，就用候选替换。
  */
 import * as Comlink from 'comlink'
@@ -49,7 +49,7 @@ async function run(assetId: string, depth: DepthResult, apply: boolean): Promise
     const size = fitWithin(asset, ANALYSIS_MAX_EDGE)
     const bitmap = await createImageBitmap(asset.bitmap, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: 'high' })
     const result = await remote().analyze(
-      Comlink.transfer({ bitmap, depth: depth.depth, sky: depth.sky, depthSize: depth.guideSize, fovDeg: useApp.getState().doc.lighting.fovDeg }, [bitmap]),
+      Comlink.transfer({ bitmap, depth: depth.depth, sky: depth.sky, depthSize: depth.guideSize, fovDeg: useApp.getState().doc.camera.fovDeg }, [bitmap]),
     )
     if (inputs.get(assetId)?.run !== id) return
     useLighting.getState().setAnalysis(assetId, { state: 'done', result })
@@ -61,8 +61,8 @@ async function run(assetId: string, depth: DepthResult, apply: boolean): Promise
 
 /** 当前背景有新的深度结果时分析；结果已有时检查是否需要写入候选（如撤销/重做切回了背景）。 */
 function check(): void {
-  const bg = useApp.getState().doc.background
-  if (!bg) return
+  const { background: bg, camera } = useApp.getState().doc
+  if (!bg || !camera.confirmed) return
   const depth = getDepthResult(bg.id)
   if (!depth) return
   if (inputs.get(bg.id)?.depth === depth) applyCandidates(bg.id, false)
@@ -83,7 +83,8 @@ export function startAutoAnalysis(): () => void {
     if (s.resultsVersion !== prev.resultsVersion) check()
   })
   const offApp = useApp.subscribe((s, prev) => {
-    if (s.doc.background?.id !== prev.doc.background?.id || s.doc.lighting.analyzedFor !== prev.doc.lighting.analyzedFor) check()
+    const { doc } = s
+    if (doc.background?.id !== prev.doc.background?.id || doc.camera.confirmed !== prev.doc.camera.confirmed || doc.lighting.analyzedFor !== prev.doc.lighting.analyzedFor) check()
   })
   return () => {
     offDepth()

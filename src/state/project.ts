@@ -4,9 +4,10 @@
  * 深度、光源分析等派生数据不保存，打开后重新计算。
  * 导入的内容不可信：逐字段检查类型并限制在界面允许的范围内（与预设相同），缺少或无效的字段取默认值。
  */
-import type { LayerTransform } from '@/algo/geometry'
+import type { LayerTransform, Point } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
 import type { Estimator } from '@/analysis/protocol'
+import { CALIBRATION_METHODS, DEFAULT_CAMERA, FOV_RANGE, HEIGHT_RANGE, LINE_AXES, PITCH_LIMIT, ROLL_LIMIT, type CameraDoc, type CameraLines, type Segment } from '@/camera/model'
 import {
   BOKEH_BLADES,
   DEFAULT_FOCUS,
@@ -35,7 +36,7 @@ export const MANIFEST_NAME = 'project.json'
 
 export class ProjectError extends Error {}
 
-const STEPS: readonly StepId[] = ['assets', 'depth', 'light', 'character', 'focus', 'adjust', 'effects', 'export']
+const STEPS: readonly StepId[] = ['assets', 'camera', 'depth', 'light', 'character', 'focus', 'adjust', 'effects', 'export']
 const ESTIMATORS: readonly Estimator[] = ['A', 'B', 'C', 'D']
 const KEY = /^[0-9a-z-]{8,80}$/
 const MAX_NAME_LENGTH = 200
@@ -79,6 +80,7 @@ export function projectManifest(doc: DocState, step: StepId, assets: { backgroun
       character: doc.character && assets.character ? slot(doc.character, assets.character) : null,
       charTransform: doc.charTransform,
       charWarp: doc.charWarp,
+      camera: doc.camera,
       lighting: { ...lighting, analyzed: analyzedFor === doc.background.id },
       fusion: doc.fusion,
       focus: doc.focus,
@@ -184,8 +186,42 @@ function conformLighting(v: unknown, analyzedFor: string | null, lightIds: Map<s
   return {
     lights,
     ambient: num(o.ambient, DEFAULT_LIGHTING.ambient, 0, 2),
-    fovDeg: num(o.fovDeg, DEFAULT_LIGHTING.fovDeg, 30, 100),
     analyzedFor: bool(o.analyzed, false) ? analyzedFor : null,
+  }
+}
+
+/** 标定线的端点（文档 UV），允许拖到画面之外一些 */
+const linePoint = (v: unknown): Point | null => {
+  const o = record(v)
+  return typeof o.x === 'number' && typeof o.y === 'number' ? { x: num(o.x, 0, -1, 2), y: num(o.y, 0, -1, 2) } : null
+}
+
+function linePair(v: unknown): [Segment, Segment] | null {
+  if (!Array.isArray(v) || v.length !== 2) return null
+  const segments = v.map((s) => (Array.isArray(s) && s.length === 2 ? [linePoint(s[0]), linePoint(s[1])] : []))
+  return segments.every((s): s is Segment => s.length === 2 && s.every((p) => p !== null)) ? (segments as [Segment, Segment]) : null
+}
+
+function conformLines(v: unknown): CameraLines | null {
+  const o = record(v)
+  const first = linePair(o.first)
+  const second = linePair(o.second)
+  return first && second ? { first, second, secondAxis: oneOf(o.secondAxis, LINE_AXES, 'horizontal') } : null
+}
+
+/** 文件中没有相机（旧工程）时按未确认处理 */
+function conformCamera(v: unknown): CameraDoc {
+  const o = record(v)
+  const d = DEFAULT_CAMERA
+  return {
+    fovDeg: num(o.fovDeg, d.fovDeg, ...FOV_RANGE),
+    pitch: num(o.pitch, d.pitch, -PITCH_LIMIT, PITCH_LIMIT),
+    roll: num(o.roll, d.roll, -ROLL_LIMIT, ROLL_LIMIT),
+    yaw: num(o.yaw, d.yaw, -Math.PI, Math.PI),
+    height: num(o.height, d.height, ...HEIGHT_RANGE),
+    method: oneOf(o.method, CALIBRATION_METHODS, d.method),
+    lines: conformLines(o.lines),
+    confirmed: bool(o.confirmed, false),
   }
 }
 
@@ -268,6 +304,7 @@ export function conformProject(manifest: Json, slots: { background: AssetRef; ch
     character,
     charTransform: conformTransform(o.charTransform),
     charWarp: character ? conformWarp(o.charWarp) : IDENTITY_WARP,
+    camera: conformCamera(o.camera),
     lighting,
     fusion: conformFusion(o.fusion, !!character),
     focus: conformFocus(o.focus, !!character),

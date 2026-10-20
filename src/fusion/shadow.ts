@@ -103,7 +103,7 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
   const bbox = info?.bbox ?? FULL_BOX
   if (cutOff(doc, info)) return null
 
-  const fov = doc.lighting.fovDeg
+  const fov = doc.camera.fovDeg
   const ground = characterGround(doc, bg, bbox)
   const depth = characterDepth(doc, background, bbox)
   const at = unproject(ground, depth, bg, fov)

@@ -150,6 +150,7 @@ describe('fusion parameters', () => {
   it('normalizes relighting to the frontal hemisphere average and only adds rim light for back lights', () => {
     const base = {
       fusion: DEFAULT_FUSION,
+      fovDeg: 60,
       size: { width: 800, height: 600 },
       background: null,
       stats: null,

@@ -21,7 +21,8 @@ function sampleDoc(): DocState {
     character: asset('ch', 200, 400),
     charTransform: { x: 500, y: 600, scale: 1.5, rotation: 0.2, flipX: true },
     charWarp: { grid: 3, points: gridPoints(3).map((p, i) => (i === 4 ? { x: 0.55, y: 0.45 } : p)), corners: [{ x: 0.1, y: 0 }, { x: 0.9, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }] },
-    lighting: { lights: [sun, lamp], ambient: 1.3, fovDeg: 50, analyzedFor: 'bg' },
+    camera: { ...initialDoc.camera, fovDeg: 50, pitch: -0.2, roll: 0.05, confirmed: true, method: 'lines', lines: { first: [[{ x: 0.1, y: 0.8 }, { x: 0.4, y: 0.6 }], [{ x: 0.2, y: 0.95 }, { x: 0.5, y: 0.7 }]], second: [[{ x: 0.6, y: 0.6 }, { x: 0.9, y: 0.8 }], [{ x: 0.5, y: 0.7 }, { x: 0.8, y: 0.95 }]], secondAxis: 'horizontal' } },
+    lighting: { lights: [sun, lamp], ambient: 1.3, analyzedFor: 'bg' },
     fusion: { ...initialDoc.fusion, relight: { ...initialDoc.fusion.relight, style: 'cel', rim: 1.2 }, depth: 0.42, ground: { u: 0.5, v: 0.9 } },
     focus: {
       ...DEFAULT_FOCUS,

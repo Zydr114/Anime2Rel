@@ -30,13 +30,11 @@ export interface LightingDoc {
   lights: Light[]
   /** 环境光强度倍率 */
   ambient: number
-  /** 相机视场角（长边，度），用于像素与方向的换算 */
-  fovDeg: number
   /** 光源列表来自哪张背景的分析结果；与当前背景不一致时，分析完成后自动替换 */
   analyzedFor: string | null
 }
 
-export const DEFAULT_LIGHTING: LightingDoc = { lights: [], ambient: 1, fovDeg: 60, analyzedFor: null }
+export const DEFAULT_LIGHTING: LightingDoc = { lights: [], ambient: 1, analyzedFor: null }
 export const MAX_LIGHTS = 8
 export const DEFAULT_INTENSITY = 0.5
 /** 置信度达到该值的点光源候选默认启用；方向光只默认启用排名最高的一个，避免同一个太阳被叠加两次 */

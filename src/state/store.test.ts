@@ -17,7 +17,7 @@ const asset = (id: string, width = 1000, height = 800): AssetRef => ({
 })
 
 beforeEach(() => {
-  useApp.setState({ doc: initialDoc, past: [], future: [], gestureBase: null, viewport: { width: 800, height: 600 } })
+  useApp.setState({ doc: initialDoc, past: [], future: [], gestureBase: null, viewport: { width: 800, height: 600 }, step: 'assets', started: false })
 })
 
 describe('history', () => {
@@ -70,6 +70,33 @@ describe('history', () => {
     useApp.getState().undo()
     useApp.getState().setCharTransform({ x: 7 })
     expect(useApp.getState().future.length).toBe(0)
+  })
+})
+
+describe('camera', () => {
+  it('locks later steps until confirmed, keeps the confirmation through undo and resets it with a new background', () => {
+    useApp.getState().setBackground(asset('bg'))
+    useApp.getState().start()
+    expect(useApp.getState().step).toBe('camera')
+    useApp.getState().setStep('light')
+    expect(useApp.getState().step).toBe('camera')
+
+    useApp.getState().updateCamera({ pitch: -0.1 })
+    useApp.getState().confirmCamera()
+    useApp.getState().setStep('light')
+    expect(useApp.getState().step).toBe('light')
+    // 撤销标定的修改，仍是已确认
+    useApp.getState().undo()
+    expect(useApp.getState().doc.camera).toMatchObject({ pitch: 0, confirmed: true })
+
+    useApp.getState().setBackground(asset('bg2'))
+    expect(useApp.getState().doc.camera.confirmed).toBe(false)
+    expect(useApp.getState().step).toBe('camera')
+    useApp.getState().undo()
+    useApp.getState().setStep('light')
+    // 重做回到未确认的背景时退回相机步骤
+    useApp.getState().redo()
+    expect(useApp.getState().step).toBe('camera')
   })
 })
 
