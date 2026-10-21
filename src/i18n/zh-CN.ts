@@ -13,6 +13,8 @@ import type { LightType } from '@/lighting/model'
 import type { BuiltinPresetId } from '@/grade/preset'
 import type { GradeTab } from '@/state/grade'
 import type { BrushTool } from '@/state/regions'
+import type { CharacterTool, WarpTool } from '@/state/fusion'
+import type { DepthBrushMode } from '@/fusion/depthEdit'
 
 export const zhCN = {
   app: {
@@ -178,7 +180,7 @@ export const zhCN = {
     warp: {
       title: '变形',
       tool: '画布上拖动',
-      tools: { transform: '摆放', perspective: '四角透视', mesh: '网格变形' },
+      tools: { transform: '摆放', perspective: '四角透视', mesh: '网格变形' } as Record<WarpTool, string>,
       grid: '网格密度',
       resetPerspective: '重置透视',
       resetGrid: '重置网格',
@@ -186,9 +188,29 @@ export const zhCN = {
         transform: '选择“四角透视”或“网格变形”后，在画布上拖动控制点变形立绘。变形在移动、缩放、旋转、翻转之前进行，改变摆放后保持不变。',
         perspective: '拖动四个方形控制点，让立绘贴合地面、墙面的透视；四个角不能交叉。双击控制点去掉这个角的透视。',
         mesh: '拖动圆形控制点做轻微的弯曲和比例调整，控制点之间平滑过渡；双击控制点复位。改变网格密度时保持现有的形状。',
-      },
+        depth: '正在使用深度画笔（见下方“立绘深度”）。选择上面的一种工具即可回到摆放或变形。',
+      } as Record<CharacterTool, string>,
       limit: '变形会把线条拉粗或压细，适合透视贴合和轻微调整，不能改变姿势和视角。',
     },
+  },
+  depthEdit: {
+    title: '立绘深度',
+    brush: '深度画笔',
+    brushHint: '在立绘上涂抹，修正深度模型估计错误的地方，例如被估计到身体后面的手臂。修正用于重光照的法线、遮挡、景深和 3D 视图，一笔一次撤销，随工程保存。',
+    modes: { push: '推远', pull: '拉近', smooth: '平滑', restore: '恢复' } as Record<DepthBrushMode, string>,
+    modeHints: {
+      push: '涂过的地方离相机更远。',
+      pull: '涂过的地方离相机更近。',
+      smooth: '让涂过的地方起伏变平缓，去掉深度中的小坑和尖刺。',
+      restore: '擦掉涂过的地方的修正，回到深度模型估计的深度。',
+    } as Record<DepthBrushMode, string>,
+    size: '画笔大小',
+    strength: '强度',
+    hardness: '硬度',
+    overlayHint: '使用深度画笔时立绘显示为深度伪彩色，越亮越近，配色与深度步骤相同。',
+    strokes: (n: number) => (n ? `已修正 ${n} 笔` : '还没有修正'),
+    clear: '清除全部修正',
+    notReady: '立绘的深度还在估计，完成后才能修正',
   },
   fusion: {
     depthSection: '前后位置',

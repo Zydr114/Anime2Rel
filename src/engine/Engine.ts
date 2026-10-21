@@ -171,6 +171,8 @@ export interface FusionDisplay {
   showMask: boolean
   /** 预览只显示背景原图，不画立绘，也不做任何处理（相机标定步骤） */
   original: boolean
+  /** 立绘半透明地叠加深度伪彩色（立绘步骤中使用深度画笔时） */
+  relief: boolean
 }
 
 interface Effects {
@@ -332,7 +334,7 @@ export class Engine {
   private matte: { map: MatteMap; foreground: THREE.DataTexture; background: THREE.DataTexture } | null = null
   private matteApplied = false
   private readonly mattePlaceholders = [makePlaceholder(), makePlaceholder()] as const
-  private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false }
+  private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
@@ -749,6 +751,7 @@ export class Engine {
     this.dof.bypass.value = effects.dof ? 0 : 1
     this.dof.occlusion.value = effects.occlusion ? 1 : 0
     this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
+    this.debugView.uniforms.relief.value = display.relief ? 1 : 0
     this.shadow.enabled.value = effects.shadow ? 1 : 0
     for (const level of GRADE_LEVELS) {
       const params = this.grade?.levels[level]
@@ -1104,7 +1107,7 @@ export class Engine {
     const bg = this.doc?.background
     if (!size || !bg || !this.docSize) throw new Error('没有可导出的文档')
     // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
-    const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false }
+    const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false }
     const effects = this.effects(display)
     const skip: SkipLayers = {
       backgroundDof: !effects.dof,

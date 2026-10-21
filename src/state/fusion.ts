@@ -3,9 +3,11 @@ import type { BackgroundInfo, CharacterInfo, FusionStats, MatteMap, NormalMap, W
 import { isIdentityWarp } from '@/fusion/warp'
 import type { DocState } from './store'
 
-/** 画布上编辑立绘的工具：摆放（移动、缩放、旋转），或两种变形 */
-export type CharacterTool = 'transform' | 'perspective' | 'mesh'
-export const CHARACTER_TOOLS: readonly CharacterTool[] = ['transform', 'perspective', 'mesh']
+/** 画布上编辑立绘的工具：摆放（移动、缩放、旋转）、两种变形，或深度画笔（M8.6b） */
+export type CharacterTool = 'transform' | 'perspective' | 'mesh' | 'depth'
+export type WarpTool = Exclude<CharacterTool, 'depth'>
+/** 变形一节中可选的工具 */
+export const WARP_TOOLS: readonly WarpTool[] = ['transform', 'perspective', 'mesh']
 
 /** 融合 Worker 的计算结果与立绘步骤的界面状态。不参与撤销。 */
 interface FusionState {

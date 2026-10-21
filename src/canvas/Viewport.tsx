@@ -18,6 +18,7 @@ import { useApp } from '@/state/store'
 import { currentDepthEdit } from '@/state/depthEdit'
 import { currentScene, useView3d } from '@/state/view3d'
 import { CameraGizmo, CharacterGuide } from './CameraGizmo'
+import { DepthBrush } from './DepthBrush'
 import { FocusGizmo } from './FocusGizmo'
 import { GroundGizmo } from './GroundGizmo'
 import { LightGizmo } from './LightGizmo'
@@ -99,7 +100,9 @@ export function Viewport() {
           e.setPost(postParams(doc.post, doc.lighting, doc.background, doc.camera.fovDeg, doc.focus.dof))
           // 调色、后期步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果；相机标定只看背景原图
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
-          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus', original: step === 'camera' })
+          // 二维立绘步骤中使用深度画笔时，立绘叠加深度伪彩色
+          const relief = step === 'character' && f.tool === 'depth' && !useView3d.getState().open
+          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus', original: step === 'camera', relief })
         }
         // 3D 视图只在光源步骤中显示
         const sync3d = () => {
@@ -124,8 +127,10 @@ export function Viewport() {
         const offExport = useExport.subscribe((next, prev) => {
           if (next.progress === null && prev.progress !== null) syncAll()
         })
-        const offView3d = useView3d.subscribe(() => {
-          if (!isExporting()) sync3d()
+        const offView3d = useView3d.subscribe((next, prev) => {
+          if (isExporting()) return
+          sync3d()
+          if (next.open !== prev.open) syncFusion()
         })
         const offApp = useApp.subscribe((next, prev) => {
           if (next.view !== prev.view || next.viewport !== prev.viewport) e.setView(next.view, next.viewport)
@@ -275,6 +280,7 @@ export function Viewport() {
         <RegionBrush passThrough={spaceHeld || panning} />
         <GroundGizmo passThrough={spaceHeld || panning} />
         <WarpGizmo passThrough={spaceHeld || panning} />
+        <DepthBrush passThrough={spaceHeld || panning} />
         <View3D />
       </div>
       {dragOver && (

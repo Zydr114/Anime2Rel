@@ -36,7 +36,7 @@ export function WarpGizmo({ passThrough }: { passThrough: boolean }) {
   const dragRef = useRef<{ id: number; index: number; offset: Point } | null>(null)
 
   const { character, charWarp: warp } = doc
-  if (!character || step !== 'character' || tool === 'transform') return null
+  if (!character || step !== 'character' || tool === 'transform' || tool === 'depth') return null
 
   const perspective = tool === 'perspective'
   const screen = (uv: Point) => docToScreen(view, layerUVToDoc(doc, uv))

@@ -6,7 +6,10 @@ import { GUIDE_KINDS } from '@/camera/guides'
 import { hasGridWarp, hasPerspective, isValidWarp, WARP_GRID_SIZES, type WarpGridSize } from '@/fusion/warp'
 import { t } from '@/i18n'
 import { useCameraGuide } from '@/state/cameraGuide'
-import { CHARACTER_TOOLS, characterInfo, useCharacterInfo, useFusion } from '@/state/fusion'
+import { DEPTH_BRUSH_MODES } from '@/fusion/depthEdit'
+import { getDepthResult, useDepth } from '@/state/depth'
+import { useDepthBrush } from '@/state/depthEdit'
+import { characterInfo, useCharacterInfo, useFusion, WARP_TOOLS, type WarpTool } from '@/state/fusion'
 import { useApp } from '@/state/store'
 import { SliderField } from '@/ui/SliderField'
 import { NumberField } from '@/ui/NumberField'
@@ -57,6 +60,7 @@ export function CharacterPanel() {
       </section>
       <CameraSection />
       <WarpSection />
+      <DepthEditSection />
       <FusionSections />
     </div>
   )
@@ -120,7 +124,8 @@ function WarpSection() {
     <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3" data-testid="warp-section">
       <h3 className="text-sm font-medium">{w.title}</h3>
       <span className="text-sm">{w.tool}</span>
-      <Segmented value={tool} options={CHARACTER_TOOLS} label={(v) => w.tools[v]} onChange={useFusion.getState().setTool} testId="warp-tool" />
+      {/* 使用深度画笔时不选中任何一项 */}
+      <Segmented value={tool} options={WARP_TOOLS} label={(v) => w.tools[v as WarpTool]} onChange={useFusion.getState().setTool} testId="warp-tool" />
       {tool === 'mesh' && (
         <>
           <span className="text-sm">{w.grid}</span>
@@ -144,6 +149,43 @@ function WarpSection() {
       <p className="text-xs leading-5 text-on-surface-variant">{w.hints[tool]}</p>
       <p className="text-xs leading-5 text-on-surface-variant">{w.limit}</p>
     </section>
+  )
+}
+
+const formatPx = (v: number) => `${Math.round(v)} px`
+
+/** 立绘深度：深度画笔（docs/Plan.md §3.7 M8.6b） */
+function DepthEditSection() {
+  const characterId = useApp((s) => s.doc.character?.id)
+  const strokes = useApp((s) => s.doc.charDepthEdit.strokes.length)
+  const active = useFusion((s) => s.tool === 'depth')
+  const brush = useDepthBrush()
+  // 深度结果存在模块级缓存里，resultsVersion 变化会让选择器重新读取
+  const ready = useDepth(() => !!getDepthResult(characterId))
+  const d = t.depthEdit
+  return (
+    <Section title={d.title} testId="char-depth-edit">
+      <ToggleRow label={d.brush} checked={active} onChange={(on) => useFusion.getState().setTool(on ? 'depth' : 'transform')} testId="char-depth-brush" />
+      <Hint>{d.brushHint}</Hint>
+      {active && (
+        <>
+          <Segmented value={brush.mode} options={DEPTH_BRUSH_MODES} label={(v) => d.modes[v]} onChange={brush.setMode} testId="char-depth-mode" />
+          <Hint>{d.modeHints[brush.mode]}</Hint>
+          <SliderField label={d.size} value={brush.size} min={4} max={300} format={formatPx} onChange={brush.setSize} testId="char-depth-size" />
+          <SliderField label={d.strength} value={brush.strength * 100} min={1} max={100} format={formatPercent} onChange={(v) => brush.setStrength(v / 100)} testId="char-depth-strength" />
+          <SliderField label={d.hardness} value={brush.hardness * 100} min={0} max={95} format={formatPercent} onChange={(v) => brush.setHardness(v / 100)} testId="char-depth-hardness" />
+          <Hint>{ready ? d.overlayHint : d.notReady}</Hint>
+        </>
+      )}
+      <div className="flex items-center justify-between">
+        <span className="text-on-surface-variant" data-testid="char-depth-strokes">
+          {d.strokes(strokes)}
+        </span>
+        <mdui-button variant="text" disabled={!strokes || undefined} onClick={() => useApp.getState().setDepthStrokes([])} data-testid="char-depth-clear">
+          {d.clear}
+        </mdui-button>
+      </div>
+    </Section>
   )
 }
 

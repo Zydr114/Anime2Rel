@@ -307,13 +307,16 @@ export function createCompositePass(input: { placement: Placement; background: T
   return material(vec4(rgb, 1))
 }
 
+/** 深度画笔的伪彩色叠加的不透明度 */
+const RELIEF_ALPHA = 0.65
+
 /**
- * 预览显示：调色后的结果 → 调试视图 → 灰球。
+ * 预览显示：调色后的结果 → 调试视图 → 深度画笔的伪彩色 → 灰球。
  * view 不为 0 时按调试视图着色，再按 overlay 与合成结果混合。
  */
 export function createDisplayPass(input: { placement: Placement; depth: DepthNodes; background: TextureNode; colormap: THREE.Texture; layers: LayerTextures; dof: DofUniforms }) {
   const { placement, depth, background, layers, dof } = input
-  const u = { view: uniform(0), overlay: uniform(1) }
+  const u = { view: uniform(0), overlay: uniform(1), relief: uniform(0) }
   const rgb = sampleLevel(layers.graded, screenUV).rgb
   const charDepth = sampleLevel(layers.characterDepth, screenUV)
   const alpha = charDepth.a
@@ -332,7 +335,9 @@ export function createDisplayPass(input: { placement: Placement; depth: DepthNod
   const focusView = mix(vec3(luma(rgb)), select(coc.greaterThan(0), NEAR_TINT, FAR_TINT), strength)
 
   const debug = select(u.view.equal(4), focusView, chDebug.mul(alpha).add(bgDebug.mul(float(1).sub(alpha))))
-  const out = mix(rgb, debug, u.overlay.mul(step(0.5, u.view)))
+  const debugOut = mix(rgb, debug, u.overlay.mul(step(0.5, u.view)))
+  // 深度画笔：立绘上半透明地叠加自身深度的伪彩色
+  const out = mix(debugOut, cmap(saturate(depth.character.depth)), u.relief.mul(depth.uniforms.hasCharDepth).mul(alpha).mul(RELIEF_ALPHA))
   const ball = ballOverlay(out, placement.p)
 
   return { uniforms: u, ball: ball.uniforms, material: material(vec4(ball.color, 1)) }
