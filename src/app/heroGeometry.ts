@@ -2,7 +2,8 @@
  * 首页主视觉的几何数据：按维护者提供的图标原图（1254 × 1254 的 PNG）的构图重建的矢量图形，坐标沿用原图的像素坐标系。
  *
  * - 地球用正交投影，视线略高于赤道，纬线因此是向下弯的弧；经线随转角实时生成。
- * - 左侧五道金色圆环同心排列，进入地球后变细、汇入纬线，并沿纬线渐变成象牙白；最外一环的两端收成尖。
+ * - 左侧五道金色圆环同心排列，进入地球后变细、汇入纬线，并沿纬线渐变成地球线条的颜色；最外一环的两端收成尖。
+ * - 深色主题下地球为象牙白；浅色主题下金色加深，地球为深灰褐色。
  * - 金色线条按中心线采样，再向两侧偏移出轮廓并填充，这样线宽可以沿线变化，也能只画出前一段（生长动画）。
  */
 
@@ -100,10 +101,12 @@ export interface Half {
   path: string
 }
 
+export type HeroTheme = 'light' | 'dark'
+
 export interface Strand {
   halves: Half[]
-  /** 渐变：从 x0 到 x1，stops 的 offset 为 0–1 */
-  gradient: { x0: number; x1: number; stops: [number, string][] }
+  /** 渐变：从 x0 到 x1，stops 的 offset 为 0–1，两种主题的 offset 相同 */
+  gradient: { x0: number; x1: number; stops: Record<HeroTheme, [number, string][]> }
   /** 线宽最大值，高光宽度据此确定 */
   width: number
 }
@@ -176,21 +179,27 @@ function crossing(r: number) {
   return Math.acos((d * d + r * r - GLOBE.r * GLOBE.r) / (2 * d * r))
 }
 
-const IVORY = '#f2ede4'
-const PALE = '#f6dfa8'
+/** 地球线条的颜色 */
+export const HERO_LINE: Record<HeroTheme, string> = { dark: '#f2ede4', light: '#5a5249' }
+/** 金色汇入地球前的过渡色 */
+const PALE: Record<HeroTheme, string> = { dark: '#f6dfa8', light: '#a07c43' }
+
+/** 浅色底上的金色：向深古铜色混合 */
+function deepen(hex: string): string {
+  const k = 0.45
+  const bronze = [138, 90, 16]
+  return `#${[1, 3, 5].map((i, c) => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - k) + bronze[c] * k).toString(16).padStart(2, '0')).join('')}`
+}
 
 function gradient(x0: number, base: string, light: string, xCross: number, fade0: number, fade1: number): Strand['gradient'] {
   const at = (x: number) => (x - x0) / (fade1 - x0)
-  return {
-    x0,
-    x1: fade1,
-    stops: [
-      [0, base],
-      [at(xCross), light],
-      [at(fade0), PALE],
-      [1, IVORY],
-    ],
-  }
+  const stops = (theme: HeroTheme, base: string, light: string): [number, string][] => [
+    [0, base],
+    [at(xCross), light],
+    [at(fade0), PALE[theme]],
+    [1, HERO_LINE[theme]],
+  ]
+  return { x0, x1: fade1, stops: { dark: stops('dark', base, light), light: stops('light', deepen(base), deepen(light)) } }
 }
 
 /** 圆环：半径、线宽、汇入的纬度（度，null 表示两端收尖）、汇入处经度、金色段终点经度、颜色与渐隐区间 */

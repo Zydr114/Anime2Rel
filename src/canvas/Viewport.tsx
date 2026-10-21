@@ -9,6 +9,7 @@ import { gradeParams } from '@/grade/params'
 import { postParams } from '@/grade/post'
 import { t } from '@/i18n'
 import { computeBallPreview } from '@/lighting/preview'
+import { resolveTheme, useAppearance } from '@/state/appearance'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useEngine } from '@/state/engine'
 import { isExporting, useExport } from '@/state/export'
@@ -72,6 +73,8 @@ export function Viewport() {
         engine = e
         const s = useApp.getState()
         e.setView(s.view, s.viewport)
+        e.setBackdrop(resolveTheme(useAppearance.getState()))
+        const offTheme = useAppearance.subscribe((a) => e.setBackdrop(resolveTheme(a)))
         const syncDepth = () => {
           const { doc } = useApp.getState()
           const d = useDepth.getState()
@@ -171,6 +174,7 @@ export function Viewport() {
           syncFusion()
         })
         unsubscribe = () => {
+          offTheme()
           offView3d()
           offExport()
           offApp()

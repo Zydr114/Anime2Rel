@@ -32,8 +32,8 @@ export function ExportPanel() {
       </section>
       <ShimmerButton
         className="w-full text-sm font-medium"
-        background="rgb(var(--mdui-color-primary-container))"
-        shimmerColor="rgb(var(--mdui-color-primary))"
+        background="rgb(var(--a2r-cta))"
+        shimmerColor="rgb(var(--a2r-cta-shimmer))"
         onClick={() => void exportImage()}
         disabled={busy}
         data-testid="export-image"

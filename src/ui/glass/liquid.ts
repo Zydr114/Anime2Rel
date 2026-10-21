@@ -13,8 +13,6 @@ const MODES: readonly GlassMode[] = ['liquid', 'frosted', 'solid']
 
 /** 折射之前的模糊和饱和度（CSS 滤镜，边缘按镜像延伸，不会发暗） */
 const BACKDROP = 'blur(6px) saturate(140%)'
-/** 着色放在 SVG 滤镜里，边缘高光才能叠在着色之上 */
-const TINT = { color: '#1b1a18', opacity: 0.55 }
 /** 高光的不透明度 */
 const SPECULAR = 0.85
 /** 尺寸连续变化（如工具栏的放大动画）时先拉伸现有的位移图，停止变化这么久之后再重新生成 */
@@ -106,7 +104,8 @@ function createFilter(root: Document | ShadowRoot): Filter {
   const element = svgNode('filter', { id, x: 0, y: 0, filterUnits: 'userSpaceOnUse', primitiveUnits: 'userSpaceOnUse', 'color-interpolation-filters': 'sRGB' }, container(root))
   const image = svgNode('feImage', { x: 0, y: 0, preserveAspectRatio: 'none', result: 'map' }, element)
   const displacement = svgNode('feDisplacementMap', { in: 'SourceGraphic', in2: 'map', xChannelSelector: 'R', yChannelSelector: 'G', result: 'refracted' }, element)
-  svgNode('feFlood', { 'flood-color': TINT.color, 'flood-opacity': TINT.opacity, result: 'tint' }, element)
+  // 着色放在 SVG 滤镜里，边缘高光才能叠在着色之上。颜色取 CSS 变量，随主题变化（styles/index.css）
+  svgNode('feFlood', { style: 'flood-color: var(--glass-flood)', result: 'tint' }, element)
   svgNode('feComposite', { in: 'tint', in2: 'refracted', operator: 'over', result: 'glass' }, element)
   svgNode('feColorMatrix', { in: 'map', type: 'matrix', values: `0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 ${SPECULAR} 0 0`, result: 'spec' }, element)
   svgNode('feComposite', { in: 'spec', in2: 'glass', operator: 'over' }, element)

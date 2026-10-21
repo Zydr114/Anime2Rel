@@ -17,6 +17,7 @@ import { DEPTH_SHIFT } from '@/focus/dof'
 import type { BallPreview } from '@/lighting/preview'
 import { docToWorld, type SceneLayout } from '@/scene3d/layout'
 import { directionToCamera, directionToWorld, previewRect, type Projection } from '@/scene3d/space'
+import { DOME, type Backdrop } from './backdrop'
 import { material } from './nodes'
 
 export interface Scene3dInput {
@@ -48,8 +49,6 @@ const VERTICES = 320
 /** 相邻顶点的距离之比超过 1 + JUMP 时视为深度跳变，不连成三角形 */
 const JUMP = 0.25
 const SKY = 0.5
-/** 视野之外和非天空方向的穹顶颜色（线性） */
-const DOME_COLOR = new THREE.Color(0.016, 0.018, 0.024)
 const FRUSTUM_COLOR = new THREE.Color(0xd9b26f)
 
 function grayTexture(): THREE.DataTexture {
@@ -221,6 +220,9 @@ export class Scene3D {
     back: uniform(new THREE.Vector3(0, 0, 1)),
     size: uniform(new THREE.Vector2(1, 1)),
     focal: uniform(1),
+    /** 视野之外和非天空方向的颜色，随主题变化 */
+    low: uniform(new THREE.Color(...DOME.dark.low)),
+    high: uniform(new THREE.Color(...DOME.dark.high)),
   }
   private readonly domeMap = texture(this.placeholders[1])
   private skyMap: THREE.DataTexture | null = null
@@ -245,7 +247,7 @@ export class Scene3D {
     this.background.frustumCulled = false
     this.scene.add(this.background)
 
-    // 穹顶：从原相机看去是天空的方向贴原图，其余方向是暗色
+    // 穹顶：从原相机看去是天空的方向贴原图，其余方向是底色（随主题）
     const d = this.domeUniforms
     const dir = normalize(positionWorld.sub(d.origin))
     const zc = dot(dir, d.back).negate()
@@ -253,7 +255,7 @@ export class Scene3D {
     const q = px.div(d.size)
     const inside = step(0.001, zc).mul(step(0, q.x)).mul(step(q.x, 1)).mul(step(0, q.y)).mul(step(q.y, 1))
     const isSky = inside.mul(smoothstep(0.3, 0.7, this.skyNode.sample(q).r))
-    const fallback = mix(vec3(DOME_COLOR.r, DOME_COLOR.g, DOME_COLOR.b), vec3(0.05, 0.06, 0.08), smoothstep(-0.1, 0.6, dir.y))
+    const fallback = mix(d.low, d.high, smoothstep(-0.1, 0.6, dir.y))
     const domeMaterial = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false })
     domeMaterial.colorNode = mix(fallback, this.domeMap.sample(q).rgb, isSky)
     this.dome = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), domeMaterial)
@@ -457,6 +459,11 @@ export class Scene3D {
     cam.position.set(...p.position)
     cam.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(...p.right), new THREE.Vector3(...p.up), new THREE.Vector3(...p.back)))
     cam.updateMatrixWorld()
+  }
+
+  setBackdrop(backdrop: Backdrop): void {
+    this.domeUniforms.low.value.setRGB(...DOME[backdrop].low)
+    this.domeUniforms.high.value.setRGB(...DOME[backdrop].high)
   }
 
   render(renderer: THREE.WebGPURenderer): void {

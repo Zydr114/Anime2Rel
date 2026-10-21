@@ -168,7 +168,7 @@ export function Landing() {
             <div className="flex flex-col items-center gap-2">
               <ShimmerButton
                 className="h-12 px-10 text-base font-medium"
-                background="rgb(var(--mdui-color-primary-container))"
+                background="rgb(var(--a2r-cta))"
                 shimmerColor="#ffd2b0"
                 disabled={!background}
                 onClick={start}

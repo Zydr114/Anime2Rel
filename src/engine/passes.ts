@@ -3,6 +3,8 @@ import * as THREE from 'three/webgpu'
 import { abs, cos, dot, exp, float, fract, fwidth, length, log2, max, mix, saturate, screenCoordinate, screenUV, select, sin, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { belowWaterline, cocPx, isMode, MODE, occlusionStyles, reflectance, REFLECTION_BLUR, reflectionOffset, refraction, sampleLevel, waterDepth, waterEdge, waterWave, type DofUniforms } from './dof'
 import { DEPTH_SHIFT } from '@/focus/dof'
+import { srgbToLinear } from '@/algo/color'
+import { SURROUND } from './backdrop'
 import { createFusionNode } from './fusion'
 import type { ShadowUniforms } from './shadow'
 import { evalSh, material, sampleAt, srgbDecode, srgbEncode, type FloatNode, type TileMapping, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
@@ -352,7 +354,7 @@ function dither(e: Vec3Node, amount: FloatNode, px: Vec2Node = screenCoordinate.
   return e.add(n.sub(0.5).mul(amount.div(255)))
 }
 
-/** 视口显示：把文档渲染结果按缩放和平移画到画布上，文档外填充中性深灰。画布的 sRGB 编码由渲染器完成，这里抖动后再解码。 */
+/** 视口显示：把文档渲染结果按缩放和平移画到画布上，文档外填充中性灰（随主题，见 backdrop.ts）。画布的 sRGB 编码由渲染器完成，这里抖动后再解码。 */
 export function createPresentPass(docTexture: THREE.Texture) {
   const u = {
     viewport: uniform(new THREE.Vector2(1, 1)),
@@ -360,12 +362,14 @@ export function createPresentPass(docTexture: THREE.Texture) {
     pan: uniform(new THREE.Vector2(0, 0)),
     docSize: uniform(new THREE.Vector2(1, 1)),
     dither: uniform(0),
+    /** 文档外的颜色（线性） */
+    surround: uniform(srgbToLinear(SURROUND.dark / 255)),
   }
   const docPx = screenUV.mul(u.viewport).sub(u.pan).div(u.zoom)
   const uv = docPx.div(u.docSize)
   const inside = step(0, uv.x).mul(step(uv.x, 1)).mul(step(0, uv.y)).mul(step(uv.y, 1))
   const doc = texture(docTexture, uv)
-  const surround = vec3(0.0103) // sRGB #1a1a1a
+  const surround = vec3(u.surround)
   const rgb = surround.add(doc.rgb.sub(surround).mul(inside))
   // 抖动量为 0 时编码再解码，与原值的差别远小于一个量化级
   const dithered = srgbDecode(saturate(dither(srgbEncode(saturate(rgb)), u.dither.mul(inside))))

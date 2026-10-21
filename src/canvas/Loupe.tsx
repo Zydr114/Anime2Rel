@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { docToScreen, type Point, type ViewTransform } from '@/algo/geometry'
+import { SURROUND } from '@/engine/backdrop'
+import { useTheme } from '@/state/appearance'
 import { getAsset } from '@/state/assets'
 
 /** 放大镜的直径（CSS 像素）与相对当前视图的放大倍数 */
@@ -19,6 +21,8 @@ export interface LoupeFocus {
 export function Loupe({ assetId, view, focus }: { assetId: string; view: ViewTransform; focus: LoupeFocus }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const { at, lines } = focus
+  // 照片之外与画布的底色一致
+  const surround = SURROUND[useTheme()]
 
   useEffect(() => {
     const canvas = ref.current
@@ -28,7 +32,7 @@ export function Loupe({ assetId, view, focus }: { assetId: string; view: ViewTra
     const dpr = window.devicePixelRatio || 1
     canvas.width = canvas.height = Math.round(SIZE * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = '#1c1b1a'
+    ctx.fillStyle = `rgb(${surround} ${surround} ${surround})`
     ctx.fillRect(0, 0, SIZE, SIZE)
     // 文档坐标 → 放大镜坐标
     const k = ZOOM * view.zoom
@@ -68,7 +72,7 @@ export function Loupe({ assetId, view, focus }: { assetId: string; view: ViewTra
       ctx.lineWidth = width
       ctx.stroke()
     }
-  }, [assetId, at, lines, view.zoom])
+  }, [assetId, at, lines, view.zoom, surround])
 
   const p = docToScreen(view, at)
   const left = p.x - SIZE - GAP < 8 ? p.x + GAP : p.x - SIZE - GAP

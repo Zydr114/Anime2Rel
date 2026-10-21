@@ -45,10 +45,12 @@ import {
   type LayerTextures,
 } from './passes'
 import { applyPostParams, createPostPasses, createPostUniforms, disposePostPasses, renderPost, resizePostPasses, BLOOM_SIZE } from './post'
+import { SURROUND, type Backdrop } from './backdrop'
 import { Scene3D, type Scene3dInput } from './scene3d'
 import { applyShadowParams, createShadowPass, createShadowUniforms } from './shadow'
 import { planTiles, tilePlan, WHOLE_PIXELS, type Rect } from './tiling'
 import { createWarpPass, WARP_LAYERS, type WarpLayer } from './warp'
+import { srgbToLinear } from '@/algo/color'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
@@ -415,6 +417,7 @@ export class Engine {
   /** 3D 视图：打开时画布显示三维场景，二维合成照常渲染到 docRT */
   private scene3d: Scene3D | null = null
   private view3d = false
+  private backdrop: Backdrop = 'dark'
 
   private docDirty = false
   /** 背景预处理、弥散圆统计和背景景深需要重算（背景、深度、焦点或光圈变化） */
@@ -553,10 +556,21 @@ export class Engine {
       if (!this.scene3d) {
         this.scene3d = new Scene3D({ character: this.layers.characterAdjusted.texture, characterDepth: this.layers.characterDepth.texture, document: this.docRT.texture })
         this.scene3d.setBackground(this.bgTexture)
+        this.scene3d.setBackdrop(this.backdrop)
       }
       this.scene3d.update(input)
     }
     this.view3d = !!input
+    this.viewDirty = true
+    this.schedule()
+  }
+
+  /** 画布的底色随界面主题变化 */
+  setBackdrop(backdrop: Backdrop): void {
+    if (backdrop === this.backdrop) return
+    this.backdrop = backdrop
+    this.present.uniforms.surround.value = srgbToLinear(SURROUND[backdrop] / 255)
+    this.scene3d?.setBackdrop(backdrop)
     this.viewDirty = true
     this.schedule()
   }

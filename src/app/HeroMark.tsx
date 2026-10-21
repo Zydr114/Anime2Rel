@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { GLOBE, LINE_WIDTH, MERIDIAN_COUNT, OUTLINE_WIDTH, STRANDS, VIEW_BOX, halfPath, latitudePaths, meridianPath } from './heroGeometry'
+import { useTheme } from '@/state/appearance'
+import { GLOBE, HERO_LINE, LINE_WIDTH, MERIDIAN_COUNT, OUTLINE_WIDTH, STRANDS, VIEW_BOX, halfPath, latitudePaths, meridianPath } from './heroGeometry'
 
 const DEG = Math.PI / 180
 const SPACING = (2 * Math.PI) / MERIDIAN_COUNT
@@ -33,6 +34,7 @@ const halves = STRANDS.flatMap((s, i) => s.halves.map((h) => ({ strand: i, half:
 /** 首页主视觉：金色圆环流入缓缓自转的地球（图标原图的矢量重建）。入场时线条依次画出，之后地球自转、高光沿圆环流入地球；系统要求减少动态效果时显示静止画面。 */
 export const HeroMark = memo(function HeroMark({ className }: { className?: string }) {
   const [still] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  const theme = useTheme()
   const meridianEls = useRef<(SVGPathElement | null)[]>([])
   const goldEls = useRef<(SVGPathElement | null)[]>([])
   const glintEls = useRef<(SVGPathElement | null)[]>([])
@@ -72,7 +74,7 @@ export const HeroMark = memo(function HeroMark({ className }: { className?: stri
       <defs>
         {STRANDS.map(({ gradient }, i) => (
           <linearGradient key={i} id={`hero-gold-${i}`} gradientUnits="userSpaceOnUse" x1={gradient.x0} x2={gradient.x1} y1={0} y2={0}>
-            {gradient.stops.map(([offset, color]) => (
+            {gradient.stops[theme].map(([offset, color]) => (
               <stop key={offset} offset={offset} stopColor={color} />
             ))}
           </linearGradient>
@@ -84,13 +86,13 @@ export const HeroMark = memo(function HeroMark({ className }: { className?: stri
         {STRANDS.map(({ gradient }, i) => (
           <linearGradient key={i} id={`hero-glint-${i}`} gradientUnits="userSpaceOnUse" x1={gradient.x0} x2={gradient.x1} y1={0} y2={0}>
             <stop offset={0} stopColor="#fffaf0" stopOpacity={0.95} />
-            <stop offset={gradient.stops[2][0]} stopColor="#fffaf0" stopOpacity={0.7} />
+            <stop offset={gradient.stops.dark[2][0]} stopColor="#fffaf0" stopOpacity={0.7} />
             <stop offset={1} stopColor="#fffaf0" stopOpacity={0} />
           </linearGradient>
         ))}
       </defs>
 
-      <g fill="none" stroke="var(--color-ivory)">
+      <g fill="none" stroke={HERO_LINE[theme]}>
         <circle
           cx={GLOBE.cx}
           cy={GLOBE.cy}
