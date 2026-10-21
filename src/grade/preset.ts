@@ -270,7 +270,19 @@ const bands = (values: Partial<Record<HslBand, number>>) => HSL_BANDS.map((b) =>
 
 const definePreset = (input: PresetInput) => ({ grade: conformGrade(input, () => null), post: conformPost(input.post) })
 
-export type BuiltinPresetId = 'overcast-film' | 'golden-backlight' | 'night-neon' | 'fresh'
+export type BuiltinPresetId =
+  | 'overcast-film'
+  | 'golden-backlight'
+  | 'night-neon'
+  | 'fresh'
+  | 'teal-orange'
+  | 'japanese-film'
+  | 'vintage-fade'
+  | 'mono-film'
+  | 'blue-hour'
+  | 'dreamy'
+  | 'hong-kong'
+  | 'bleach-bypass'
 
 export const BUILTIN_PRESETS: Record<BuiltinPresetId, Omit<Preset, 'name'>> = {
   // 参照 docs/example.png：暖褐色调，绿色压暗偏褐，黑位压低，亮部略收，颗粒与暗角
@@ -406,6 +418,226 @@ export const BUILTIN_PRESETS: Record<BuiltinPresetId, Omit<Preset, 'name'>> = {
     post: {
       bloom: { intensity: 0.15, threshold: 0.8, radius: 0.6 },
       grain: { amount: 0.08 },
+    },
+  }),
+  // M8.8a 新增：暗部青色、亮部橙色，肤色突出，绿色偏青并降低饱和度
+  'teal-orange': definePreset({
+    levels: {
+      global: {
+        contrast: 0.15,
+        highlights: -0.2,
+        shadows: 0.05,
+        blacks: -0.1,
+        vibrance: 0.1,
+        saturation: -0.05,
+        hsl: {
+          hue: bands({ yellow: -0.3, green: 0.5, blue: -0.3 }),
+          saturation: bands({ orange: 0.15, yellow: -0.2, green: -0.4, aqua: 0.15, blue: 0.1, purple: -0.3, magenta: -0.3 }),
+        },
+      },
+    },
+    creative: {
+      split: { shadow: { hue: 205, amount: 0.6 }, highlight: { hue: 60, amount: 0.3 }, balance: -0.25 },
+    },
+    post: {
+      bloom: { intensity: 0.1, threshold: 0.8 },
+      lens: { vignette: -0.25 },
+      grain: { amount: 0.12 },
+    },
+  }),
+  // 略过曝、低反差，黑位抬起，绿色偏青，亮部柔和，带红晕与颗粒
+  'japanese-film': definePreset({
+    levels: {
+      global: {
+        exposure: 0.25,
+        contrast: -0.15,
+        highlights: -0.35,
+        shadows: 0.2,
+        temperature: 0.1,
+        tint: -0.12,
+        saturation: -0.1,
+        hsl: {
+          hue: bands({ yellow: -0.1, green: 0.3 }),
+          saturation: bands({ red: -0.1, green: -0.2, blue: -0.1 }),
+          luminance: bands({ orange: 0.1, blue: 0.05 }),
+        },
+        curves: {
+          master: [
+            [0, 0.08],
+            [0.5, 0.52],
+            [1, 0.96],
+          ],
+        },
+      },
+    },
+    creative: {
+      split: { shadow: { hue: 185, amount: 0.4 }, highlight: { hue: 70, amount: 0.3 } },
+    },
+    post: {
+      diffusion: { intensity: 0.15, threshold: 0.5, radius: 0.5 },
+      halation: { intensity: 0.25, threshold: 0.8 },
+      lens: { vignette: -0.15 },
+      grain: { amount: 0.3, size: 0.35, color: 0.25 },
+    },
+  }),
+  // 黑位褪成灰、饱和度低、亮部偏黄、暗部偏蓝，画面略软，颗粒与暗角明显
+  'vintage-fade': definePreset({
+    levels: {
+      global: {
+        contrast: -0.2,
+        highlights: -0.2,
+        temperature: 0.2,
+        tint: 0.05,
+        saturation: -0.3,
+        curves: {
+          master: [
+            [0, 0.12],
+            [0.25, 0.28],
+            [0.75, 0.76],
+            [1, 0.92],
+          ],
+          b: [
+            [0, 0.1],
+            [1, 0.88],
+          ],
+        },
+      },
+    },
+    creative: {
+      wheels: { gain: { hue: 80, amount: 0.15 } },
+      split: { shadow: { hue: 220, amount: 0.15 }, highlight: { hue: 60, amount: 0.3 } },
+    },
+    post: {
+      soften: { intensity: 0.4, radius: 0.3 },
+      halation: { intensity: 0.1 },
+      lens: { vignette: -0.4, feather: 0.7 },
+      grain: { amount: 0.4, size: 0.45, color: 0.2 },
+    },
+  }),
+  // 黑白：去色后提高反差，压暗蓝色（类似黄色滤镜）让天空更深，粗颗粒
+  'mono-film': definePreset({
+    levels: {
+      global: {
+        contrast: 0.3,
+        highlights: -0.15,
+        shadows: 0.1,
+        blacks: -0.2,
+        saturation: -1,
+        hsl: { luminance: bands({ red: 0.1, orange: 0.15, aqua: -0.15, blue: -0.25 }) },
+        curves: {
+          master: [
+            [0, 0.02],
+            [0.25, 0.2],
+            [0.75, 0.8],
+            [1, 0.98],
+          ],
+        },
+        clarity: 0.15,
+      },
+    },
+    post: {
+      bloom: { intensity: 0.05 },
+      lens: { vignette: -0.3 },
+      grain: { amount: 0.45, size: 0.4, color: 0 },
+    },
+  }),
+  // 整体偏冷偏蓝，灯光等亮部保留暖色，泛光与轻微的扩散
+  'blue-hour': definePreset({
+    levels: {
+      global: {
+        exposure: -0.15,
+        contrast: 0.1,
+        highlights: -0.1,
+        shadows: 0.15,
+        temperature: -0.4,
+        tint: 0.05,
+        vibrance: 0.15,
+        hsl: { saturation: bands({ orange: 0.1, aqua: 0.1, blue: 0.2 }) },
+      },
+    },
+    creative: {
+      wheels: { lift: { hue: 250, amount: 0.1 } },
+      split: { shadow: { hue: 250, amount: 0.35 }, highlight: { hue: 55, amount: 0.2 }, balance: -0.3 },
+    },
+    post: {
+      bloom: { intensity: 0.3, threshold: 0.65, radius: 0.6 },
+      diffusion: { intensity: 0.15, threshold: 0.6 },
+      lens: { vignette: -0.3 },
+      grain: { amount: 0.1 },
+    },
+  }),
+  // 明亮、低反差的粉紫色调，强柔焦和白柔扩散，四周提亮
+  dreamy: definePreset({
+    levels: {
+      global: {
+        exposure: 0.25,
+        contrast: -0.2,
+        highlights: -0.2,
+        shadows: 0.25,
+        blacks: 0.1,
+        temperature: 0.05,
+        tint: 0.1,
+        vibrance: 0.1,
+        saturation: -0.05,
+      },
+    },
+    creative: {
+      split: { shadow: { hue: 280, amount: 0.15 }, highlight: { hue: 350, amount: 0.2 } },
+    },
+    post: {
+      softFocus: { intensity: 0.6, radius: 0.5, glow: 0.4 },
+      diffusion: { intensity: 0.25, radius: 0.6 },
+      bloom: { intensity: 0.2, threshold: 0.7 },
+      lens: { vignette: 0.15 },
+    },
+  }),
+  // 港风：暖色调、高反差，红色浓郁，暗部青绿、亮部红橙，红晕、色差和颗粒，画面略软
+  'hong-kong': definePreset({
+    levels: {
+      global: {
+        contrast: 0.25,
+        highlights: -0.2,
+        shadows: -0.05,
+        blacks: -0.15,
+        temperature: 0.15,
+        tint: -0.1,
+        vibrance: 0.2,
+        saturation: 0.05,
+        hsl: {
+          hue: bands({ green: 0.3, blue: -0.2 }),
+          saturation: bands({ red: 0.2, orange: 0.1, green: -0.1, aqua: 0.2 }),
+          luminance: bands({ red: -0.05, green: -0.2, aqua: -0.1 }),
+        },
+      },
+    },
+    creative: {
+      split: { shadow: { hue: 170, amount: 0.35 }, highlight: { hue: 40, amount: 0.35 } },
+    },
+    post: {
+      soften: { intensity: 0.25, radius: 0.3 },
+      bloom: { intensity: 0.15, threshold: 0.7 },
+      halation: { intensity: 0.35, threshold: 0.75, radius: 0.4 },
+      lens: { aberration: 0.2, vignette: -0.35 },
+      grain: { amount: 0.35, size: 0.4, color: 0.3 },
+    },
+  }),
+  // 漂白效果（跳漂白）：叠加一层黑白副本，反差高、饱和度低，亮部发银
+  'bleach-bypass': definePreset({
+    levels: {
+      global: {
+        contrast: 0.25,
+        highlights: -0.15,
+        blacks: -0.1,
+        saturation: -0.45,
+        clarity: 0.2,
+      },
+    },
+    creative: {
+      layers: [{ kind: 'gradient', gradient: ['#000000', '#ffffff'], mode: 'overlay', opacity: 0.5 }],
+    },
+    post: {
+      lens: { vignette: -0.3 },
+      grain: { amount: 0.2, size: 0.3, color: 0.1 },
     },
   }),
 }
