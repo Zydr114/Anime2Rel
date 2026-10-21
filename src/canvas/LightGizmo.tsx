@@ -46,7 +46,7 @@ interface Drag {
   light: string
 }
 
-/** 光源步骤的画布控件：拖动点光源和画面内的方向光；添加光源、吸管工具的点击层。 */
+/** 融合步骤的画布控件：拖动点光源和画面内的方向光；添加光源、吸管工具的点击层。 */
 export function LightGizmo({ passThrough }: { passThrough: boolean }) {
   const background = useApp((s) => s.doc.background)
   const lighting = useApp((s) => s.doc.lighting)
@@ -59,7 +59,7 @@ export function LightGizmo({ passThrough }: { passThrough: boolean }) {
   const dragRef = useRef<Drag | null>(null)
   const view3d = useView3d((s) => s.open)
 
-  if (!background || step !== 'light' || view3d) return null
+  if (!background || step !== 'fusion' || view3d) return null
 
   const toScreen = (p: Point) => docToScreen(view, p)
   const toDoc = (e: ReactPointerEvent) => {

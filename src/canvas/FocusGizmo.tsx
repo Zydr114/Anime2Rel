@@ -27,7 +27,7 @@ function targetAt(doc: DocState, p: Point): FocusTarget | null {
   return { kind: 'background', x: clamp(p.x, 0, bg.width), y: clamp(p.y, 0, bg.height) }
 }
 
-/** 景深步骤的画布控件：在文档上点击或拖动选择对焦点，并标出当前焦点。 */
+/** 镜头步骤的画布控件：在文档上点击或拖动选择对焦点，并标出当前焦点。 */
 export function FocusGizmo({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
@@ -37,7 +37,7 @@ export function FocusGizmo({ passThrough }: { passThrough: boolean }) {
   const dragRef = useRef<number | null>(null)
 
   const background = doc.background
-  if (!background || step !== 'focus') return null
+  if (!background || step !== 'lens') return null
 
   const setTarget = (e: ReactPointerEvent) => {
     const rect = svgRef.current!.getBoundingClientRect()

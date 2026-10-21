@@ -22,8 +22,8 @@ export const useView3d = create<View3dState>()((set) => ({
   setView: (view) => set({ view }),
 }))
 
-/** 可以打开 3D 视图的步骤：光源（M8.6a）与立绘（M8.6b） */
-export const isView3dStep = (step: StepId) => step === 'light' || step === 'character'
+/** 可以打开 3D 视图的步骤：摆放（M8.6b）与融合（M8.6a） */
+export const isView3dStep = (step: StepId) => step === 'place' || step === 'fusion'
 
 /** 3D 视图是否正在显示；显示时二维的控件隐藏 */
 export function useView3dShown(): boolean {

@@ -12,13 +12,11 @@ import { LegalLinks } from './LegalLinks'
 import { AdjustPanel } from './panels/AdjustPanel'
 import { notify } from './notify'
 import { AssetsPanel } from './panels/AssetsPanel'
-import { CameraPanel } from './panels/CameraPanel'
-import { CharacterPanel } from './panels/CharacterPanel'
-import { DepthPanel } from './panels/DepthPanel'
-import { EffectsPanel } from './panels/EffectsPanel'
 import { ExportPanel } from './panels/ExportPanel'
-import { FocusPanel } from './panels/FocusPanel'
-import { LightPanel } from './panels/LightPanel'
+import { FusionPanel } from './panels/FusionPanel'
+import { LensPanel } from './panels/LensPanel'
+import { PlacePanel } from './panels/PlacePanel'
+import { ScenePanel } from './panels/ScenePanel'
 import { startAutosave } from './project'
 import { steps } from './steps'
 import { Toolbar } from './Toolbar'
@@ -26,13 +24,11 @@ import { useShortcuts } from './useShortcuts'
 
 function StepPanel({ step }: { step: StepId }) {
   if (step === 'assets') return <AssetsPanel />
-  if (step === 'camera') return <CameraPanel />
-  if (step === 'depth') return <DepthPanel />
-  if (step === 'light') return <LightPanel />
-  if (step === 'character') return <CharacterPanel />
-  if (step === 'focus') return <FocusPanel />
+  if (step === 'scene') return <ScenePanel />
+  if (step === 'place') return <PlacePanel />
+  if (step === 'fusion') return <FusionPanel />
   if (step === 'adjust') return <AdjustPanel />
-  if (step === 'effects') return <EffectsPanel />
+  if (step === 'lens') return <LensPanel />
   return <ExportPanel />
 }
 

@@ -14,7 +14,7 @@ const HALF = 14
 const WATER = 'rgb(125, 211, 252)'
 
 /**
- * 立绘与景深步骤的接地点控件：拖动设置立绘脚下（或水线处）的接地点，双击恢复自动。水体遮挡开启时同时画出整条水线。立绘变形时只显示不响应。
+ * 摆放步骤的接地点控件：拖动设置立绘脚下（或水线处）的接地点，双击恢复自动。水体遮挡开启时同时画出整条水线。选用摆放以外的工具时只显示不响应。
  * 标记和水线都与标定的地平线平行。
  */
 export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
@@ -22,13 +22,13 @@ export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
   const view3d = useView3dShown()
-  const warping = useFusion((s) => s.tool !== 'transform') && step === 'character'
+  const warping = useFusion((s) => s.tool !== 'transform')
   const bbox = useCharacterInfo(doc)?.bbox
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ id: number; offset: Point } | null>(null)
 
   const { background, character } = doc
-  if (!background || !character || (step !== 'character' && step !== 'focus') || view3d) return null
+  if (!background || !character || step !== 'place' || view3d) return null
 
   const ground = characterGround(doc, background, bbox)
   const at = docToScreen(view, ground)

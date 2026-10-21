@@ -1,7 +1,7 @@
 /**
  * 3D 视图中点击、拖动场景（docs/Plan.md §3.7）：
- * 光源步骤中添加光源、吸管取色、按住 Ctrl 把选中的灯放到所点的表面附近（M8.6a）；
- * 立绘步骤中沿地面移动人物、用深度画笔在人物上画（M8.6b）。
+ * 融合步骤中添加光源、吸管取色、按住 Ctrl 把选中的灯放到所点的表面附近（M8.6a）；
+ * 摆放步骤中沿地面移动人物、用深度画笔在人物上画（M8.6b）。
  */
 import { inverseDepth } from '@/algo/camera'
 import type { LayerTransform, Point } from '@/algo/geometry'

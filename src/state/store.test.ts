@@ -77,26 +77,26 @@ describe('camera', () => {
   it('locks later steps until confirmed, keeps the confirmation through undo and resets it with a new background', () => {
     useApp.getState().setBackground(asset('bg'))
     useApp.getState().start()
-    expect(useApp.getState().step).toBe('camera')
-    useApp.getState().setStep('light')
-    expect(useApp.getState().step).toBe('camera')
+    expect(useApp.getState().step).toBe('scene')
+    useApp.getState().setStep('fusion')
+    expect(useApp.getState().step).toBe('scene')
 
     useApp.getState().updateCamera({ pitch: -0.1 })
     useApp.getState().confirmCamera()
-    useApp.getState().setStep('light')
-    expect(useApp.getState().step).toBe('light')
+    useApp.getState().setStep('fusion')
+    expect(useApp.getState().step).toBe('fusion')
     // 撤销标定的修改，仍是已确认
     useApp.getState().undo()
     expect(useApp.getState().doc.camera).toMatchObject({ pitch: 0, confirmed: true })
 
     useApp.getState().setBackground(asset('bg2'))
     expect(useApp.getState().doc.camera.confirmed).toBe(false)
-    expect(useApp.getState().step).toBe('camera')
+    expect(useApp.getState().step).toBe('scene')
     useApp.getState().undo()
-    useApp.getState().setStep('light')
-    // 重做回到未确认的背景时退回相机步骤
+    useApp.getState().setStep('fusion')
+    // 重做回到未确认的背景时退回场景步骤
     useApp.getState().redo()
-    expect(useApp.getState().step).toBe('camera')
+    expect(useApp.getState().step).toBe('scene')
   })
 })
 
@@ -221,7 +221,7 @@ describe('focus', () => {
     useApp.getState().addRegionStroke(id, { erase: true, radius: 5, points: [150, 80] })
     useApp.getState().undo()
     expect(useApp.getState().doc.focus.occlusion.regions[0].strokes).toHaveLength(1)
-    useApp.getState().resetFocus()
+    useApp.getState().resetOcclusion()
     expect(useApp.getState().doc.focus.occlusion.regions).toHaveLength(MAX_REGIONS)
     useApp.getState().setBackground(asset('bg2', 2000, 1600))
     expect(useApp.getState().doc.focus.occlusion.regions[0].strokes[0]).toEqual({ erase: false, radius: 20, points: [200, 160, 400, 160] })

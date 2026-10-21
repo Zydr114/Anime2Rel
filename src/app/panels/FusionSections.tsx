@@ -1,4 +1,4 @@
-import { useCallback, useRef, type ReactNode } from 'react'
+import { useCallback, useRef } from 'react'
 import type { SegmentedButtonGroup } from 'mdui/components/segmented-button-group.js'
 import { waterActive } from '@/focus/model'
 import { RELIGHT_STYLES, type FusionDoc, type FusionSection, type RelightStyle } from '@/fusion/model'
@@ -48,13 +48,13 @@ function FusionSlider<K extends FusionSection>(props: {
   )
 }
 
+/** 融合步骤中立绘融合的各组；需要立绘 */
 export function FusionSections() {
   return (
     <>
-      <DepthSection />
+      <RelightSection />
       <ShadowSection />
       <ColorSection />
-      <RelightSection />
       <EdgeSection />
       <NormalSection />
       <mdui-button variant="text" onClick={() => useApp.getState().resetFusion()} data-testid="fusion-reset">
@@ -65,8 +65,8 @@ export function FusionSections() {
   )
 }
 
-/** 立绘的前后位置；children 追加在同一分组中 */
-export function DepthSection({ children }: { children?: ReactNode }) {
+/** 立绘的前后位置与接地点（摆放步骤） */
+export function DepthSection() {
   const manual = useApp((s) => s.doc.fusion.depth)
   const doc = useApp((s) => s.doc)
   const bbox = useCharacterInfo(doc)?.bbox
@@ -100,7 +100,6 @@ export function DepthSection({ children }: { children?: ReactNode }) {
           </mdui-button>
         )}
       </div>
-      {children}
     </Group>
   )
 }

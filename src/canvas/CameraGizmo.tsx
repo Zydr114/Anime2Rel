@@ -25,7 +25,7 @@ const SNAP = Math.PI / 12
 /** 视平线两端控制点的位置（画面宽度的比例） */
 const HANDLE_X = [0.15, 0.85] as const
 const HANDLE_R = 7
-/** 相机步骤中暗化照片的程度 */
+/** 场景步骤中暗化照片的程度 */
 const DIM = 0.45
 /** 测量杆的颜色和最小高度（米） */
 const ROD = 'rgb(250, 250, 250)'
@@ -101,7 +101,7 @@ function HorizonLabel({ from, to }: { from: Point; to: Point }) {
   )
 }
 
-/** 立绘步骤可选的参考形状：原点在立绘的接地点（不在地面上时取默认位置），并画出视平线 */
+/** 摆放步骤可选的参考形状：原点在立绘的接地点（不在地面上时取默认位置），并画出视平线 */
 export function CharacterGuide() {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
@@ -111,7 +111,7 @@ export function CharacterGuide() {
   const info = useCharacterInfo(doc)
   const view3d = useView3dShown()
   const bg = doc.background
-  if (!bg || step !== 'character' || !showGuide || kind === 'none' || view3d) return null
+  if (!bg || step !== 'place' || !showGuide || kind === 'none' || view3d) return null
   const foot = doc.character ? characterGround(doc, bg, info?.bbox) : null
   const origin = foot && groundPoint(doc.camera, bg, foot) ? foot : guideOrigin(doc, null)!
   const handles = HANDLE_X.map((k) => docToScreen(view, horizonAt(doc.camera, bg, k * bg.width)))
@@ -126,7 +126,7 @@ export function CharacterGuide() {
 }
 
 /**
- * 相机步骤的画布控件：视平线方式拖动视平线（两端的圆点改变高度和倾斜，线本身上下平移），
+ * 场景步骤的画布控件：视平线方式拖动视平线（两端的圆点改变高度和倾斜，线本身上下平移），
  * 平行线方式拖动两组线的端点并实时求解；两种方式都叠加可拖动的参考形状。
  */
 export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
@@ -139,7 +139,7 @@ export function CameraGizmo({ passThrough }: { passThrough: boolean }) {
   const [focus, setFocus] = useState<LoupeFocus | null>(null)
 
   const { background, camera } = doc
-  if (!background || step !== 'camera') return null
+  if (!background || step !== 'scene') return null
   const origin = guideOrigin(doc, guide.origin)!
   const rod = guideRod(doc, guide.rod)!
   const rodMeters = heightAbove(camera, background, rod.foot, rod.top)

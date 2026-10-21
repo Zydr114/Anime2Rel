@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { docToScreen, screenToDoc, type Point } from '@/algo/geometry'
 import type { RegionMask } from '@/focus/regions'
 import { currentRegionMask } from '@/focus/service'
+import { useFusion } from '@/state/fusion'
 import { REGION_COLORS, regionColor, useRegionTool } from '@/state/regions'
 import { useApp } from '@/state/store'
+import { useView3dShown } from '@/state/view3d'
 
 /** 区域着色的不透明度：正在编辑的区域与其他区域 */
 const ACTIVE_ALPHA = 0.55
@@ -30,12 +32,14 @@ function tint(mask: RegionMask, active: number): ImageData {
   return img
 }
 
-/** 景深步骤的区域画笔：选中区域时在画布上涂抹（一笔一次撤销），并用颜色标出各区域。 */
+/** 摆放步骤的遮挡区域画笔：选用遮挡工具并选中区域时在画布上涂抹（一笔一次撤销），并用颜色标出各区域。 */
 export function RegionBrush({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
   const { active, tool, size } = useRegionTool()
+  const regionTool = useFusion((s) => s.tool === 'region')
+  const view3d = useView3dShown()
   const svgRef = useRef<SVGSVGElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const strokeRef = useRef<{ id: number; points: number[] } | null>(null)
@@ -45,7 +49,7 @@ export function RegionBrush({ passThrough }: { passThrough: boolean }) {
   const regions = doc.focus.occlusion.regions
   const index = regions.findIndex((r) => r.id === active)
   const background = doc.background
-  const visible = !!background && step === 'focus' && index >= 0
+  const visible = !!background && step === 'place' && regionTool && index >= 0 && !view3d
   const mask = visible ? currentRegionMask(doc) : null
 
   useEffect(() => {

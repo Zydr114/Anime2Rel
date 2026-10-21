@@ -8,7 +8,7 @@ import { useApp } from '@/state/store'
 import { useView3d } from '@/state/view3d'
 import { notify } from '@/app/notify'
 
-/** 立绘步骤的深度画笔（二维）：在立绘上涂抹修正深度，一笔一次撤销。画面上的伪彩色由引擎叠加 */
+/** 摆放步骤的深度画笔（二维）：在立绘上涂抹修正深度，一笔一次撤销。画面上的伪彩色由引擎叠加 */
 export function DepthBrush({ passThrough }: { passThrough: boolean }) {
   const step = useApp((s) => s.step)
   const view = useApp((s) => s.view)
@@ -21,7 +21,7 @@ export function DepthBrush({ passThrough }: { passThrough: boolean }) {
   const strokeRef = useRef<{ id: number; last: Point } | null>(null)
   const [cursor, setCursor] = useState<Point | null>(null)
 
-  if (!background || !hasCharacter || step !== 'character' || !active || open3d) return null
+  if (!background || !hasCharacter || step !== 'place' || !active || open3d) return null
 
   const toScreen = (e: ReactPointerEvent) => {
     const rect = svgRef.current!.getBoundingClientRect()

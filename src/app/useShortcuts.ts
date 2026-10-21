@@ -40,7 +40,7 @@ export function useShortcuts(): void {
       }
       if (mod || e.altKey) return
 
-      if (s.step === 'light') {
+      if (s.step === 'fusion') {
         const l = useLighting.getState()
         if (key === 'escape' && l.tool !== 'select') {
           l.setTool('select')
@@ -63,7 +63,7 @@ export function useShortcuts(): void {
         const f = useFusion.getState()
         f.setCompare(!f.compare)
       } else if (key === 'h' && s.doc.character) s.setCharTransform({ flipX: !s.doc.charTransform.flipX })
-      else if (key.startsWith('arrow') && s.doc.character && (s.step === 'assets' || s.step === 'character')) {
+      else if (key.startsWith('arrow') && s.doc.character && (s.step === 'assets' || s.step === 'place')) {
         e.preventDefault()
         const d = e.shiftKey ? 10 : 1
         const t = s.doc.charTransform

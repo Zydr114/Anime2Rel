@@ -9,7 +9,9 @@ import { useCameraGuide } from '@/state/cameraGuide'
 import { DEPTH_BRUSH_MODES } from '@/fusion/depthEdit'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useDepthBrush } from '@/state/depthEdit'
-import { characterInfo, useCharacterInfo, useFusion, WARP_TOOLS, type WarpTool } from '@/state/fusion'
+import { characterInfo, PLACE_TOOLS, useCharacterInfo, useFusion, type CharacterTool } from '@/state/fusion'
+import { openGroup } from '@/state/groups'
+import { useRegionTool } from '@/state/regions'
 import { useApp } from '@/state/store'
 import { useView3d } from '@/state/view3d'
 import { SliderField } from '@/ui/SliderField'
@@ -18,19 +20,20 @@ import { Segmented } from '@/ui/Segmented'
 import { SelectField } from '@/ui/SelectField'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { notify } from '../notify'
-import { ThicknessSlider } from './FocusPanel'
-import { FusionSections } from './FusionSections'
-import { Empty, Group, Hint, More, ToggleRow } from './Group'
+import { OcclusionSection, ThicknessSlider } from './FocusSections'
+import { DepthSection } from './FusionSections'
+import { Empty, Group, Help, Hint, More, ToggleRow } from './Group'
 
 const RAD = Math.PI / 180
 
 const formatPercent = (v: number) => `${Math.round(v)}%`
 const formatDegrees = (v: number) => `${v.toFixed(1)}°`
 const GRID_OPTIONS = WARP_GRID_SIZES.map(String)
-/** 立绘步骤用开关控制显示，种类里不含“不显示” */
+/** 摆放步骤用开关控制显示，种类里不含“不显示” */
 const GUIDE_OPTIONS = GUIDE_KINDS.filter((k) => k !== 'none').map((value) => ({ value, label: t.camera.guide.kinds[value] }))
 
-export function CharacterPanel() {
+/** 摆放步骤：画布工具，摆放、相机透视、变形、前后位置、立绘深度与遮挡 */
+export function PlacePanel() {
   const character = useApp((s) => s.doc.character)
   const tr = useApp((s) => s.doc.charTransform)
   const setCharTransform = useApp((s) => s.setCharTransform)
@@ -43,6 +46,7 @@ export function CharacterPanel() {
 
   return (
     <div className="flex flex-col gap-2">
+      <ToolSection />
       <Group
         id="character.transform"
         title={t.character.transform}
@@ -70,13 +74,43 @@ export function CharacterPanel() {
       </Group>
       <CameraSection />
       <WarpSection />
+      <DepthSection />
       <DepthEditSection />
-      <FusionSections />
+      <OcclusionSection />
     </div>
   )
 }
 
-/** 显示参考形状；相机步骤中选了“不显示”时改回地面网格 */
+/** 各工具的参数所在的分组 */
+const TOOL_GROUPS: Record<CharacterTool, string> = {
+  transform: 'character.transform',
+  perspective: 'character.warp',
+  mesh: 'character.warp',
+  depth: 'character.depthEdit',
+  region: 'focus.occlusion',
+}
+
+/** 换用画布工具并展开它的分组；换用遮挡工具时编辑第一个区域 */
+function selectTool(tool: CharacterTool): void {
+  useFusion.getState().setTool(tool)
+  openGroup(TOOL_GROUPS[tool])
+  const regions = useApp.getState().doc.focus.occlusion.regions
+  if (tool === 'region' && regions.length && !useRegionTool.getState().active) useRegionTool.getState().setActive(regions[0].id)
+}
+
+function ToolSection() {
+  const tool = useFusion((s) => s.tool)
+  return (
+    <div className="flex items-center gap-1">
+      <div className="min-w-0 flex-1">
+        <Segmented value={tool} options={PLACE_TOOLS} label={(v) => t.place.tools[v]} onChange={selectTool} testId="place-tool" />
+      </div>
+      <Help title={t.place.tool} text={t.place.toolHint} />
+    </div>
+  )
+}
+
+/** 显示参考形状；场景步骤中选了“不显示”时改回地面网格 */
 function setShowGuide(on: boolean): void {
   useFusion.getState().setShowGuide(on)
   const guide = useCameraGuide.getState()
@@ -117,6 +151,7 @@ function CameraSection() {
   )
 }
 
+/** 变形：在上方选用透视、网格工具后在画布上拖动 */
 function WarpSection() {
   const warp = useApp((s) => s.doc.charWarp)
   const tool = useFusion((s) => s.tool)
@@ -124,9 +159,6 @@ function WarpSection() {
   const changed = [hasPerspective(warp) && w.tools.perspective, hasGridWarp(warp) && w.tools.mesh].filter(Boolean).join('、')
   return (
     <Group id="character.warp" title={w.title} summary={changed || w.none} help={[w.hints.perspective, w.hints.mesh, w.limit]} testId="warp-section">
-      <span>{w.tool}</span>
-      {/* 使用深度画笔时不选中任何一项 */}
-      <Segmented value={tool} options={WARP_TOOLS} label={(v) => w.tools[v as WarpTool]} onChange={useFusion.getState().setTool} testId="warp-tool" />
       {tool === 'mesh' && (
         <>
           <span className="text-sm">{w.grid}</span>
@@ -167,7 +199,7 @@ function DepthEditSection() {
     <Group id="character.depthEdit" title={d.title} summary={d.strokes(strokes)} help={[d.thicknessHint, d.brushHint, d.modesHint, d.overlayHint]} testId="char-depth-edit">
       <ToggleRow label={t.light.view3d} checked={view3d} onChange={useView3d.getState().setOpen} testId="char-view3d" />
       <ThicknessSlider />
-      <ToggleRow label={d.brush} checked={active} onChange={(on) => useFusion.getState().setTool(on ? 'depth' : 'transform')} testId="char-depth-brush" />
+      <ToggleRow label={d.brush} checked={active} onChange={(on) => selectTool(on ? 'depth' : 'transform')} testId="char-depth-brush" />
       {active && (
         <>
           {!ready && <Hint warn>{d.notReady}</Hint>}

@@ -26,7 +26,8 @@ import { DEFAULT_POST, type PostDoc, type PostSection, type ToneMapping } from '
 import { matchesPreset, type Preset } from '@/grade/preset'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
-export type StepId = 'assets' | 'camera' | 'depth' | 'light' | 'character' | 'focus' | 'adjust' | 'effects' | 'export'
+/** 步骤（docs/Plan.md §3.7 M8.7）：素材、场景（相机与深度）、摆放、融合、调色、镜头（景深与后期）、导出 */
+export type StepId = 'assets' | 'scene' | 'place' | 'fusion' | 'adjust' | 'lens' | 'export'
 
 /** 可撤销的文档状态。所有字段必须可序列化（资源只保存引用）。 */
 export interface DocState {
@@ -125,8 +126,10 @@ interface AppState {
 
   updateFocus: <K extends FocusSection>(section: K, update: Partial<FocusDoc[K]>) => void
   setFocus: (update: Partial<Pick<FocusDoc, 'target' | 'thickness'>>) => void
-  /** 恢复默认的景深与遮挡参数，保留焦点和画好的遮挡区域 */
-  resetFocus: () => void
+  /** 恢复默认的遮挡参数，保留画好的遮挡区域 */
+  resetOcclusion: () => void
+  /** 恢复默认的景深与后期参数（镜头步骤），保留焦点 */
+  resetLens: () => void
   /** 添加遮挡区域，返回其 id；达到上限时返回 null */
   addRegion: () => string | null
   updateRegion: (id: string, update: Partial<OcclusionStyle>) => void
@@ -172,11 +175,11 @@ interface AppState {
 
 /** 背景的相机标定还没有确认 */
 export const cameraPending = (doc: DocState) => !!doc.background && !doc.camera.confirmed
-/** 相机标定确认之前不能进入的步骤：素材和相机以外的步骤 */
-export const needsCamera = (step: StepId) => step !== 'assets' && step !== 'camera'
+/** 相机标定确认之前不能进入的步骤：素材和场景以外的步骤 */
+export const needsCamera = (step: StepId) => step !== 'assets' && step !== 'scene'
 export const stepLocked = (doc: DocState, step: StepId) => cameraPending(doc) && needsCamera(step)
 
-const allowedStep = (doc: DocState, step: StepId): StepId => (stepLocked(doc, step) ? 'camera' : step)
+const allowedStep = (doc: DocState, step: StepId): StepId => (stepLocked(doc, step) ? 'scene' : step)
 
 /** 文档坐标按 (kx, ky) 缩放：立绘位置与大小、背景上的焦点、遮挡区域和点光源的位置随之变化 */
 export function rescaleDoc(d: DocState, kx: number, ky: number): DocState {
@@ -289,8 +292,8 @@ export const useApp = create<AppState>()((set, get) => ({
       })
     }
     if (sizeChanged) set({ view: fitView(asset, viewport, undefined, viewInsets) })
-    // 在编辑器中换背景后直接进入相机步骤
-    if (started && !camera.confirmed) set({ step: 'camera' })
+    // 在编辑器中换背景后直接进入场景步骤
+    if (started && !camera.confirmed) set({ step: 'scene' })
   },
 
   setCharacter: (asset) => {
@@ -411,8 +414,12 @@ export const useApp = create<AppState>()((set, get) => ({
     get().setDoc((d) => ({ ...d, focus: { ...d.focus, ...update } }))
   },
 
-  resetFocus: () => {
-    get().setDoc((d) => ({ ...d, focus: { ...DEFAULT_FOCUS, target: d.focus.target, occlusion: { ...DEFAULT_FOCUS.occlusion, regions: d.focus.occlusion.regions } } }))
+  resetOcclusion: () => {
+    get().setDoc((d) => ({ ...d, focus: { ...d.focus, occlusion: { ...DEFAULT_FOCUS.occlusion, regions: d.focus.occlusion.regions } } }))
+  },
+
+  resetLens: () => {
+    get().setDoc((d) => ({ ...d, focus: { ...d.focus, dof: DEFAULT_FOCUS.dof }, post: DEFAULT_POST }))
   },
 
   addRegion: () => {
@@ -578,7 +585,7 @@ export const useApp = create<AppState>()((set, get) => ({
   },
   start: () => {
     const { doc, step } = get()
-    // 背景的相机还没有确认时，进入编辑器后直接打开相机步骤
-    set({ started: true, step: cameraPending(doc) ? 'camera' : step })
+    // 背景的相机还没有确认时，进入编辑器后直接打开场景步骤
+    set({ started: true, step: cameraPending(doc) ? 'scene' : step })
   },
 }))

@@ -5,7 +5,7 @@ import { flarePreset } from '@/grade/flare'
 import { newBlendLayer } from '@/grade/model'
 import { newDirectionalLight, newLightAt } from '@/lighting/model'
 import type { AssetRef } from './assets'
-import { conformProject, manifestSlots, projectManifest, readManifest, ProjectError } from './project'
+import { conformProject, manifestSlots, manifestStep, projectManifest, readManifest, ProjectError } from './project'
 import { initialDoc, type DocState } from './store'
 
 const asset = (id: string, width: number, height: number): AssetRef => ({ id, name: `${id}.png`, width, height, sourceWidth: width, sourceHeight: height, hasTransparency: id === 'ch' })
@@ -59,7 +59,7 @@ function withoutIds(doc: DocState) {
 }
 
 const roundTrip = (doc: DocState, slots: { background: AssetRef; character: AssetRef | null }) =>
-  conformProject(readManifest(JSON.stringify(projectManifest(doc, 'focus', { background: meta('bg'), character: meta('ch') }))), slots)
+  conformProject(readManifest(JSON.stringify(projectManifest(doc, 'lens', { background: meta('bg'), character: meta('ch') }))), slots)
 
 describe('project', () => {
   it('restores every parameter and remaps ids', () => {
@@ -71,9 +71,22 @@ describe('project', () => {
     expect(restored.lighting.lights[0].id).not.toBe(doc.lighting.lights[0].id)
   })
 
-  it('records the asset keys of both slots', () => {
-    const manifest = readManifest(JSON.stringify(projectManifest(sampleDoc(), 'light', { background: meta('bg'), character: meta('ch') })))
+  it('records the asset keys of both slots and the step', () => {
+    const manifest = readManifest(JSON.stringify(projectManifest(sampleDoc(), 'fusion', { background: meta('bg'), character: meta('ch') })))
     expect(manifestSlots(manifest)).toEqual({ background: meta('bg').key, character: meta('ch').key })
+    expect(manifestStep(manifest)).toBe('fusion')
+    // M8.7 之前的步骤
+    expect(['camera', 'depth', 'character', 'light', 'focus', 'effects', 'adjust', 'toString', 'nope'].map((step) => manifestStep({ ...manifest, step }))).toEqual([
+      'scene',
+      'scene',
+      'place',
+      'fusion',
+      'lens',
+      'lens',
+      'adjust',
+      'assets',
+      'assets',
+    ])
   })
 
   it('rescales coordinates when the bitmaps are decoded at another size', () => {
@@ -86,7 +99,7 @@ describe('project', () => {
   })
 
   it('replaces invalid values with defaults or clamps them', () => {
-    const manifest = projectManifest(sampleDoc(), 'focus', { background: meta('bg'), character: meta('ch') }) as { doc: Record<string, Record<string, unknown>> }
+    const manifest = projectManifest(sampleDoc(), 'lens', { background: meta('bg'), character: meta('ch') }) as { doc: Record<string, Record<string, unknown>> }
     manifest.doc.fusion.relight = { style: 'evil', strength: 99, rim: 'x' }
     manifest.doc.focus.dof = { blades: 7, aperture: -1 }
     manifest.doc.lighting.lights = [{ type: 'laser' }, { type: 'directional', direction: [0, 0, 0], intensity: Infinity }]

@@ -25,7 +25,7 @@ function gridLines(n: number): Point[][] {
 const pointsAttr = (ps: Point[]) => ps.map((p) => `${p.x},${p.y}`).join(' ')
 
 /**
- * 立绘变形控件（立绘步骤选择变形工具时）：四角透视拖动变形后立绘的四个角，网格变形拖动各控制点。双击控制点复位。
+ * 立绘变形控件（摆放步骤选用变形工具时）：四角透视拖动变形后立绘的四个角，网格变形拖动各控制点。双击控制点复位。
  * 拖动得到不可用的变形（四角交叉、越过地平线、超出范围）时保持上一个可用的状态。
  */
 export function WarpGizmo({ passThrough }: { passThrough: boolean }) {
@@ -38,7 +38,7 @@ export function WarpGizmo({ passThrough }: { passThrough: boolean }) {
   const dragRef = useRef<{ id: number; index: number; offset: Point } | null>(null)
 
   const { character, charWarp: warp } = doc
-  if (!character || step !== 'character' || tool === 'transform' || tool === 'depth' || view3d) return null
+  if (!character || step !== 'place' || (tool !== 'perspective' && tool !== 'mesh') || view3d) return null
 
   const perspective = tool === 'perspective'
   const screen = (uv: Point) => docToScreen(view, layerUVToDoc(doc, uv))

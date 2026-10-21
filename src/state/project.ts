@@ -37,7 +37,9 @@ export const MANIFEST_NAME = 'project.json'
 
 export class ProjectError extends Error {}
 
-const STEPS: readonly StepId[] = ['assets', 'camera', 'depth', 'light', 'character', 'focus', 'adjust', 'effects', 'export']
+const STEPS: readonly StepId[] = ['assets', 'scene', 'place', 'fusion', 'adjust', 'lens', 'export']
+/** M8.7 之前的步骤对应到现在的步骤 */
+const LEGACY_STEPS: Readonly<Record<string, StepId>> = { camera: 'scene', depth: 'scene', character: 'place', light: 'fusion', focus: 'lens', effects: 'lens' }
 const ESTIMATORS: readonly Estimator[] = ['A', 'B', 'C', 'D']
 const KEY = /^[0-9a-z-]{8,80}$/
 const MAX_NAME_LENGTH = 200
@@ -127,7 +129,10 @@ export function manifestSlots(manifest: Json): { background: string | null; char
   return { background: key(doc.background), character: key(doc.character) }
 }
 
-export const manifestStep = (manifest: Json): StepId => oneOf(manifest.step, STEPS, 'assets')
+export function manifestStep(manifest: Json): StepId {
+  const step = manifest.step
+  return oneOf(typeof step === 'string' && Object.hasOwn(LEGACY_STEPS, step) ? LEGACY_STEPS[step] : step, STEPS, 'assets')
+}
 
 // ── 文档各部分 ──
 

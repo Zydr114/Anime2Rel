@@ -11,7 +11,7 @@ import { SliderField } from '@/ui/SliderField'
 import { NumberField } from '@/ui/NumberField'
 import { notify } from '../notify'
 import { useGestureChange } from '../useGestureChange'
-import { Empty, Group, Hint, More, ToggleRow } from './Group'
+import { Group, Hint, More, ToggleRow } from './Group'
 
 const DEG = 180 / Math.PI
 const RAD = Math.PI / 180
@@ -23,13 +23,12 @@ const toHeight = (s: number) => Number((H0 * (H1 / H0) ** (s / 100)).toPrecision
 const fromHeight = (h: number) => (100 * Math.log(h / H0)) / Math.log(H1 / H0)
 const formatHeight = (s: number) => `${toHeight(s)} m`
 
-export function CameraPanel() {
-  const background = useApp((s) => s.doc.background)
+/** 场景步骤中相机标定的各组；需要背景 */
+export function CameraSections() {
   const method = useApp((s) => s.doc.camera.method)
-  if (!background) return <Empty>{t.camera.noBackground}</Empty>
   const c = t.camera
   return (
-    <div className="flex flex-col gap-2">
+    <>
       <ConfirmSection />
       <Group
         id="camera.calibration"
@@ -45,7 +44,7 @@ export function CameraPanel() {
       <ResultSection />
       <ScaleSection />
       <GuideSection />
-    </div>
+    </>
   )
 }
 

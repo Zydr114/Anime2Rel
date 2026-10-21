@@ -69,7 +69,7 @@ function circle(center: Vec3, radius: number): Vec3[] {
 
 /**
  * 3D 视图中的光源控件：太阳在球面上，灯有落到地面的投影线；拖动改变方向或位置，选中与面板同步。
- * editable 为 false 时（立绘步骤）只显示，不能选中和拖动。
+ * editable 为 false 时（摆放步骤）只显示，不能选中和拖动。
  */
 export function View3DLights({ editable }: { editable: boolean }) {
   const svgRef = useRef<SVGSVGElement>(null)

@@ -1,15 +1,15 @@
 import { create } from 'zustand'
 import type { BackgroundInfo, CharacterInfo, FusionStats, MatteMap, NormalMap, WarpedGeometry } from '@/fusion/protocol'
 import { isIdentityWarp } from '@/fusion/warp'
+import { useRegionTool } from './regions'
 import type { DocState } from './store'
 
-/** 画布上编辑立绘的工具：摆放（移动、缩放、旋转）、两种变形，或深度画笔（M8.6b） */
-export type CharacterTool = 'transform' | 'perspective' | 'mesh' | 'depth'
-export type WarpTool = Exclude<CharacterTool, 'depth'>
-/** 变形一节中可选的工具 */
-export const WARP_TOOLS: readonly WarpTool[] = ['transform', 'perspective', 'mesh']
+/** 摆放步骤中画布上的工具：摆放（移动、缩放、旋转）、两种变形、深度画笔（M8.6b）或遮挡区域画笔，同一时间只用一种 */
+export type CharacterTool = 'transform' | 'perspective' | 'mesh' | 'depth' | 'region'
+export type WarpTool = 'perspective' | 'mesh'
+export const PLACE_TOOLS: readonly CharacterTool[] = ['transform', 'perspective', 'mesh', 'depth', 'region']
 
-/** 融合 Worker 的计算结果与立绘步骤的界面状态。不参与撤销。 */
+/** 融合 Worker 的计算结果与摆放步骤的界面状态。不参与撤销。 */
 interface FusionState {
   background: { id: string; info: BackgroundInfo } | null
   /** 原立绘的信息 */
@@ -29,7 +29,7 @@ interface FusionState {
   tool: CharacterTool
   /** 拖动立绘时按相机透视缩放（M8.5） */
   perspectiveMove: boolean
-  /** 立绘步骤中显示参考形状（种类与相机步骤共用，原点在立绘的接地点） */
+  /** 摆放步骤中显示参考形状（种类与场景步骤共用，原点在立绘的接地点） */
   showGuide: boolean
 
   setBackground: (v: FusionState['background']) => void
@@ -69,7 +69,11 @@ export const useFusion = create<FusionState>()((set) => ({
   setCompare: (compare) => set({ compare }),
   setShowNormals: (showNormals) => set({ showNormals }),
   setShowMask: (showMask) => set({ showMask }),
-  setTool: (tool) => set({ tool }),
+  setTool: (tool) => {
+    // 换用其他工具时结束区域的编辑
+    if (tool !== 'region') useRegionTool.getState().setActive(null)
+    set({ tool })
+  },
   setPerspectiveMove: (perspectiveMove) => set({ perspectiveMove }),
   setShowGuide: (showGuide) => set({ showGuide }),
 }))

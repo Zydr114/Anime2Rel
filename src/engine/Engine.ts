@@ -171,7 +171,7 @@ export interface FusionDisplay {
   showMask: boolean
   /** 预览只显示背景原图，不画立绘，也不做任何处理（相机标定步骤） */
   original: boolean
-  /** 立绘半透明地叠加深度伪彩色（立绘步骤中使用深度画笔时） */
+  /** 立绘半透明地叠加深度伪彩色（摆放步骤中使用深度画笔时） */
   relief: boolean
 }
 

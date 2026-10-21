@@ -8,7 +8,7 @@ import { assetPixels } from '@/lighting/sampling'
 import { getDepthResult } from './depth'
 import { useApp, type DocState } from './store'
 
-/** 深度画笔的设置（docs/Plan.md §3.7 M8.6b），不参与撤销。画笔是否在用由立绘步骤的工具决定 */
+/** 深度画笔的设置（docs/Plan.md §3.7 M8.6b），不参与撤销。画笔是否在用由摆放步骤的工具决定 */
 interface DepthBrushState {
   mode: DepthBrushMode
   /** 画笔直径（屏幕像素） */

@@ -49,27 +49,27 @@ type Drag =
 const PAINT_SPACING = 1 / 8
 
 /**
- * 3D 视图的交互层：环绕、平移、缩放，回到相机视角。在光源或立绘步骤中打开 3D 视图时显示。
- * 立绘步骤中光源只显示不能拖动；在人物上左键拖动沿地面移动人物，选用深度画笔时在人物上画。
+ * 3D 视图的交互层：环绕、平移、缩放，回到相机视角。在摆放或融合步骤中打开 3D 视图时显示。
+ * 摆放步骤中光源只显示不能拖动；在人物上左键拖动沿地面移动人物，选用深度画笔时在人物上画。
  */
 export function View3D() {
   const open = useView3d((s) => s.open)
   const step = useApp((s) => s.step)
   const hasBackground = useApp((s) => s.doc.background !== null)
   if (!open || !isView3dStep(step) || !hasBackground) return null
-  return <View3DLayer key={step} characterStep={step === 'character'} />
+  return <View3DLayer key={step} characterStep={step === 'place'} />
 }
 
 function View3DLayer({ characterStep }: { characterStep: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const dragRef = useRef<Drag | null>(null)
   const [dragging, setDragging] = useState<Drag['kind'] | null>(null)
-  /** 光标的位置，以及是否在人物上（立绘步骤） */
+  /** 光标的位置，以及是否在人物上（摆放步骤） */
   const [hover, setHover] = useState<{ at: Point; character: boolean } | null>(null)
   const cameraView = useView3d((s) => s.view?.kind === 'camera')
   const insets = useApp((s) => s.viewInsets)
   const lightTool = useLighting((s) => s.tool)
-  // 立绘步骤中不用光源的添加和吸管工具
+  // 摆放步骤中不用光源的添加和吸管工具
   const tool = characterStep ? 'select' : lightTool
   const brush = useFusion((s) => s.tool === 'depth') && characterStep
   const brushSize = useDepthBrush((s) => s.size)
@@ -112,7 +112,7 @@ function View3DLayer({ characterStep }: { characterStep: boolean }) {
     setDragging(drag.kind)
   }
 
-  /** 立绘步骤中在人物上左键按下：画深度，或开始沿地面移动；返回是否已处理 */
+  /** 摆放步骤中在人物上左键按下：画深度，或开始沿地面移动；返回是否已处理 */
   const characterDown = (e: ReactPointerEvent<HTMLDivElement>, at: Point): boolean => {
     if (brush) {
       const b = brushAt(at, brushSize)

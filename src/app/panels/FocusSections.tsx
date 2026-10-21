@@ -12,8 +12,7 @@ import { SelectField } from '@/ui/SelectField'
 import { Segmented } from '@/ui/Segmented'
 import { SliderField } from '@/ui/SliderField'
 import { useGestureChange } from '../useGestureChange'
-import { DepthSection } from './FusionSections'
-import { Empty, Group, Help, More, ToggleRow } from './Group'
+import { Group, Help, More, ToggleRow } from './Group'
 
 const DEG = 180 / Math.PI
 
@@ -51,30 +50,10 @@ function FocusSlider<K extends FocusSection>(props: {
   )
 }
 
-export function FocusPanel() {
-  const hasBackground = useApp((s) => s.doc.background !== null)
-  const hasCharacter = useApp((s) => s.doc.character !== null)
-  if (!hasBackground) return <Empty>{t.focus.noBackground}</Empty>
-  return (
-    <div className="flex flex-col gap-2">
-      <DofSection />
-      <TargetSection />
-      {hasCharacter && (
-        <DepthSection>
-          <ThicknessSlider />
-        </DepthSection>
-      )}
-      {hasCharacter && <OcclusionSection />}
-      <mdui-button variant="text" onClick={() => useApp.getState().resetFocus()} data-testid="focus-reset">
-        <mdui-icon-restart-alt--outlined slot="icon" />
-        {t.focus.reset}
-      </mdui-button>
-    </div>
-  )
-}
-
-function DofSection() {
+/** 景深（镜头步骤）；有立绘时也显示立绘厚度 */
+export function DofSection() {
   const dof = useApp((s) => s.doc.focus.dof)
+  const hasCharacter = useApp((s) => s.doc.character !== null)
   const options = BOKEH_BLADES.map(String)
   const f = t.focus
   return (
@@ -89,6 +68,7 @@ function DofSection() {
     >
       <FocusSlider section="dof" field="aperture" label={f.aperture} min={0} max={5} step={0.1} />
       <FocusSlider section="dof" field="range" label={f.range} min={0} max={20} step={0.5} />
+      {hasCharacter && <ThicknessSlider />}
       <More id="focus.dof.more">
         <span>{f.bokeh}</span>
         <Segmented
@@ -104,7 +84,8 @@ function DofSection() {
   )
 }
 
-function TargetSection() {
+/** 对焦（镜头步骤） */
+export function TargetSection() {
   const doc = useApp((s) => s.doc)
   // 深度结果和立绘信息在模块级缓存与融合状态中，订阅它们以便更新焦点深度
   useDepth((s) => s.resultsVersion)
@@ -139,14 +120,15 @@ function TargetSection() {
   )
 }
 
-/** 立绘厚度：景深步骤与立绘步骤共用 */
+/** 立绘厚度：摆放步骤与镜头步骤共用 */
 export function ThicknessSlider() {
   const thickness = useApp((s) => s.doc.focus.thickness)
   const onChange = useGestureChange(useCallback((v: number) => useApp.getState().setFocus({ thickness: v / 100 }), []))
   return <SliderField label={t.focus.thickness} value={thickness * 100} min={0} max={50} step={1} format={formatPercent} onChange={onChange} testId="focus-thickness" />
 }
 
-function OcclusionSection() {
+/** 遮挡（摆放步骤）：遮挡方式、遮挡区域 */
+export function OcclusionSection() {
   const occlusion = useApp((s) => s.doc.focus.occlusion)
   const showMask = useFusion((s) => s.showMask)
   const update = useCallback((u: Partial<OcclusionStyle>) => useApp.getState().updateFocus('occlusion', u), [])
@@ -171,6 +153,10 @@ function OcclusionSection() {
       )}
       <RegionList />
       <ToggleRow label={f.showMask} checked={showMask} onChange={useFusion.getState().setShowMask} testId="focus-show-mask" />
+      <mdui-button variant="text" onClick={() => useApp.getState().resetOcclusion()} data-testid="focus-occlusion-reset">
+        <mdui-icon-restart-alt--outlined slot="icon" />
+        {f.resetOcclusion}
+      </mdui-button>
     </Group>
   )
 }
@@ -223,11 +209,20 @@ function StyleControls({ style, label, update, testPrefix }: { style: OcclusionS
 
 const BRUSH_TOOLS: readonly BrushTool[] = ['brush', 'eraser']
 
+/** 编辑一个遮挡区域：换用遮挡区域画笔 */
+function editRegion(id: string): void {
+  useFusion.getState().setTool('region')
+  useRegionTool.getState().setActive(id)
+}
+
+/** 结束区域的编辑，换回摆放工具 */
+const doneRegion = () => useFusion.getState().setTool('transform')
+
 /** 遮挡区域列表；选中的区域可以在画布上涂抹并设置自己的遮挡方式 */
 function RegionList() {
   const regions = useApp((s) => s.doc.focus.occlusion.regions)
   const snap = useApp((s) => s.doc.focus.occlusion.snap)
-  const { active, tool, size, setActive, setTool, setSize } = useRegionTool()
+  const { active, tool, size, setTool, setSize } = useRegionTool()
   const index = regions.findIndex((r) => r.id === active)
   const region = index >= 0 ? regions[index] : null
   const updateRegion = useCallback((u: Partial<OcclusionStyle>) => region && useApp.getState().updateRegion(region.id, u), [region])
@@ -235,12 +230,12 @@ function RegionList() {
   const add = () => {
     const id = useApp.getState().addRegion()
     if (!id) return
-    setActive(id)
+    editRegion(id)
     setTool('brush')
   }
   const remove = () => {
     if (region) useApp.getState().removeRegion(region.id)
-    setActive(null)
+    doneRegion()
   }
 
   return (
@@ -256,7 +251,7 @@ function RegionList() {
           key={r.id}
           type="button"
           className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left ${r.id === active ? 'bg-white/15' : 'hover:bg-white/5'}`}
-          onClick={() => setActive(r.id === active ? null : r.id)}
+          onClick={() => (r.id === active ? doneRegion() : editRegion(r.id))}
           data-testid={`region-${i}`}
           data-active={r.id === active}
         >
@@ -282,7 +277,7 @@ function RegionList() {
               <mdui-icon-delete--outlined slot="icon" />
               {t.focus.removeRegion}
             </mdui-button>
-            <mdui-button variant="text" onClick={() => setActive(null)} data-testid="region-done">
+            <mdui-button variant="text" onClick={doneRegion} data-testid="region-done">
               {t.focus.regionDone}
             </mdui-button>
           </div>

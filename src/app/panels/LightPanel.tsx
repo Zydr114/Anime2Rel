@@ -25,7 +25,7 @@ import { lightName } from '../lightName'
 import { notify } from '../notify'
 import { useGestureChange } from '../useGestureChange'
 import { DirectionSphere } from './DirectionSphere'
-import { Empty, Group, Help, Hint } from './Group'
+import { Group, Help, Hint } from './Group'
 
 const DEG = 180 / Math.PI
 const RAD = Math.PI / 180
@@ -45,18 +45,17 @@ const typeHelp = (type: LightType) => `${t.light.types[type]}：${t.light.typeHi
 const groundAngles = (d: Vec3) => toAngles(toGround(useApp.getState().doc.camera, d))
 const fromGroundAngles = (azimuth: number, elevation: number) => fromGround(useApp.getState().doc.camera, fromAngles(azimuth, elevation))
 
-export function LightPanel() {
-  const background = useApp((s) => s.doc.background)
-  if (!background) return <Empty>{t.light.noBackground}</Empty>
+/** 融合步骤中光源的各组；需要背景 */
+export function LightSections({ assetId }: { assetId: string }) {
   return (
-    <div className="flex flex-col gap-2">
+    <>
       <IntroSection />
       <View3dSection />
       <LightsSection />
       <SelectedSection />
-      <AnalysisSection assetId={background.id} />
+      <AnalysisSection assetId={assetId} />
       <PreviewSection />
-    </div>
+    </>
   )
 }
 

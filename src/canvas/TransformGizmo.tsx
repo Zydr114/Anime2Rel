@@ -26,7 +26,7 @@ interface Drag {
 const angleOf = (p: Point, c: Point) => Math.atan2(p.y - c.y, p.x - c.x)
 
 /**
- * 立绘变换控件：拖动主体移动，四角等比缩放，上方圆点旋转。控件跟随变形后立绘的外框；立绘步骤选择变形工具时隐藏。
+ * 立绘变换控件：拖动主体移动，四角等比缩放，上方圆点旋转。控件跟随变形后立绘的外框；摆放步骤选用其他工具时隐藏。
  * 相机已确认且开启“按透视缩放”时，移动时人物在场景中的身高不变：接地点跟着光标走，按标定的相机缩放（M8.5）。
  */
 export function TransformGizmo({ passThrough }: { passThrough: boolean }) {
@@ -39,7 +39,7 @@ export function TransformGizmo({ passThrough }: { passThrough: boolean }) {
   const dragRef = useRef<Drag | null>(null)
 
   const { character, charTransform: transform } = doc
-  if (!character || (step !== 'assets' && step !== 'character') || (step === 'character' && tool !== 'transform') || view3d) return null
+  if (!character || (step !== 'assets' && step !== 'place') || (step === 'place' && tool !== 'transform') || view3d) return null
 
   const corners = UNIT_CORNERS.map((c) => docToScreen(view, characterPoint(doc, c)))
   const center = docToScreen(view, transform)

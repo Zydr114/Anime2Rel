@@ -11,7 +11,7 @@ interface CameraGuideState {
   origin: { backgroundId: string; point: Point } | null
   /** 网格和立方体的大小倍数 */
   scale: number
-  /** 相机步骤中暗化照片，让线和参考形状更醒目 */
+  /** 场景步骤中暗化照片，让线和参考形状更醒目 */
   dim: boolean
   /** 测量杆的底端和顶端（文档坐标）；与原点一样只对拖动时的背景有效 */
   rod: { backgroundId: string; foot: Point; top: Point } | null

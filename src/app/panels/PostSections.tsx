@@ -10,7 +10,7 @@ import { SliderField } from '@/ui/SliderField'
 import { lightName } from '../lightName'
 import { useGestureChange } from '../useGestureChange'
 import { FlareSection } from './FlareSection'
-import { Empty, Group, Hint, More, ToggleRow } from './Group'
+import { Group, Hint, More, ToggleRow } from './Group'
 
 const formatPercent = (v: number) => `${Math.round(v)}%`
 const formatSigned = (v: number) => (Math.round(v) > 0 ? `+${Math.round(v)}` : `${Math.round(v)}`)
@@ -27,15 +27,14 @@ function PostSlider<K extends PostSection>({ section, field, label, min = 0, for
   return <SliderField label={label} value={value * 100} min={min} max={100} format={format} onChange={onChange} testId={`post-${section}-${field}`} />
 }
 
-export function EffectsPanel() {
-  const hasBackground = useApp((s) => s.doc.background !== null)
+/** 镜头步骤中后期效果的各组 */
+export function PostSections() {
   const post = useApp((s) => s.doc.post)
   const e = t.effects
-  if (!hasBackground) return <Empty>{e.noBackground}</Empty>
   const lens = [post.lens.aberration > 0 && `${e.aberration} ${formatPercent(post.lens.aberration * 100)}`, post.lens.vignette !== 0 && `${e.vignette} ${formatSigned(post.lens.vignette * 100)}`].filter(Boolean)
   return (
-    <div className="flex flex-col gap-2">
-      <Group id="post.bloom" title={e.bloom} summary={intensitySummary(post.bloom.intensity)} help={[e.bloomHint, e.hint]} defaultOpen testId="post-bloom">
+    <>
+      <Group id="post.bloom" title={e.bloom} summary={intensitySummary(post.bloom.intensity)} help={[e.bloomHint, e.hint]} testId="post-bloom">
         <PostSlider section="bloom" field="intensity" label={e.intensity} />
         <PostSlider section="bloom" field="threshold" label={e.threshold} />
         <PostSlider section="bloom" field="radius" label={e.radius} />
@@ -59,11 +58,7 @@ export function EffectsPanel() {
         </More>
       </Group>
       <ToneMappingSection />
-      <mdui-button variant="text" onClick={() => useApp.getState().resetPost()} data-testid="post-reset">
-        <mdui-icon-restart-alt--outlined slot="icon" />
-        {t.effects.reset}
-      </mdui-button>
-    </div>
+    </>
   )
 }
 

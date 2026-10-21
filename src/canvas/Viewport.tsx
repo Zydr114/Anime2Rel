@@ -80,13 +80,13 @@ export function Viewport() {
           e.setDepthEdit(currentDepthEdit(doc))
           e.setDebug({ view: d.view, overlay: d.overlay, edgeAlign: d.edgeAlign })
         }
-        // 灰球只在光源步骤显示
+        // 灰球只在融合步骤显示
         const syncBall = () => {
           const { doc, step } = useApp.getState()
-          const show = step === 'light' && useLighting.getState().showBall
+          const show = step === 'fusion' && useLighting.getState().showBall
           e.setBallPreview(show ? computeBallPreview(doc, getAnalysis(doc.background?.id), getDepthResult(doc.background?.id), characterInfo(doc)?.bbox) : null)
         }
-        // 遮罩只在景深步骤显示
+        // 遮罩只在摆放步骤显示
         const syncFusion = () => {
           const { doc, step } = useApp.getState()
           const f = useFusion.getState()
@@ -98,13 +98,13 @@ export function Viewport() {
           e.setShadow(currentShadowParams(doc))
           e.setGrade(gradeParams(doc.grade))
           e.setPost(postParams(doc.post, doc.lighting, doc.background, doc.camera.fovDeg, doc.focus.dof))
-          // 调色、后期步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果；相机标定只看背景原图
+          // 调色、镜头步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果；相机标定只看背景原图
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
-          // 二维立绘步骤中使用深度画笔时，立绘叠加深度伪彩色
-          const relief = step === 'character' && f.tool === 'depth' && !useView3d.getState().open
-          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus', original: step === 'camera', relief })
+          // 二维摆放步骤中使用深度画笔时，立绘叠加深度伪彩色
+          const relief = step === 'place' && f.tool === 'depth' && !useView3d.getState().open
+          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'place', original: step === 'scene', relief })
         }
-        // 3D 视图在光源和立绘步骤中显示；灰球和选中的光源只在光源步骤中显示
+        // 3D 视图在摆放和融合步骤中显示；灰球和选中的光源只在融合步骤中显示
         const sync3d = () => {
           const { doc, step } = useApp.getState()
           const { open, view } = useView3d.getState()
@@ -112,7 +112,7 @@ export function Viewport() {
           const s = open && view && isView3dStep(step) ? currentScene(view) : null
           if (!s || !view || !bg) return e.setScene3d(null)
           const depth = getDepthResult(bg.id)
-          const light = step === 'light'
+          const light = step === 'fusion'
           const ball = light && useLighting.getState().showBall ? computeBallPreview(doc, getAnalysis(bg.id), depth, characterInfo(doc)?.bbox) : null
           const selected = light ? useLighting.getState().selected : null
           e.setScene3d({ ...s, cameraView: view.kind === 'camera', camera: doc.camera, size: bg, depth, ball, insets: useApp.getState().viewInsets, selected })

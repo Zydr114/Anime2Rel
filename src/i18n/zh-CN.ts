@@ -13,7 +13,7 @@ import type { LightType } from '@/lighting/model'
 import type { BuiltinPresetId } from '@/grade/preset'
 import type { GradeTab } from '@/state/grade'
 import type { BrushTool } from '@/state/regions'
-import type { WarpTool } from '@/state/fusion'
+import type { CharacterTool, WarpTool } from '@/state/fusion'
 import type { DepthBrushMode } from '@/fusion/depthEdit'
 
 export const zhCN = {
@@ -62,13 +62,11 @@ export const zhCN = {
   },
   steps: {
     assets: '素材',
-    camera: '相机',
-    depth: '深度',
-    light: '光源',
-    character: '立绘',
-    focus: '景深',
+    scene: '场景',
+    place: '摆放',
+    fusion: '融合',
     adjust: '调色',
-    effects: '后期',
+    lens: '镜头',
     export: '导出',
   },
   assets: {
@@ -86,7 +84,7 @@ export const zhCN = {
     noBackground: '先在“素材”中导入背景照片。',
     locked: '确认相机标定后才能进入后面的步骤',
     lockedHint: '在画布上拖动视平线或画平行线，让参考形状贴合照片中的地面和物体，再按“确认相机”。',
-    lockedNotice: '请先在“相机”步骤中确认相机标定',
+    lockedNotice: '请先在“场景”步骤中确认相机标定',
     confirm: '确认相机',
     confirmed: '相机已确认',
     confirmedHint: '可以随时回来修改，更换背景后需要重新确认。',
@@ -187,8 +185,7 @@ export const zhCN = {
     },
     warp: {
       title: '变形',
-      tool: '画布上拖动',
-      tools: { transform: '摆放', perspective: '四角透视', mesh: '网格变形' } as Record<WarpTool, string>,
+      tools: { perspective: '四角透视', mesh: '网格变形' } as Record<WarpTool, string>,
       grid: '网格密度',
       none: '未变形',
       resetPerspective: '重置透视',
@@ -200,10 +197,19 @@ export const zhCN = {
       limit: '变形会把线条拉粗或压细，适合透视贴合和轻微调整，不能改变姿势和视角。',
     },
   },
+  place: {
+    tool: '画布工具',
+    tools: { transform: '摆放', perspective: '透视', mesh: '网格', depth: '深度', region: '遮挡' } as Record<CharacterTool, string>,
+    toolHint: [
+      '画布上同一时间只用一种工具。',
+      '摆放：拖动立绘移动、缩放、旋转，拖动接地点。透视、网格：拖动控制点变形立绘。',
+      '深度：在立绘上涂抹，修正立绘的深度。遮挡：在背景上涂出遮挡区域。',
+    ],
+  },
   depthEdit: {
     title: '立绘深度',
     view3dHint:
-      '与光源步骤中是同一个 3D 视图。在人物上左键拖动，人物沿地面前后左右移动，大小按透视变化；选用深度画笔时在人物上拖动即画。在其他地方左键拖动旋转，右键或按住 Shift 拖动平移，滚轮缩放。光源只显示，在光源步骤中编辑。',
+      '与融合步骤中是同一个 3D 视图。在人物上左键拖动，人物沿地面前后左右移动，大小按透视变化；选用深度画笔时在人物上拖动即画。在其他地方左键拖动旋转，右键或按住 Shift 拖动平移，滚轮缩放。光源只显示，在融合步骤中编辑。',
     thicknessHint: '立绘厚度：人物自身前后起伏的幅度，遮挡和景深按起伏逐处判断。打开 3D 视图可以看到起伏和挡在人物前面的前景。',
     brush: '深度画笔',
     brushHint: '深度画笔：修正深度模型估计错误的地方，例如被估计到身体后面的手臂。修正用于重光照、遮挡、景深和 3D 视图，一笔一次撤销。',
@@ -335,7 +341,10 @@ export const zhCN = {
     regionHint: '遮挡区域：在画布上涂出遮挡物所在的区域（如水面、玻璃、树丛），区域内按它自己的遮挡方式，后面的区域覆盖前面的。边缘吸附让区域贴合背景中的边缘。',
     showMask: '在画布上显示遮罩',
     occlusionHint: '除水体外，背景比立绘近、且深度差超过容差的地方会挡住立绘，前后关系取决于立绘的“前后位置”。',
-    reset: '重置景深与遮挡',
+    resetOcclusion: '重置遮挡',
+  },
+  lens: {
+    reset: '重置景深与后期',
   },
   depth: {
     estimate: '深度估计',
@@ -641,7 +650,6 @@ export const zhCN = {
     clear: '清除调色与后期',
   },
   effects: {
-    noBackground: '请先在“素材”步骤中导入背景照片。',
     hint: '后期效果在调色之后作用于整个画面，范围按画面比例计算，预览与导出一致。',
     off: '关闭',
     intensity: '强度',
@@ -660,7 +668,7 @@ export const zhCN = {
     raysLight: '光源',
     raysAuto: (name: string | null) => (name ? `自动（${name}）` : '自动'),
     raysSkyOnly: '只让天空发光',
-    raysNoLight: '没有可用的光源：光源需要位于镜头前方（太阳 / 天光要处在逆光一侧），请在“光源”中添加或调整。',
+    raysNoLight: '没有可用的光源：光源需要位于镜头前方（太阳 / 天光要处在逆光一侧），请在“融合”步骤中添加或调整。',
     raysNoSky: '没有深度结果，暂时按亮度选取发光区域。',
     lens: '镜头',
     aberration: '色差',
@@ -675,7 +683,6 @@ export const zhCN = {
     toneMapping: '色调映射',
     toneMappings: { none: '关闭', agx: 'AgX', neutral: 'Neutral' } as Record<ToneMapping, string>,
     toneMappingHint: '把亮部平滑压缩到可显示的范围。背景照片已经是显示用的图像，开启后整体观感会变化，适合配合泛光使用。',
-    reset: '重置后期',
     flare: {
       title: '镜头光晕',
       intensity: '整体强度',
@@ -694,7 +701,7 @@ export const zhCN = {
       presetDescriptions: {
         'soft-sun': '暖白的光辉和淡淡的彩虹环，几个小鬼影，适合大多数晴天。',
         'blue-anamorphic': '贯穿画面的蓝色水平拉丝，电影宽银幕镜头的感觉。',
-        'vintage-ghosts': '一串彩色的多边形鬼影，边数跟随“景深”中的光圈叶片数。',
+        'vintage-ghosts': '一串彩色的多边形鬼影，边数跟随景深的光圈叶片数。',
         star: '锐利的星芒和闪点，像用小光圈拍太阳。',
         'rainbow-halo': '太阳周围一圈明显的彩虹光环。',
       } as Record<FlarePresetId, string>,

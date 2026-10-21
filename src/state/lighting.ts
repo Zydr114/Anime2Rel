@@ -6,7 +6,7 @@ export type AnalysisStatus = { state: 'running' } | { state: 'done'; result: Ana
 /** 画布上的光源工具：选择/拖动、点击添加、吸管取色 */
 export type LightTool = 'select' | 'add' | 'pick'
 
-/** 光源分析结果（按背景资源 id）与光源步骤的界面状态。不参与撤销。 */
+/** 光源分析结果（按背景资源 id）与融合步骤的界面状态。不参与撤销。 */
 interface LightingState {
   analyses: Record<string, AnalysisStatus>
   selected: string | null

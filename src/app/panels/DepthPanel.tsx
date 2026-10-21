@@ -29,14 +29,15 @@ function attemptLabel(a: Attempt): string {
 
 const formatPercent = (v: number) => `${Math.round(v)}%`
 
-export function DepthPanel() {
+/** 场景步骤中深度估计的各组 */
+export function DepthSections() {
   return (
-    <div className="flex flex-col gap-2">
+    <>
       <EstimateSection />
       <ScaleSection />
       <ViewSection />
       <SettingsSection />
-    </div>
+    </>
   )
 }
 
@@ -59,7 +60,7 @@ function EstimateSection() {
     [background, character].map((id) => (id ? jobs[id] : undefined)),
   )
   return (
-    <Group id="depth.estimate" title={t.depth.estimate} summary={summary} defaultOpen testId="depth-estimate">
+    <Group id="depth.estimate" title={t.depth.estimate} summary={summary} testId="depth-estimate">
       <ModelStatus />
       <JobsStatus />
     </Group>
