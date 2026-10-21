@@ -85,9 +85,18 @@ CHROME_PATH=/usr/bin/chromium pnpm test:e2e
 ```
 
 - **浏览器**：不设置 `CHROME_PATH` 时使用 Playwright 自带的浏览器。需要先执行 `pnpm exec playwright install chromium`，下载与当前 Playwright 版本匹配的版本。
-- **GPU**：WebGPU 用例需要能访问 GPU 的环境。
+- **GPU**：WebGPU 用例需要能访问 GPU 的环境。没有 GPU 时设置 `E2E_GPU=swiftshader`，WebGPU 和 WebGL2 都改用 Chromium 自带的 SwiftShader 软件渲染，和 CI 相同。这时深度推理固定用 WASM，两个只在 GPU 推理下才有意义的用例会跳过。
 - **模型**：`pnpm test:e2e` 会先下载模型。
 - **端口**：测试在 4173 端口启动预览服务器。如果这个端口已被其他服务占用，Playwright 会直接复用它，测试就会打开错误的页面，需要先停止该服务。
+
+### 持续集成
+
+推送到 `main` 或提交 PR 时，GitHub Actions 会运行两个工作流：
+
+- **CI**（[`ci.yml`](../.github/workflows/ci.yml)）：代码检查、类型检查、单元测试和不带模型的构建。
+- **E2E**（[`e2e.yml`](../.github/workflows/e2e.yml)）：端到端测试，用 SwiftShader 渲染，分成多个分片并行运行。模型和 Playwright 的浏览器都有缓存。只改文档的提交不会触发 E2E，需要时可以在 Actions 页面手动运行。用例失败时，失败用例的 trace 会作为构建产物 `test-results-<分片>` 上传，下载后用 `pnpm exec playwright show-trace <trace.zip>` 查看。
+
+SwiftShader 和真实 GPU 的渲染结果可能有细微差别，也测不到 GPU 推理。所以 CI 通过后，涉及渲染或推理的改动仍应在有 GPU 的机器上跑一遍。
 
 测试图像都在测试中程序生成，仓库不包含示例图片：
 
