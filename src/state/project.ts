@@ -22,6 +22,7 @@ import {
   type OcclusionStyle,
 } from '@/focus/model'
 import { DEFAULT_FUSION, RELIGHT_STYLES, type FusionDoc } from '@/fusion/model'
+import { DEPTH_BRUSH_MODES, EMPTY_DEPTH_EDIT, type DepthEditDoc, type DepthStroke } from '@/fusion/depthEdit'
 import { conformWarp, IDENTITY_WARP } from '@/fusion/warp'
 import { conformGrade, conformPost, embedLuts, gradeForFile, lutResolver } from '@/grade/preset'
 import { bool, fields, hex, num, oneOf, record, text, type Json } from '@/io/conform'
@@ -80,6 +81,7 @@ export function projectManifest(doc: DocState, step: StepId, assets: { backgroun
       character: doc.character && assets.character ? slot(doc.character, assets.character) : null,
       charTransform: doc.charTransform,
       charWarp: doc.charWarp,
+      charDepthEdit: doc.charDepthEdit,
       camera: doc.camera,
       lighting: { ...lighting, analyzed: analyzedFor === doc.background.id },
       fusion: doc.fusion,
@@ -257,6 +259,23 @@ function conformStroke(v: unknown): BrushStroke | null {
   return { erase: bool(o.erase, false), radius: num(o.radius, 20, 0.5, 1e4), points: points.map((p) => num(p, 0, ...COORD)) }
 }
 
+function conformDepthStroke(v: unknown): DepthStroke | null {
+  const o = record(v)
+  const points = Array.isArray(o.points) ? o.points : []
+  if (points.length < 2 || points.length % 2 || points.length > MAX_STROKE_POINTS || points.some((p) => typeof p !== 'number' || !Number.isFinite(p))) return null
+  return {
+    ...fields(o, { strength: 0.5, hardness: 0.3 }),
+    mode: oneOf(o.mode, DEPTH_BRUSH_MODES, 'pull'),
+    radius: num(o.radius, 0.03, 1e-3, 0.5),
+    points: points.map((p) => num(p, 0, -1, 2)),
+  }
+}
+
+function conformDepthEdit(v: unknown): DepthEditDoc {
+  const strokes = record(v).strokes
+  return { strokes: (Array.isArray(strokes) ? strokes.slice(0, MAX_STROKES) : []).map(conformDepthStroke).filter((s): s is DepthStroke => s !== null) }
+}
+
 function conformRegion(v: unknown): OcclusionRegion {
   const o = record(v)
   const strokes = (Array.isArray(o.strokes) ? o.strokes.slice(0, MAX_STROKES) : []).map(conformStroke).filter((s): s is BrushStroke => s !== null)
@@ -305,6 +324,7 @@ export function conformProject(manifest: Json, slots: { background: AssetRef; ch
     character,
     charTransform: conformTransform(o.charTransform),
     charWarp: character ? conformWarp(o.charWarp) : IDENTITY_WARP,
+    charDepthEdit: character ? conformDepthEdit(o.charDepthEdit) : EMPTY_DEPTH_EDIT,
     camera: conformCamera(o.camera),
     lighting,
     fusion: conformFusion(o.fusion, !!character),
