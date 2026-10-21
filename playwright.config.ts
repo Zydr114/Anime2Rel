@@ -37,6 +37,8 @@ export default defineConfig({
       ],
     },
     viewport: { width: 1440, height: 900 },
+    // 主题默认跟随系统；测试固定使用深色，画布周围是 #1a1a1a（见 tests/e2e/canvas.ts）
+    colorScheme: 'dark',
     acceptDownloads: true,
     launchOptions: {
       executablePath,

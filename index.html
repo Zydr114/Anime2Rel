@@ -1,11 +1,23 @@
 <!doctype html>
-<html lang="zh-CN" class="mdui-theme-dark">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="在浏览器本地把二次元立绘融入真实背景照片" />
     <title>Anime2Real</title>
+    <script>
+      // 在样式生效前按保存的主题设置 <html>，避免打开页面时闪一下另一种颜色（与 src/ui/theme.ts 的规则一致）
+      ;(function () {
+        var choice = null
+        try {
+          choice = localStorage.getItem('a2r.ui.theme')
+        } catch (e) {}
+        var theme = choice === 'light' || choice === 'dark' ? choice : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        document.documentElement.className = 'mdui-theme-' + theme
+        document.documentElement.dataset.theme = theme
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -70,8 +70,11 @@
   }
 }
 
-:root {
+:root[data-theme='dark'] {
   color-scheme: dark;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 /* 深色主题配色：暖灰底 + 香槟金强调色（胶片感）。种子色自动生成的金色偏黄、偏艳，所以手动给出整套 Material 3 角色色。 */
@@ -109,13 +112,48 @@
   --mdui-color-surface-tint-color-dark: 201, 169, 110;
 }
 
+/* 浅色主题配色（M8.7b）：同样是暖灰底 + 香槟金。香槟金在浅底上加深，作为文字时与底色的对比度不低于 4.5:1 */
+:root {
+  --mdui-color-primary-light: 126, 99, 48;
+  --mdui-color-on-primary-light: 255, 255, 255;
+  --mdui-color-primary-container-light: 244, 226, 190;
+  --mdui-color-on-primary-container-light: 42, 29, 5;
+  --mdui-color-inverse-primary-light: 201, 169, 110;
+  --mdui-color-secondary-light: 106, 94, 73;
+  --mdui-color-on-secondary-light: 255, 255, 255;
+  --mdui-color-secondary-container-light: 240, 226, 201;
+  --mdui-color-on-secondary-container-light: 36, 27, 12;
+  --mdui-color-tertiary-light: 80, 98, 74;
+  --mdui-color-on-tertiary-light: 255, 255, 255;
+  --mdui-color-tertiary-container-light: 212, 232, 200;
+  --mdui-color-on-tertiary-container-light: 15, 32, 12;
+  --mdui-color-surface-light: 250, 248, 244;
+  --mdui-color-surface-dim-light: 222, 218, 211;
+  --mdui-color-surface-bright-light: 250, 248, 244;
+  --mdui-color-surface-container-lowest-light: 255, 255, 255;
+  --mdui-color-surface-container-low-light: 245, 242, 236;
+  --mdui-color-surface-container-light: 239, 236, 230;
+  --mdui-color-surface-container-high-light: 233, 230, 224;
+  --mdui-color-surface-container-highest-light: 227, 224, 217;
+  --mdui-color-surface-variant-light: 233, 225, 212;
+  --mdui-color-on-surface-light: 30, 28, 25;
+  --mdui-color-on-surface-variant-light: 78, 72, 63;
+  --mdui-color-inverse-surface-light: 51, 48, 44;
+  --mdui-color-inverse-on-surface-light: 246, 241, 233;
+  --mdui-color-background-light: 250, 248, 244;
+  --mdui-color-on-background-light: 30, 28, 25;
+  --mdui-color-outline-light: 127, 118, 106;
+  --mdui-color-outline-variant-light: 209, 199, 184;
+  --mdui-color-surface-tint-color-light: 126, 99, 48;
+}
+
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: #121110;
+  background: rgb(var(--mdui-color-background));
   color: rgb(var(--mdui-color-on-surface));
   font-family: var(--font-sans);
 }

@@ -11,6 +11,7 @@ import type { ToneMapping } from '@/grade/post'
 import type { ImageFormat } from '@/io/encode'
 import type { LightType } from '@/lighting/model'
 import type { BuiltinPresetId } from '@/grade/preset'
+import type { ThemeChoice } from '@/state/appearance'
 import type { GradeTab } from '@/state/grade'
 import type { BrushTool } from '@/state/regions'
 import type { CharacterTool, WarpTool } from '@/state/fusion'
@@ -883,6 +884,8 @@ export const zhCN = {
   settings: {
     title: '设置',
     appearance: '外观',
+    theme: '主题',
+    themes: { system: '跟随系统', light: '浅色', dark: '深色' } as Record<ThemeChoice, string>,
     reduceEffects: '减少特效',
     reduceEffectsHint: '面板改为不透明，不做液态玻璃的折射和背景模糊。系统开启“降低透明度”时也会这样显示。',
     glass: (mode: string) => `当前面板：${mode}`,

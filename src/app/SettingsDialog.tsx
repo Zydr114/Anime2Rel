@@ -3,11 +3,12 @@ import type { Dialog } from 'mdui/components/dialog.js'
 import { MODEL_SOURCES, PRECISIONS } from '@/depth/models'
 import { clearModelCache, modelCacheSize, reloadDepth } from '@/depth/service'
 import { t } from '@/i18n'
-import { useAppearance } from '@/state/appearance'
+import { THEME_CHOICES, useAppearance } from '@/state/appearance'
 import { useDepth, type DepthSettings } from '@/state/depth'
 import { useSettingsDialog } from '@/state/dialogs'
 import { usePrefs } from '@/state/prefs'
 import { glassMode } from '@/ui/glass/liquid'
+import { Segmented } from '@/ui/Segmented'
 import { SelectField } from '@/ui/SelectField'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { useDialogEscape } from '@/ui/useDialogEscape'
@@ -45,10 +46,15 @@ export function SettingsDialog() {
 
 function AppearanceSection() {
   const reduceEffects = useAppearance((s) => s.reduceEffects)
+  const theme = useAppearance((s) => s.theme)
   const mode = glassMode()
   return (
     <section className="flex flex-col gap-1">
       <h3 className="font-medium">{t.settings.appearance}</h3>
+      <div className="mb-2 flex items-center gap-3">
+        <span className="shrink-0">{t.settings.theme}</span>
+        <Segmented value={theme} options={THEME_CHOICES} label={(v) => t.settings.themes[v]} onChange={useAppearance.getState().setTheme} testId="settings-theme" />
+      </div>
       <ToggleRow label={t.settings.reduceEffects} checked={reduceEffects} onChange={useAppearance.getState().setReduceEffects} testId="reduce-effects" />
       <Hint>{t.settings.reduceEffectsHint}</Hint>
       {mode && (
