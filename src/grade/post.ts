@@ -30,6 +30,8 @@ export interface PostDoc {
   lens: { aberration: number; vignette: number; midpoint: number; feather: number; distortion: number }
   /** 颗粒强度、尺寸、彩色程度 [0,1] */
   grain: { amount: number; size: number; color: number }
+  /** 半色调（M8.8a）：网点大小、网格角度 [0,1]（角度 0–90°）；color 为彩色（CMYK 四色网点），否则为黑白 */
+  halftone: { intensity: number; size: number; angle: number; color: boolean }
   /** 镜头光晕（M8.2），见 src/grade/flare.ts */
   flare: FlareDoc
   toneMapping: ToneMapping
@@ -46,6 +48,7 @@ export const DEFAULT_POST: PostDoc = {
   rays: { intensity: 0, threshold: 0.8, length: 0.5, light: null, skyOnly: true, rim: 0 },
   lens: { aberration: 0, vignette: 0, midpoint: 0.5, feather: 0.5, distortion: 0 },
   grain: { amount: 0, size: 0.3, color: 0.3 },
+  halftone: { intensity: 0, size: 0.4, angle: 0, color: false },
   flare: DEFAULT_FLARE,
   toneMapping: 'none',
 }
@@ -65,6 +68,7 @@ export function isNeutralPost(p: PostDoc): boolean {
     p.lens.vignette === 0 &&
     p.lens.distortion === 0 &&
     p.grain.amount === 0 &&
+    p.halftone.intensity === 0 &&
     !flareActive(p.flare) &&
     p.toneMapping === 'none'
   )
@@ -92,6 +96,9 @@ const FLARE_FADE = 0.2
 /** 颗粒尺寸的范围（相对长边） */
 const GRAIN_CELL_MIN = 1 / 3000
 const GRAIN_CELL_MAX = 1 / 500
+/** 半色调网点间距的范围（相对长边），按对数插值 */
+const HALFTONE_CELL_MIN = 1 / 400
+const HALFTONE_CELL_MAX = 1 / 60
 
 export interface PostParams {
   active: boolean
@@ -137,6 +144,11 @@ export interface PostParams {
   /** 颗粒尺寸（相对长边） */
   grainCell: number
   grainColor: number
+  /** 半色调：强度（0 为关闭）、网点间距（相对长边）、网格角度（弧度）、是否彩色 */
+  halftone: number
+  halftoneCell: number
+  halftoneAngle: number
+  halftoneColor: boolean
   /** 光晕：整体强度（含移出画面的淡出），0 时不计算 */
   flare: number
   /** 光晕的光源在画面上的位置（文档 UV） */
@@ -220,6 +232,10 @@ export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null,
     grain: p.grain.amount,
     grainCell: GRAIN_CELL_MIN * (GRAIN_CELL_MAX / GRAIN_CELL_MIN) ** p.grain.size,
     grainColor: p.grain.color,
+    halftone: p.halftone.intensity,
+    halftoneCell: HALFTONE_CELL_MIN * (HALFTONE_CELL_MAX / HALFTONE_CELL_MIN) ** p.halftone.size,
+    halftoneAngle: (p.halftone.angle * Math.PI) / 2,
+    halftoneColor: p.halftone.color,
     flare: p.flare.intensity * FLARE_GAIN * fade,
     flareLight: flare?.uv ?? null,
     flareSky: flare?.light.type === 'directional',

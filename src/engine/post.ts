@@ -98,6 +98,13 @@ export function createPostUniforms() {
     grain: uniform(0),
     grainCell: uniform(0.001),
     grainColor: uniform(0),
+    /** 半色调的强度、网点间距（相对长边）、网格角度（弧度）、彩色为 1 */
+    halftone: uniform(0),
+    halftoneCell: uniform(0.005),
+    halftoneAngle: uniform(0),
+    halftoneColor: uniform(0),
+    /** 屏幕像素 / 渲染像素：预览缩小显示时网点过小，逐渐退回原图；导出为 1 */
+    screenScale: uniform(1),
     flare: uniform(0),
     flareCount: uniform(0, 'int'),
     /** 各光晕元素的参数，每个元素 FLARE_VEC4S 个 vec4，见 packFlareElements */
@@ -124,6 +131,7 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   u.vignette.value = on ? p!.vignette : 0
   u.toneMapping.value = on ? p!.toneMapping : 0
   u.grain.value = on ? p!.grain : 0
+  u.halftone.value = on ? p!.halftone : 0
   u.flare.value = on && p!.flareLight && p!.flareCount > 0 ? p!.flare : 0
   if (!p) return
   u.bloomThreshold.value = p.bloomThreshold
@@ -145,6 +153,9 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   u.distortionZoom.value = p.distortionZoom
   u.grainCell.value = p.grainCell
   u.grainColor.value = p.grainColor
+  u.halftoneCell.value = p.halftoneCell
+  u.halftoneAngle.value = p.halftoneAngle
+  u.halftoneColor.value = p.halftoneColor ? 1 : 0
   if (p.flareLight) u.flareLight.value.set(p.flareLight.x, p.flareLight.y)
   u.flareSky.value = p.flareSky ? 1 : 0
   u.flareCount.value = p.flareCount

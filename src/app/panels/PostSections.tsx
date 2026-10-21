@@ -76,6 +76,7 @@ export function PostSections() {
           <PostSlider section="grain" field="color" label={e.grainColor} />
         </More>
       </Group>
+      <HalftoneSection />
       <ToneMappingSection />
     </>
   )
@@ -140,6 +141,27 @@ function RaysSection() {
         <ToggleRow label={t.effects.raysSkyOnly} checked={rays.skyOnly} onChange={(skyOnly) => useApp.getState().updatePost('rays', { skyOnly })} testId="post-rays-sky" />
         {rays.skyOnly && !hasDepth && <Hint>{t.effects.raysNoSky}</Hint>}
       </More>
+    </Group>
+  )
+}
+
+const HALFTONE_MODES = ['mono', 'color'] as const
+
+function HalftoneSection() {
+  const halftone = useApp((s) => s.doc.post.halftone)
+  const e = t.effects
+  return (
+    <Group id="post.halftone" title={e.halftone} summary={intensitySummary(halftone.intensity)} help={e.halftoneHint} testId="post-halftone">
+      <Segmented
+        value={halftone.color ? 'color' : 'mono'}
+        options={HALFTONE_MODES}
+        label={(m) => e.halftoneModes[m]}
+        onChange={(m) => useApp.getState().updatePost('halftone', { color: m === 'color' })}
+        testId="post-halftone-mode"
+      />
+      <PostSlider section="halftone" field="intensity" label={e.intensity} />
+      <PostSlider section="halftone" field="size" label={e.halftoneSize} />
+      <PostSlider section="halftone" field="angle" label={e.halftoneAngle} format={(v) => `${Math.round(v * 0.9)}°`} />
     </Group>
   )
 }

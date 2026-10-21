@@ -589,6 +589,8 @@ export class Engine {
     const u = this.present.uniforms
     u.zoom.value = view.zoom
     u.pan.value.set(view.panX, view.panY)
+    // 半色调按网点在屏幕上的大小淡出，缩放后需要重新渲染
+    if (this.post.halftone.value > 0) this.docDirty = true
     if (u.viewport.value.x !== viewport.width || u.viewport.value.y !== viewport.height) {
       u.viewport.value.set(viewport.width, viewport.height)
       this.renderer.setPixelRatio(window.devicePixelRatio || 1)
@@ -1033,6 +1035,7 @@ export class Engine {
     const r = this.renderer
     const tiled = mode === 'tile'
     this.setFrame(frame ?? { x: 0, y: 0, width: out.width, height: out.height, outWidth: out.width, outHeight: out.height }, targets, tiled)
+    this.post.screenScale.value = mode === 'preview' ? (this.present.uniforms.zoom.value * (window.devicePixelRatio || 1) * this.docSize.width) / out.width : 1
     const pass = (quad: THREE.QuadMesh, target: THREE.RenderTarget) => {
       r.setRenderTarget(target)
       quad.render(r)

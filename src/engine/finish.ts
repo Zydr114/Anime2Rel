@@ -1,13 +1,15 @@
 /**
  * 终处理 pass：全局基础调整之后的处理（docs/Plan.md M5 实现方案）。依次为：
- * 镜头失真与色差 → 钝化 → 光学扩散 → 柔焦 → 叠加 Bloom、Halation、光束、镜头光晕（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
+ * 镜头失真与色差 → 钝化 → 光学扩散 → 柔焦 → 叠加 Bloom、Halation、光束、镜头光晕（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）
+ * → 半色调 → 颗粒。
  * 全局调色的公式与 src/grade/creative.ts 一致，后期参数见 src/grade/post.ts。输入输出都是线性 sRGB。
- * 失真后，画面内容（含 Bloom 等整幅的结果）都在失真后的位置采样；暗角、颗粒按输出位置计算，不随画面变形。
+ * 失真后，画面内容（含 Bloom 等整幅的结果）都在失真后的位置采样；暗角、半色调、颗粒按输出位置计算，不随画面变形。
  */
 import * as THREE from 'three/webgpu'
 import {
   agxToneMapping,
   clamp,
+  cos,
   dot,
   exp2,
   float,
@@ -24,6 +26,7 @@ import {
   neutralToneMapping,
   pow,
   select,
+  sin,
   smoothstep,
   sqrt,
   texture,
@@ -224,6 +227,54 @@ function grain(post: PostUniforms, c: Vec3Node, uv: Vec2Node): Vec3Node {
   return srgbDecode(max(e.add(n.mul(amplitude.mul(weight))), vec3(0)))
 }
 
+/**
+ * 余弦网屏 s = (cos u + cos v)/4 + 0.5 中低于阈值 t 的面积与 t 不成正比（最多差 7%）。
+ * 按拟合的反函数换算阈值（过 0、1 两端），网点面积与墨量的误差小于 1%
+ */
+function screenThreshold(ink: FloatNode): FloatNode {
+  const x = ink.sub(0.5)
+  const x2 = x.mul(x)
+  return x.mul(x2.mul(-3.7012).add(2.7161).mul(x2).add(0.5523)).add(0.5)
+}
+
+/**
+ * 一个通道的网点覆盖率：px 为输出图像的像素坐标，网屏按 angle 旋转、间距为 cell 像素，低于阈值处为墨。
+ * 边缘按到阈值线的距离（用梯度线性化）在一个像素内过渡；墨量接近 0 或 1 时线性化会在网点中心留下残点，按墨量淡出
+ */
+function dotCoverage(px: Vec2Node, cell: FloatNode, angle: number, rotation: FloatNode, ink: FloatNode): FloatNode {
+  const a = rotation.add((angle * Math.PI) / 180)
+  const k = float(2 * Math.PI).div(cell)
+  const q = vec2(px.x.mul(cos(a)).add(px.y.mul(sin(a))), px.y.mul(cos(a)).sub(px.x.mul(sin(a)))).mul(k)
+  const screen = cos(q.x).add(cos(q.y)).mul(0.25).add(0.5)
+  const gradient = max(length(vec2(sin(q.x), sin(q.y))).mul(k.mul(0.25)), 1e-6)
+  const cover = clamp(screenThreshold(ink).sub(screen).div(gradient).add(0.5), 0, 1).mul(smoothstep(0, 0.02, ink))
+  return float(1).sub(float(1).sub(cover).mul(smoothstep(0, 0.02, float(1).sub(ink))))
+}
+
+/**
+ * 半色调：在编码值上计算，网点按输出图像的像素坐标排列，分块之间没有接缝。
+ * 黑白为白纸上的黑色网点（墨量 = 1 − 亮度，网格 45°）；彩色转为 CMYK，四色网格为 15°、75°、0°、45°，按减色法合成。
+ * 网点在屏幕上小于约 3 像素时逐渐退回原图，避免缩小的预览中出现摩尔纹。需在 Fn 中调用。
+ */
+function halftone(post: PostUniforms, c: Vec3Node, out: Vec2Node): Vec3Node {
+  const e = srgbEncode(clamp(c, 0, 1)).toVar()
+  // 两个分支共用的节点先求值，见 createFinishPass 的说明
+  const px = out.mul(post.aspect).mul(post.long).toVar()
+  const cell = post.halftoneCell.mul(post.long).toVar()
+  const rotation = post.halftoneAngle
+  const dots = vec3(0).toVar()
+  If(post.halftoneColor.greaterThan(0.5), () => {
+    const k = float(1).sub(max(e.r, max(e.g, e.b)))
+    const cmy = vec3(1).sub(e).sub(k).div(max(float(1).sub(k), 1e-4))
+    const paper = (ink: FloatNode, angle: number) => float(1).sub(dotCoverage(px, cell, angle, rotation, ink))
+    dots.assign(vec3(paper(cmy.x, 15), paper(cmy.y, 75), paper(cmy.z, 0)).mul(paper(k, 45)))
+  }).Else(() => {
+    dots.assign(vec3(float(1).sub(dotCoverage(px, cell, 45, rotation, float(1).sub(dot(e, LUMA))))))
+  })
+  const amount = post.halftone.mul(smoothstep(2, 4, cell.mul(post.screenScale)))
+  return srgbDecode(mix(e, dots, amount))
+}
+
 export interface FinishInputs {
   /** 全局调整后的线性图像 */
   image: TextureNode
@@ -291,6 +342,9 @@ export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: 
     })
     If(u.creative.greaterThan(0.5), () => {
       c.assign(creative(u, c))
+    })
+    If(post.halftone.greaterThan(0), () => {
+      c.assign(halftone(post, c, out))
     })
     If(post.grain.greaterThan(0), () => {
       c.assign(grain(post, c, out))

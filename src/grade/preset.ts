@@ -147,6 +147,7 @@ export function conformPost(v: unknown, light: (id: unknown) => string | null = 
     rays: section('rays'),
     lens: section('lens'),
     grain: section('grain'),
+    halftone: section('halftone'),
     flare: conformFlare(o.flare, light),
     toneMapping: oneOf(o.toneMapping, TONE_MAPPINGS, 'none'),
   }
