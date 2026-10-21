@@ -13,6 +13,12 @@ test.setTimeout(180_000)
 
 const rendererQuery = (renderer: unknown) => (renderer === 'webgl' ? '?renderer=webgl' : '')
 
+/** 在融合步骤等融合统计就绪，之后立绘的颜色不再变化 */
+async function fusionReady(page: Page, timeout = 30_000) {
+  await page.getByTestId('step-fusion').click()
+  await expect(page.getByTestId('fusion-color')).toHaveAttribute('data-state', 'ready', { timeout })
+}
+
 async function choose(page: Page, testId: string, name: string, buffer: Buffer) {
   const chooser = page.waitForEvent('filechooser')
   await page.getByTestId(testId).click()
@@ -35,7 +41,7 @@ async function setSlider(page: Page, testId: string, value: number) {
 }
 
 /** 在 step 步骤改参数后等画面更新再导出 */
-async function exportAfter(page: Page, change: () => Promise<unknown>, step = 'character'): Promise<ExportedImage> {
+async function exportAfter(page: Page, change: () => Promise<unknown>, step = 'place'): Promise<ExportedImage> {
   await page.getByTestId(`step-${step}`).click()
   await change()
   await page.waitForTimeout(1500)
@@ -80,20 +86,24 @@ test('the white matte is removed from the edge and shrinking pulls the edge in',
     ['drop-background', 'dark.png', makeImage(W, H, (x, y) => [40 + (x / W) * 30, 48 + (y / H) * 20, 58, 255])],
     ['drop-character', 'matted.png', matted()],
   ])
-  await page.getByTestId('step-character').click()
+  await page.getByTestId('step-place').click()
   await setSlider(page, 'char-scale', 250)
   await setSlider(page, 'char-x', 320)
   await setSlider(page, 'char-y', 240)
-  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 60_000 })
+  await fusionReady(page, 60_000)
   await page.waitForTimeout(1500)
 
   const on = edge(await exportPixels(page))
-  const off = edge(await exportAfter(page, () => page.getByTestId('fusion-edge-decontaminate').click()))
+  const off = edge(await exportAfter(page, () => page.getByTestId('fusion-edge-decontaminate').click(), 'fusion'))
   const shrunk = edge(
-    await exportAfter(page, async () => {
-      await page.getByTestId('fusion-edge-decontaminate').click()
-      await setSlider(page, 'fusion-edge-shrink', 2)
-    }),
+    await exportAfter(
+      page,
+      async () => {
+        await page.getByTestId('fusion-edge-decontaminate').click()
+        await setSlider(page, 'fusion-edge-shrink', 2)
+      },
+      'fusion',
+    ),
   )
   // 不处理时边缘是一圈混入白色的亮边
   expect(off.white).toBeGreaterThan(on.white + 25)
@@ -128,21 +138,23 @@ test('lights are named by kind, the intro stays dismissed, and rim beams spread 
     ['drop-background', 'sunny.png', sunny],
     ['drop-character', 'figure.png', figure(240, 480)],
   ])
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
   const sun = page.locator('[data-testid^="light-row-"][data-type="directional"]').first()
   await expect(sun).toContainText('太阳 / 天光 1')
   await expect(sun).toContainText(/自动识别 · 置信度[高中低]/)
   await sun.click()
-  await expect(page.getByTestId('light-type-hint')).toContainText('只有方向')
+  // 光源种类的说明在“?”中
+  await page.getByTestId('light-selected').getByTestId('help').click()
+  await expect(page.getByTestId('help-popup')).toContainText('只有方向')
   await page.getByTestId('light-intro-dismiss').click()
   await expect(page.getByTestId('light-intro')).toHaveCount(0)
+  await expect(page.getByTestId('help-popup')).toHaveCount(0)
 
-  await page.getByTestId('step-character').click()
-  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 30_000 })
+  await fusionReady(page)
   await page.waitForTimeout(1500)
   const plain = await exportPixels(page)
-  await page.getByTestId('step-effects').click()
+  await page.getByTestId('step-lens').click()
   await setSlider(page, 'post-rays-rim', 100)
   await page.waitForTimeout(1500)
   const beams = await exportPixels(page)
@@ -154,7 +166,7 @@ test('lights are named by kind, the intro stays dismissed, and rim beams spread 
   await page.waitForTimeout(1500)
   await page.goto(`/${query}`)
   await page.getByTestId('resume-project').click()
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-list')).toBeVisible()
   await expect(page.getByTestId('light-intro')).toHaveCount(0)
 })
@@ -171,16 +183,15 @@ test('a lens flare appears around the lamp, can be edited and saved, and fades w
     ['drop-background', 'night.png', night],
     ['drop-character', 'figure.png', figure(240, 480)],
   ])
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-  await page.getByTestId('step-character').click()
-  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 30_000 })
+  await fusionReady(page)
   await page.waitForTimeout(1500)
   // 灯右侧的夜空，离灯 45–105 px
   const glow = (img: ExportedImage) => meanLuma(img, 515, 120, 575, 160)
   const plain = await exportPixels(page)
 
-  await page.getByTestId('step-effects').click()
+  await page.getByTestId('step-lens').click()
   await page.getByTestId('flare-preset-soft-sun').click()
   await expect(page.getByTestId('flare-preset-soft-sun')).toHaveAttribute('aria-pressed', 'true')
   await page.waitForTimeout(1500)
@@ -188,7 +199,7 @@ test('a lens flare appears around the lamp, can be edited and saved, and fades w
   expect(glow(flared)).toBeGreaterThan(glow(plain) + 8)
 
   // 元素的添加、复制和删除
-  await page.getByTestId('step-effects').click()
+  await page.getByTestId('step-lens').click()
   const rows = page.getByTestId('flare-elements').locator('button')
   await expect(rows).toHaveCount(5)
   await page.getByTestId('flare-add').click()
@@ -210,12 +221,12 @@ test('a lens flare appears around the lamp, can be edited and saved, and fades w
   await expect(page.getByTestId('flare-custom-0')).toContainText('夜灯')
 
   // 立绘的头部挡住灯：光晕消失
-  await page.getByTestId('step-character').click()
+  await page.getByTestId('step-place').click()
   await setSlider(page, 'char-x', 470)
   await setSlider(page, 'char-y', 267)
   await page.waitForTimeout(1500)
   const covered = await exportPixels(page)
-  await page.getByTestId('step-effects').click()
+  await page.getByTestId('step-lens').click()
   await page.getByTestId('post-flare-enabled').click()
   await page.waitForTimeout(1500)
   const coveredOff = await exportPixels(page)
@@ -256,8 +267,8 @@ test('the character warps by its perspective corners and mesh points, undoably a
   expect(isRed(nearSeam(before))).toBe(true)
 
   // 四角透视：左上角向右上角拖过 40%，原来左上角处露出背景
-  await page.getByTestId('step-character').click()
-  await page.locator('[data-testid="warp-tool"] mdui-segmented-button[value="perspective"]').click()
+  await page.getByTestId('step-place').click()
+  await page.locator('[data-testid="place-tool"] mdui-segmented-button[value="perspective"]').click()
   await expect(page.getByTestId('gizmo')).toHaveCount(0)
   const reset = page.getByTestId('warp-reset-perspective')
   await expect(reset).toHaveAttribute('disabled')
@@ -269,11 +280,11 @@ test('the character warps by its perspective corners and mesh points, undoably a
   expect(isRed(topLeft(await exportAfter(page, () => reset.click())))).toBe(true)
   // 撤销重置
   expect(isRed(topLeft(await exportAfter(page, () => page.getByTestId('undo').click())))).toBe(false)
-  await page.getByTestId('step-character').click()
+  await page.getByTestId('step-place').click()
   await reset.click()
 
   // 网格变形：第二行第三个控制点（UV 2/3, 1/3）向左拖，分界线随之左移
-  await page.locator('[data-testid="warp-tool"] mdui-segmented-button[value="mesh"]').click()
+  await page.locator('[data-testid="place-tool"] mdui-segmented-button[value="mesh"]').click()
   await expect(page.getByTestId('warp-handle-15')).toBeVisible()
   await dragWarp(page, 6, 5, 0.9)
   await expect(page.getByTestId('warp-reset-grid')).not.toHaveAttribute('disabled')
@@ -307,18 +318,16 @@ test('a character standing in water is reflected below the waterline, tinted by 
     ['drop-character', 'halves.png', halves],
   ])
   // 等深度、光源分析和融合统计都就绪，之后立绘的颜色不再变化，水线以上的像素才能逐一比较
-  await page.getByTestId('step-depth').click()
+  await page.getByTestId('step-scene').click()
   for (const layer of ['background', 'character'])
     await expect(page.getByTestId(`depth-job-${layer}`)).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-  await page.getByTestId('step-character').click()
-  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 30_000 })
+  await fusionReady(page)
   // 原大摆在 (320, 150)：不透明部分 x 270–370、y 70–230，接地点（水线）在脚底 y ≈ 230
-  await page.getByTestId('step-character').click()
+  await page.getByTestId('step-place').click()
   await setSlider(page, 'char-scale', 100)
   await setSlider(page, 'char-y', 150)
-  await page.getByTestId('step-focus').click()
   await page.getByTestId('focus-occlusion-enabled').click()
   await setSelect(page, 'focus-occlusion-mode', 'water')
   // 水线以上 30 px 处的左右两半，与它们在水线以下的镜像位置
@@ -327,13 +336,13 @@ test('a character standing in water is reflected below the waterline, tinted by 
     [295, 260],
     [345, 260],
   ] as const
-  const plain = await exportAfter(page, async () => {}, 'focus')
+  const plain = await exportAfter(page, async () => {}, 'place')
   expect(isRed(pixel(plain, ...redBelow))).toBe(false)
   expect(isBlue(pixel(plain, ...blueBelow))).toBe(false)
 
   const blur = page.getByTestId('focus-occlusion-reflectionBlur')
   await expect(blur).toHaveCount(0)
-  const reflected = await exportAfter(page, () => setSlider(page, 'focus-occlusion-reflection', 100), 'focus')
+  const reflected = await exportAfter(page, () => setSlider(page, 'focus-occlusion-reflection', 100), 'place')
   expect(isRed(pixel(reflected, ...redBelow))).toBe(true)
   expect(isBlue(pixel(reflected, ...blueBelow))).toBe(true)
   expect(diff(pixel(reflected, ...redAbove), pixel(plain, ...redAbove))).toBeLessThan(4)
@@ -347,7 +356,7 @@ test('a character standing in water is reflected below the waterline, tinted by 
       await page.getByTestId('focus-occlusion-waterColor-hex').fill('00ff00')
       await page.keyboard.press('Escape')
     },
-    'focus',
+    'place',
   )
   expect(pixel(tinted, ...redBelow)[0]).toBeLessThan(pixel(reflected, ...redBelow)[0] - 100)
 
@@ -357,7 +366,7 @@ test('a character standing in water is reflected below the waterline, tinted by 
       await page.getByTestId('undo').click()
       await page.getByTestId('undo').click()
     },
-    'focus',
+    'place',
   )
   expect(diff(pixel(undone, ...redBelow), pixel(plain, ...redBelow))).toBeLessThan(4)
 })
@@ -381,7 +390,7 @@ test('the camera is calibrated before the other steps, by the horizon or by para
   await importAndStart(page, [['drop-background', 'bg.png', gradient]], false)
   // 未确认相机时其他步骤不可进入
   await expect(page.getByTestId('camera-locked')).toBeVisible()
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('camera-method')).toBeVisible()
   await expect(page.getByTestId('camera-guide')).toHaveAttribute('data-kind', 'ground')
 
@@ -431,8 +440,8 @@ test('the camera is calibrated before the other steps, by the horizon or by para
 
   await page.getByTestId('camera-confirm').click()
   await expect(page.getByTestId('camera-confirmed')).toBeVisible()
-  await page.getByTestId('step-depth').click()
-  await expect(page.getByTestId('depth-job-background')).toBeVisible()
+  await page.getByTestId('step-fusion').click()
+  await expect(page.getByTestId('light-analysis-state')).toBeVisible()
 
   // 更换背景后需要重新标定
   await page.getByTestId('step-assets').click()
@@ -451,7 +460,7 @@ test('a character dragged in the calibrated camera keeps its height in the scene
   await setSlider(page, 'camera-pitch', -15)
   await setSlider(page, 'camera-roll', 4)
   await page.getByTestId('camera-confirm').click()
-  await page.getByTestId('step-character').click()
+  await page.getByTestId('step-place').click()
   await expect.poll(face).toBeGreaterThan(150)
 
   // 向地平线拖动：缩小，身高读数不变
@@ -474,7 +483,7 @@ test('a character dragged in the calibrated camera keeps its height in the scene
   await expect(page.getByTestId('character-guide')).toHaveCount(1)
 
   // 按相机透视写入四角透视，可撤销
-  await page.locator('[data-testid="warp-tool"] mdui-segmented-button[value="perspective"]').click()
+  await page.locator('[data-testid="place-tool"] mdui-segmented-button[value="perspective"]').click()
   const reset = page.getByTestId('warp-reset-perspective')
   await expect(reset).toHaveAttribute('disabled')
   await page.getByTestId('char-camera-perspective').click()
@@ -483,7 +492,6 @@ test('a character dragged in the calibrated camera keeps its height in the scene
   await expect(reset).toHaveAttribute('disabled')
 
   // 水线沿地平线方向倾斜
-  await page.getByTestId('step-focus').click()
   await page.getByTestId('focus-occlusion-enabled').click()
   await setSelect(page, 'focus-occlusion-mode', 'water')
   const line = page.getByTestId('waterline').locator('line').first()
@@ -497,14 +505,13 @@ test('the 3D view shows the calibrated scene, places lamps and suns by dragging,
     ['drop-background', 'sunny.png', sunny],
     ['drop-character', 'figure.png', figure(240, 480)],
   ])
-  await page.getByTestId('step-depth').click()
+  await page.getByTestId('step-scene').click()
   await expect(page.getByTestId('depth-scale')).toHaveAttribute('data-state', 'ground', { timeout: 120_000 })
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-  await page.getByTestId('light-view3d').click()
+  await page.getByTestId('view3d-toggle').click()
   const view = page.getByTestId('view3d')
   await expect(view).toHaveAttribute('data-view', 'orbit')
-  await expect(page.getByTestId('view3d-notice')).toContainText('2.5D')
   await expect(page.getByTestId('light-gizmo')).toHaveCount(0)
 
   // 添加工具点在环绕中心（人物）上：灯放在人物前面
@@ -546,7 +553,7 @@ test('the 3D view shows the calibrated scene, places lamps and suns by dragging,
 
   await page.getByTestId('view3d-camera').click()
   await expect(view).toHaveAttribute('data-view', 'camera')
-  await page.getByTestId('light-view3d').click()
+  await page.getByTestId('view3d-toggle').click()
   await expect(view).toHaveCount(0)
   await expect(page.getByTestId('light-gizmo')).toBeVisible()
 })
@@ -557,11 +564,11 @@ test('the character depth is corrected by a brush in 2D and 3D, and the characte
     ['drop-background', 'sunny.png', sunny],
     ['drop-character', 'figure.png', figure(240, 480)],
   ])
-  await page.getByTestId('step-depth').click()
+  await page.getByTestId('step-scene').click()
   await expect(page.getByTestId('depth-scale')).toHaveAttribute('data-state', 'ground', { timeout: 120_000 })
   await expect(page.getByTestId('depth-job-character')).toHaveAttribute('data-state', 'done', { timeout: 120_000 })
-  await page.getByTestId('step-character').click()
-  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 60_000 })
+  await fusionReady(page, 60_000)
+  await page.getByTestId('step-place').click()
 
   // 默认摆放下裙子上部在文档 (0.5, 0.54)；用深度画笔时立绘叠加深度伪彩色
   const dress = async () => (await docPixels(page, [[0.5, 0.54]]))[0]
@@ -584,7 +591,7 @@ test('the character depth is corrected by a brush in 2D and 3D, and the characte
 
   // 3D 视图中在人物（环绕中心）上向下拖动：沿地面走近相机，按透视放大；可撤销
   await page.getByTestId('char-depth-brush').click()
-  await page.getByTestId('char-view3d').click()
+  await page.getByTestId('view3d-toggle').click()
   const view = page.getByTestId('view3d')
   await expect(view).toHaveAttribute('data-view', 'orbit')
   await expect(page.getByTestId('gizmo')).toHaveCount(0)

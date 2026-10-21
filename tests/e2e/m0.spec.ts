@@ -55,7 +55,7 @@ test('import, place, flip, undo and export', async ({ page }, info) => {
   expect(pixel(img, 300, CHAR_Y)).toEqual([0, 0, 255, 255])
 
   // H 水平翻转：红色移到右侧
-  await page.getByTestId('step-character').click()
+  await page.getByTestId('step-place').click()
   await page.keyboard.press('h')
   img = await exportPixels(page)
   expectRed(pixel(img, 300, CHAR_Y))
@@ -72,7 +72,7 @@ test('dragging the character is a single undo step', async ({ page }) => {
   await choose(page, 'drop-character', 'char.png', character)
   await page.getByTestId('start').click()
   await page.getByTestId('camera-confirm').click()
-  await page.getByTestId('step-character').click()
+  await page.getByTestId('step-place').click()
 
   const x = page.getByTestId('char-x')
   const xValue = () => x.evaluate((el) => (el as HTMLInputElement).value)

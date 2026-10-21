@@ -55,7 +55,7 @@ async function start(page: Page, renderer: string) {
   await (await chooser).setFiles({ name: 'scene.png', mimeType: 'image/png', buffer: image })
   await page.getByTestId('start').click()
   await page.getByTestId('camera-confirm').click()
-  await page.getByTestId('step-depth').click()
+  await page.getByTestId('step-scene').click()
 }
 
 async function waitDone(page: Page) {
@@ -66,6 +66,8 @@ test('depth, normal and sky debug views', async ({ page }, info) => {
   await start(page, info.project.metadata.renderer as string)
   await waitDone(page)
   await expect(page.getByTestId('depth-model-ready')).toContainText(/WebGPU|WASM/)
+  // 场景步骤的画布上有标定控件，在没有画布控件的调色步骤中检查调试视图
+  await page.getByTestId('step-adjust').click()
   const points = [SKY, SPHERE_CENTER, SPHERE_LEFT, SPHERE_RIGHT, GROUND_NEAR, GROUND_FAR]
   const composite = await docPixels(page, points)
 
@@ -95,6 +97,7 @@ test('depth, normal and sky debug views', async ({ page }, info) => {
   expect(await docPixels(page, points)).toEqual(composite)
 
   // 开关获得焦点后按空格（用于平移视图）不会切换开关
+  await page.getByTestId('step-scene').click()
   const align = page.getByTestId('depth-edge-align')
   await align.click()
   await align.click()
@@ -115,8 +118,12 @@ test('switching to WASM reloads the model', async ({ page }, info) => {
   test.skip(info.project.metadata.renderer === 'webgl', '推理与渲染后端无关，只在一个项目中运行')
   await start(page, 'webgpu')
   await waitDone(page)
+  // 推理设备在设置对话框中
+  await page.getByTestId('settings-button').click()
   await page.getByTestId('depth-device').click()
   await page.getByTestId('depth-device').getByText('WASM（CPU）').click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('settings')).not.toHaveAttribute('open')
   await expect(page.getByTestId('depth-model-ready')).toContainText('WASM · q4', { timeout: 90_000 })
   await waitDone(page)
 })

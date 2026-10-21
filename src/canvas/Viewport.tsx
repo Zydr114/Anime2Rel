@@ -98,11 +98,11 @@ export function Viewport() {
           e.setShadow(currentShadowParams(doc))
           e.setGrade(gradeParams(doc.grade))
           e.setPost(postParams(doc.post, doc.lighting, doc.background, doc.camera.fovDeg, doc.focus.dof))
-          // 调色、镜头步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果；相机标定只看背景原图
+          // 调色、镜头步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果；场景步骤中只看背景原图，调试视图除外
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
           // 二维摆放步骤中使用深度画笔时，立绘叠加深度伪彩色
           const relief = step === 'place' && f.tool === 'depth' && !useView3d.getState().open
-          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'place', original: step === 'scene', relief })
+          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'place', original: step === 'scene' && useDepth.getState().view === 'composite', relief })
         }
         // 3D 视图在摆放和融合步骤中显示；灰球和选中的光源只在融合步骤中显示
         const sync3d = () => {
@@ -152,9 +152,9 @@ export function Viewport() {
           if (next.resultsVersion !== prev.resultsVersion || next.view !== prev.view || next.overlay !== prev.overlay || next.edgeAlign !== prev.edgeAlign) syncDepth()
           if (next.resultsVersion !== prev.resultsVersion) {
             syncBall()
-            syncFusion()
             sync3d()
           }
+          if (next.resultsVersion !== prev.resultsVersion || next.view !== prev.view) syncFusion()
         })
         const offLighting = useLighting.subscribe((next, prev) => {
           if (isExporting()) return

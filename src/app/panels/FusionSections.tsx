@@ -135,6 +135,7 @@ function ColorSection() {
       summary={f.colorSummary(formatPercent(color.whiteBalance * 100), formatPercent(color.tone * 100))}
       help={[f.colorHint, f.skinProtectHint]}
       testId="fusion-color"
+      state={ready ? 'ready' : 'waiting'}
     >
       {!ready && <Hint>{f.waitingStats}</Hint>}
       <FusionSlider section="colorMatch" field="whiteBalance" label={f.whiteBalance} min={0} max={100} />

@@ -42,8 +42,8 @@ async function open(page: Page, renderer: string, background: Buffer) {
 }
 
 async function fusionReady(page: Page) {
-  await page.getByTestId('step-character').click()
-  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 30_000 })
+  await page.getByTestId('step-fusion').click()
+  await expect(page.getByTestId('fusion-color')).toHaveAttribute('data-state', 'ready', { timeout: 30_000 })
 }
 
 async function setSlider(page: Page, testId: string, value: number) {
@@ -59,7 +59,7 @@ const luma = (p: number[]) => 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]
 
 test('fusion parameters, before/after compare, normal view and export', async ({ page }, info) => {
   await open(page, info.project.metadata.renderer as string, sunny)
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
   await fusionReady(page)
   const dress = async () => (await docPixels(page, [DRESS]))[0]
@@ -80,7 +80,6 @@ test('fusion parameters, before/after compare, normal view and export', async ({
   await expect.poll(async () => maxDiff(await dress(), fused)).toBeLessThan(4)
 
   // 法线视图：裙子中间大致朝向相机（偏蓝）
-  await page.getByTestId('fusion-normals').locator('summary').click()
   await page.getByTestId('fusion-show-normals').click()
   await expect.poll(async () => (await dress())[2]).toBeGreaterThan(180)
   const normal = await dress()
@@ -96,6 +95,7 @@ test('fusion parameters, before/after compare, normal view and export', async ({
 test('moving the character updates its colors from the background around it', async ({ page }, info) => {
   await open(page, info.project.metadata.renderer as string, split)
   await fusionReady(page)
+  await page.getByTestId('step-place').click()
   const body = page.getByTestId('gizmo-body')
 
   /** 拖动立绘，使其中心移到文档横坐标 x，返回拖动期间的平均帧间隔（毫秒） */

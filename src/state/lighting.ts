@@ -11,7 +11,7 @@ interface LightingState {
   analyses: Record<string, AnalysisStatus>
   selected: string | null
   tool: LightTool
-  /** 在立绘位置显示灰球 */
+  /** 在立绘位置显示灰球。默认不显示：融合步骤中它会挡住立绘的中部 */
   showBall: boolean
 
   setAnalysis: (assetId: string, status: AnalysisStatus) => void
@@ -24,7 +24,7 @@ export const useLighting = create<LightingState>()((set) => ({
   analyses: {},
   selected: null,
   tool: 'select',
-  showBall: true,
+  showBall: false,
 
   setAnalysis: (assetId, status) => set((s) => ({ analyses: { ...s.analyses, [assetId]: status } })),
   select: (selected) => set({ selected }),

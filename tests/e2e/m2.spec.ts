@@ -34,7 +34,7 @@ async function open(page: Page, renderer: string, image: Buffer) {
   await (await chooser).setFiles({ name: 'scene.png', mimeType: 'image/png', buffer: image })
   await page.getByTestId('start').click()
   await page.getByTestId('camera-confirm').click()
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
 }
 
@@ -75,16 +75,15 @@ test('visible sun becomes an editable light; lights can be dragged, added, recol
   const toPage = await docToPage(page)
   expectNear(await center(sunHandle), toPage(SUN), 12)
 
-  // 灰球：显示在画面中央，关闭后恢复背景，切到其他步骤时也不显示
+  // 灰球：默认不显示，打开后显示在画面中央，切到其他步骤时不显示
   const ballAt: DocPoint = [0.5, 0.5]
-  const [withBall] = await docPixels(page, [ballAt])
-  await page.getByTestId('light-ball').click()
   const [withoutBall] = await docPixels(page, [ballAt])
-  expect(withBall.reduce((s, v, i) => s + Math.abs(v - withoutBall[i]), 0)).toBeGreaterThan(30)
   await page.getByTestId('light-ball').click()
-  await page.getByTestId('step-depth').click()
+  const [withBall] = await docPixels(page, [ballAt])
+  expect(withBall.reduce((s, v, i) => s + Math.abs(v - withoutBall[i]), 0)).toBeGreaterThan(30)
+  await page.getByTestId('step-adjust').click()
   expect(await docPixels(page, [ballAt])).toEqual([withoutBall])
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
 
   // 拖动方向光，撤销后回到原处
   const from = await center(sunHandle)

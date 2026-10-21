@@ -48,10 +48,9 @@ async function open(page: Page, renderer: string) {
   await page.getByTestId('start').click()
   await page.getByTestId('camera-confirm').click()
   // 等光源分析和融合统计就绪，之后立绘的颜色不再变化
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-  await page.getByTestId('step-character').click()
-  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 30_000 })
+  await expect(page.getByTestId('fusion-color')).toHaveAttribute('data-state', 'ready', { timeout: 30_000 })
   await page.getByTestId('step-adjust').click()
 }
 
@@ -106,13 +105,15 @@ test('LUT, bloom and vignette take effect and the export matches the preview', a
   await importLut(page)
   await expect.poll(async () => (await docPixels(page, [DRESS]))[0][0]).toBeGreaterThan(dress[2] - 10)
 
-  await page.getByTestId('step-effects').click()
+  await page.getByTestId('step-lens').click()
   await setSlider(page, 'post-lens-vignette', -100)
   await expect.poll(async () => luma((await docPixels(page, [CORNER]))[0])).toBeLessThan(luma(corner) * 0.7)
   await setSlider(page, 'post-bloom-intensity', 100)
   await setSlider(page, 'post-bloom-threshold', 50)
   await expect.poll(async () => luma((await docPixels(page, [NEAR_SUN]))[0])).toBeGreaterThan(luma(nearSun) + 8)
 
+  // 镜头步骤的画布上有焦点标记，回到调色步骤取预览
+  await page.getByTestId('step-adjust').click()
   const preview = await docPixels(page, [DRESS, NEAR_SUN, CORNER])
   const img = await exportPixels(page)
   ;[DRESS, NEAR_SUN, CORNER].forEach(([u, v], i) => expect(maxDiff(pixel(img, Math.round(u * W), Math.round(v * H)), preview[i])).toBeLessThan(8))

@@ -40,14 +40,13 @@ async function open(page: Page, renderer: string) {
   await page.getByTestId('start').click()
   await page.getByTestId('camera-confirm').click()
   // 等深度、光源分析和融合统计都就绪，之后立绘的颜色不再变化；自动对焦也需要立绘的不透明包围盒
-  await page.getByTestId('step-depth').click()
+  await page.getByTestId('step-scene').click()
   for (const layer of ['background', 'character'])
     await expect(page.getByTestId(`depth-job-${layer}`)).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-  await page.getByTestId('step-character').click()
-  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 30_000 })
-  await page.getByTestId('step-focus').click()
+  await expect(page.getByTestId('fusion-color')).toHaveAttribute('data-state', 'ready', { timeout: 30_000 })
+  await page.getByTestId('step-lens').click()
 }
 
 async function setSlider(page: Page, testId: string, value: number) {
@@ -58,7 +57,7 @@ async function setSlider(page: Page, testId: string, value: number) {
   }, value)
 }
 
-/** 在景深步骤的画布上点击文档坐标 (x, y) */
+/** 在镜头步骤的画布上点击文档坐标 (x, y) */
 async function clickDoc(page: Page, p: { x: number; y: number }) {
   const box = (await page.getByTestId('focus-overlay').boundingBox())!
   await page.mouse.click(box.x + (p.x / W) * box.width, box.y + (p.y / H) * box.height)
@@ -73,9 +72,10 @@ function exportedRow(img: ExportedImage, { y, x0, x1 }: { y: number; x0: number;
   return Array.from({ length: x1 - x0 + 1 }, (_, i) => pixel(img, x0 + i, y))
 }
 
-async function exportFromFocus(page: Page) {
+/** 导出后回到 step 步骤 */
+async function exportFrom(page: Page, step: string) {
   const img = await exportPixels(page)
-  await page.getByTestId('step-focus').click()
+  await page.getByTestId(`step-${step}`).click()
   return img
 }
 
@@ -86,9 +86,9 @@ test('depth of field keeps the focused character sharp, follows the clicked focu
 
   // 景深默认开启并对焦在立绘上：与关闭景深相比，远处的太阳边缘变模糊，立绘边缘和边缘内侧不变
   await page.getByTestId('focus-dof-enabled').click()
-  const sharp = await exportFromFocus(page)
+  const sharp = await exportFrom(page, 'lens')
   await page.getByTestId('focus-dof-enabled').click()
-  const focused = await exportFromFocus(page)
+  const focused = await exportFrom(page, 'lens')
   const sunSharp = edgeStep(exportedRow(sharp, SUN_ROW))
   expect(edgeStep(exportedRow(focused, SUN_ROW))).toBeLessThan(sunSharp * 0.7)
   const dressSharp = edgeStep(exportedRow(sharp, DRESS_ROW))
@@ -99,15 +99,19 @@ test('depth of field keeps the focused character sharp, follows the clicked focu
   await setSlider(page, 'focus-dof-aperture', 3)
   await clickDoc(page, SKY)
   await expect(page.getByTestId('focus-target-kind')).toHaveAttribute('data-kind', 'background')
-  const far = await exportFromFocus(page)
+  const far = await exportFrom(page, 'lens')
   expect(edgeStep(exportedRow(far, DRESS_ROW))).toBeLessThan(dressSharp * 0.5)
 
-  // 前后对比显示直接贴上去的结果：立绘边缘恢复清晰
+  // 前后对比：镜头步骤中对比调色前的结果，保留景深；其他步骤中显示直接贴上去的结果，立绘边缘恢复清晰
   const previewRow = () => docPixels(page, Array.from({ length: DRESS_ROW.x1 - DRESS_ROW.x0 + 1 }, (_, i) => [(DRESS_ROW.x0 + i) / W, DRESS_ROW.y / H] as const))
   const blurred = edgeStep(await previewRow())
   await page.getByTestId('compare').click()
+  await page.waitForTimeout(1000)
+  expect(edgeStep(await previewRow())).toBeLessThan(blurred * 1.5)
+  await page.getByTestId('step-place').click()
   await expect.poll(async () => edgeStep(await previewRow())).toBeGreaterThan(blurred * 2)
   await page.getByTestId('compare').click()
+  await page.getByTestId('step-lens').click()
 
   // 点在立绘上对焦到立绘的该处；“对焦到立绘”恢复自动
   await clickDoc(page, { x: 320, y: 293 })
@@ -118,6 +122,7 @@ test('depth of field keeps the focused character sharp, follows the clicked focu
 
 test('depth occlusion hides the character behind nearer ground, shows a mask and is skipped by compare', async ({ page }, info) => {
   await open(page, info.project.metadata.renderer as string)
+  await page.getByTestId('step-place').click()
   const leg = async () => (await docPixels(page, [LEG]))[0]
   const skin = await leg()
   expect(skin[0]).toBeGreaterThan(170)
@@ -147,7 +152,7 @@ test('depth occlusion hides the character behind nearer ground, shows a mask and
 
 // 遮挡扩展的场景：立绘缩小到 50%、中心 (320, 300)，双脚在 y ≈ 415 处，左腿在 x ≈ 308、y 360–415 之间
 async function standOnGround(page: Page) {
-  await page.getByTestId('step-character').click()
+  await page.getByTestId('step-place').click()
   await setSlider(page, 'char-scale', 50)
   await setSlider(page, 'char-y', 300)
 }
@@ -193,14 +198,13 @@ test('contact point can be dragged and reset, and the standing shadow darkens th
   const GROUND = { x0: 250, x1: 330, y0: 418, y1: 475 }
   const SKY_BOX = { x0: 40, x1: 120, y0: 20, y1: 60 }
 
+  await page.getByTestId('step-fusion').click()
   await setSlider(page, 'fusion-shadow-contact', 100)
   await setSlider(page, 'fusion-shadow-cast', 100)
-  const shadowed = await exportPixels(page)
-  await page.getByTestId('step-character').click()
+  const shadowed = await exportFrom(page, 'fusion')
   await setSlider(page, 'fusion-shadow-contact', 0)
   await setSlider(page, 'fusion-shadow-cast', 0)
-  const plain = await exportPixels(page)
-  await page.getByTestId('step-character').click()
+  const plain = await exportFrom(page, 'place')
   expect(meanLuminance(shadowed, GROUND)).toBeLessThan(meanLuminance(plain, GROUND) - 3)
   expect(Math.abs(meanLuminance(shadowed, SKY_BOX) - meanLuminance(plain, SKY_BOX))).toBeLessThan(1)
 
@@ -217,17 +221,16 @@ test('contact point can be dragged and reset, and the standing shadow darkens th
 test('water occlusion covers the character below the waterline at the contact point, medium mode lets it show through', async ({ page }, info) => {
   await open(page, info.project.metadata.renderer as string)
   await standOnGround(page)
-  await page.getByTestId('step-focus').click()
   const ABOVE: [number, number] = [308, 378]
   const BELOW: [number, number] = [308, 408]
-  const clear = await exportFromFocus(page)
+  const clear = await exportFrom(page, 'place')
 
   await page.getByTestId('focus-occlusion-enabled').click()
   await setSelect(page, 'focus-occlusion-mode', 'water')
   await expect(page.getByTestId('waterline')).toHaveCount(1)
   // 接地点拖到小腿处，水线随之上移到 y ≈ 396
   await dragGround(page, -30)
-  const water = await exportFromFocus(page)
+  const water = await exportFrom(page, 'place')
   expect(diff(pixel(water, ...ABOVE), pixel(clear, ...ABOVE))).toBeLessThan(15)
   expect(diff(pixel(water, ...BELOW), pixel(clear, ...BELOW))).toBeGreaterThan(60)
 
@@ -235,11 +238,11 @@ test('water occlusion covers the character below the waterline at the contact po
   await setSelect(page, 'focus-occlusion-mode', 'medium')
   await expect(page.getByTestId('waterline')).toHaveCount(0)
   await setSlider(page, 'fusion-depth', 30)
-  const medium = await exportFromFocus(page)
+  const medium = await exportFrom(page, 'place')
   await setSelect(page, 'focus-occlusion-mode', 'opaque')
-  const opaque = await exportFromFocus(page)
+  const opaque = await exportFrom(page, 'place')
   await page.getByTestId('focus-occlusion-enabled').click()
-  const behind = await exportFromFocus(page)
+  const behind = await exportFrom(page, 'place')
   const LEG_MID: [number, number] = [308, 395]
   expect(diff(pixel(opaque, ...LEG_MID), pixel(behind, ...LEG_MID))).toBeGreaterThan(100)
   expect(diff(pixel(medium, ...LEG_MID), pixel(behind, ...LEG_MID))).toBeGreaterThan(20)
@@ -248,6 +251,7 @@ test('water occlusion covers the character below the waterline at the contact po
 
 test('occlusion regions painted with the brush use their own mode, apply to export and are undoable', async ({ page }, info) => {
   await open(page, info.project.metadata.renderer as string)
+  await page.getByTestId('step-place').click()
   const leg = async () => (await docPixels(page, [LEG]))[0]
   // 深度会影响立绘的光照，未遮挡的颜色在改完深度之后取
   await setSlider(page, 'fusion-depth', 30)
@@ -273,7 +277,7 @@ test('occlusion regions painted with the brush use their own mode, apply to expo
 
   // 区域内不遮挡：双腿恢复，导出同样如此；区域外仍按默认方式遮挡
   await expect.poll(async () => diff(await leg(), skin)).toBeLessThan(30)
-  const img = await exportFromFocus(page)
+  const img = await exportFrom(page, 'place')
   expect(diff(pixel(img, Math.round(LEG[0] * W), Math.round(LEG[1] * H)), skin)).toBeLessThan(30)
 
   // 撤销区域的遮挡方式，双腿重新被挡住

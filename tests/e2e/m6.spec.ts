@@ -29,14 +29,14 @@ const SWAP_CUBE = (() => {
 
 test.setTimeout(240_000)
 
-/** 等深度、光源分析和融合统计就绪，之后画面不再变化 */
+/** 等深度、光源分析和融合统计就绪，之后画面不再变化；最后停在摆放步骤 */
 async function settle(page: Page) {
-  await page.getByTestId('step-depth').click()
+  await page.getByTestId('step-scene').click()
   for (const job of ['depth-job-background', 'depth-job-character']) await expect(page.getByTestId(job)).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-  await page.getByTestId('step-light').click()
+  await page.getByTestId('step-fusion').click()
   await expect(page.getByTestId('light-analysis-state')).toHaveAttribute('data-state', 'done', { timeout: 90_000 })
-  await page.getByTestId('step-character').click()
-  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 30_000 })
+  await expect(page.getByTestId('fusion-color')).toHaveAttribute('data-state', 'ready', { timeout: 30_000 })
+  await page.getByTestId('step-place').click()
   // 立绘深度就绪后法线在后台重新生成
   await page.waitForTimeout(1000)
 }
@@ -89,7 +89,7 @@ test('a project survives a reload and round-trips through a .a2r file', async ({
   await page.getByTestId('lut-import').click()
   await (await chooser).setFiles({ name: 'swap.cube', mimeType: 'text/plain', buffer: SWAP_CUBE })
   await expect(page.getByTestId('lut-name')).toHaveText('swap.cube')
-  await page.getByTestId('step-effects').click()
+  await page.getByTestId('step-lens').click()
   await setSlider(page, 'post-lens-vignette', -60)
   // 移动立绘后融合统计会在后台重新计算
   await page.waitForTimeout(1500)
@@ -117,7 +117,7 @@ test('a project survives a reload and round-trips through a .a2r file', async ({
   expect(maxDiff(await exportPixels(page), before)).toBeLessThanOrEqual(2)
 
   // 改动后打开工程文件，确认替换后回到保存时的状态
-  await page.getByTestId('step-character').click()
+  await page.getByTestId('step-place').click()
   await page.keyboard.press('h')
   await page.getByTestId('step-export').click()
   const picker = page.waitForEvent('filechooser')
@@ -164,7 +164,7 @@ test('a tiled export matches the whole-image render', async ({ page }, info) => 
   ])
   await settle(page)
   // 景深、局部调整、色差读取邻近的像素，Bloom、轮廓光束、光晕、暗角和颗粒按整幅图像计算
-  await page.getByTestId('step-focus').click()
+  await page.getByTestId('step-lens').click()
   await setSlider(page, 'focus-dof-aperture', 3)
   await page.getByTestId('step-adjust').click()
   for (const [testId, value] of [
@@ -173,7 +173,7 @@ test('a tiled export matches the whole-image render', async ({ page }, info) => 
     ['adjust-shadows', 50],
   ] as const)
     await setSlider(page, testId, value)
-  await page.getByTestId('step-effects').click()
+  await page.getByTestId('step-lens').click()
   for (const [testId, value] of [
     ['post-bloom-intensity', 60],
     ['post-rays-rim', 100],
@@ -210,7 +210,7 @@ test('a background beyond the texture limit is exported at its original resoluti
   await page.goto(`/?${rendererQuery(info.project.metadata.renderer)}textureLimit=1024`)
   await importAndStart(page, [['drop-background', 'wide.png', encodePng(BW, BH, source)]])
   // 关闭景深后没有任何处理，导出的结果就是原图
-  await page.getByTestId('step-focus').click()
+  await page.getByTestId('step-lens').click()
   await page.getByTestId('focus-dof-enabled').click()
   await expect.poll(() => page.getByTestId('focus-dof-enabled').evaluate((el) => (el as HTMLInputElement).checked)).toBe(false)
   await page.getByTestId('step-export').click()
@@ -237,9 +237,9 @@ test('panels use liquid glass in Chromium and turn opaque with reduced effects',
   await expect(html).toHaveAttribute('data-glass', 'liquid')
   // 每个面板有自己的滤镜；对话框的滤镜在它的 shadow root 里
   await expect.poll(() => nav.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--glass-filter'))).toMatch(/url\(#a2r-glass-\d+\)/)
-  await page.getByTestId('about-button').click()
+  await page.getByTestId('settings-button').click()
   await expect(page.getByTestId('glass-mode')).toHaveAttribute('data-mode', 'liquid')
-  await expect.poll(() => page.getByTestId('about').evaluate((el) => el.shadowRoot!.querySelectorAll('filter[id^="a2r-glass-"]').length)).toBe(1)
+  await expect.poll(() => page.getByTestId('settings').evaluate((el) => el.shadowRoot!.querySelectorAll('filter[id^="a2r-glass-"]').length)).toBe(1)
 
   await page.getByTestId('reduce-effects').click()
   await expect(html).toHaveAttribute('data-glass', 'solid')
