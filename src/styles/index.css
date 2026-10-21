@@ -195,8 +195,7 @@ body,
   pointer-events: none;
 }
 
-/* mdui 的弹出层：对话框、菜单（含下拉框的菜单）、提示、消息条。玻璃直接加在容器上，容器内没有 fixed 定位的子元素。 */
-mdui-dialog::part(panel),
+/* mdui 的弹出层：菜单（含下拉框的菜单）、提示、消息条。玻璃直接加在容器上，容器内没有 fixed 定位的子元素。 */
 mdui-menu,
 mdui-select::part(menu),
 mdui-tooltip::part(popup),
@@ -212,6 +211,28 @@ mdui-menu,
 mdui-select::part(menu),
 mdui-snackbar {
   --shape-corner: 1rem;
+}
+/* 对话框中有下拉框（菜单为 fixed 定位），玻璃与 .glass 一样画在面板的伪元素上 */
+mdui-dialog::part(panel) {
+  isolation: isolate;
+  corner-shape: squircle;
+  background: transparent;
+  box-shadow: var(--glass-shadow);
+}
+mdui-dialog::part(panel)::before {
+  --glass-filter: inherit;
+  --glass-fill: inherit;
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  corner-shape: inherit;
+  background: var(--glass-fill, var(--glass-tint));
+  box-shadow: var(--glass-rim);
+  -webkit-backdrop-filter: var(--glass-filter, var(--glass-frost));
+  backdrop-filter: var(--glass-filter, var(--glass-frost));
+  pointer-events: none;
 }
 /* 提示和消息条原本是反色（浅底深字），玻璃上改用正常的前景色 */
 mdui-tooltip {

@@ -1,29 +1,15 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import type { Dialog } from 'mdui/components/dialog.js'
 import { t } from '@/i18n'
-import { useAppearance } from '@/state/appearance'
 import { useEngine } from '@/state/engine'
-import { glassMode } from '@/ui/glass/liquid'
 import { useDomEvent } from '@/ui/useDomEvent'
-import { Hint, ToggleRow } from './panels/Group'
+import { useDialogEscape } from '@/ui/useDialogEscape'
 
 export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<Dialog>(null)
   const caps = useEngine((s) => s.engine?.capabilities)
-  const reduceEffects = useAppearance((s) => s.reduceEffects)
-  const setReduceEffects = useAppearance((s) => s.setReduceEffects)
-  const mode = glassMode()
   useDomEvent(ref, 'closed', () => onClose())
-
-  // mdui 只在焦点位于对话框内时响应 Esc，这里在窗口级补充处理
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  useDialogEscape(ref, open, onClose)
 
   return (
     <mdui-dialog ref={ref} open={open} close-on-overlay-click close-on-esc headline={t.about.title} data-testid="about">
@@ -41,18 +27,6 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
             {t.about.notices}
           </a>
         </div>
-        <section className="flex flex-col gap-1">
-          <h3 className="font-medium">{t.about.display}</h3>
-          <ToggleRow label={t.about.reduceEffects} checked={reduceEffects} onChange={setReduceEffects} testId="reduce-effects" />
-          <Hint>{t.about.reduceEffectsHint}</Hint>
-          {mode && (
-            <Hint>
-              <span data-testid="glass-mode" data-mode={mode}>
-                {t.about.glass(t.about.glassModes[mode])}
-              </span>
-            </Hint>
-          )}
-        </section>
         {caps && (
           <section>
             <h3 className="font-medium">{t.about.gpu}</h3>

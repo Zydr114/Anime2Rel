@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef } from 'react'
 import type { SegmentedButtonGroup } from 'mdui/components/segmented-button-group.js'
 import type { Switch } from 'mdui/components/switch.js'
 import { depthScaleFor } from '@/camera/depthScale'
-import { clearModelCache, modelCacheSize, reestimate, reloadDepth } from '@/depth/service'
-import { MODEL_SOURCES, PRECISIONS, type Attempt } from '@/depth/models'
+import { reestimate, reloadDepth } from '@/depth/service'
+import type { Attempt } from '@/depth/models'
 import { t } from '@/i18n'
-import { DEBUG_VIEWS, getDepthResult, useDepth, type DebugView, type DepthSettings, type JobStatus } from '@/state/depth'
+import { DEBUG_VIEWS, getDepthResult, useDepth, type DebugView, type JobStatus } from '@/state/depth'
+import { useSettingsDialog } from '@/state/dialogs'
 import { useApp } from '@/state/store'
-import { SelectField } from '@/ui/SelectField'
 import { SliderField } from '@/ui/SliderField'
 import { useDomEvent } from '@/ui/useDomEvent'
-import { notify } from '../notify'
 import { Group } from './Group'
 
 const DEVICE_LABEL = { webgpu: 'WebGPU', wasm: 'WASM' } as const
@@ -36,7 +35,6 @@ export function DepthSections() {
       <EstimateSection />
       <ScaleSection />
       <ViewSection />
-      <SettingsSection />
     </>
   )
 }
@@ -105,10 +103,16 @@ function ModelStatus() {
           </div>
           <div className="text-xs leading-5 break-words text-on-surface-variant">{model.message}</div>
           <Failures failures={model.failures} />
-          <mdui-button variant="tonal" onClick={reloadDepth} data-testid="depth-retry">
-            <mdui-icon-refresh--outlined slot="icon" />
-            {t.depth.retry}
-          </mdui-button>
+          <div className="grid grid-cols-2 gap-2">
+            <mdui-button variant="tonal" onClick={reloadDepth} data-testid="depth-retry">
+              <mdui-icon-refresh--outlined slot="icon" />
+              {t.depth.retry}
+            </mdui-button>
+            <mdui-button variant="outlined" onClick={() => useSettingsDialog.getState().setOpen(true)} data-testid="depth-open-settings">
+              <mdui-icon-settings--outlined slot="icon" />
+              {t.depth.settings}
+            </mdui-button>
+          </div>
         </>
       )}
     </div>
@@ -217,69 +221,6 @@ function ViewSection() {
       <div className="flex items-center justify-between">
         <span>{t.depth.edgeAlign}</span>
         <mdui-switch ref={switchRef} checked={edgeAlign} data-testid="depth-edge-align" />
-      </div>
-    </Group>
-  )
-}
-
-function SettingsSection() {
-  const settings = useDepth((s) => s.settings)
-  const modelState = useDepth((s) => s.model.state)
-  const [cache, setCache] = useState<number | null>(null)
-
-  // 模型就绪或清除缓存后刷新缓存大小
-  useEffect(() => {
-    let alive = true
-    modelCacheSize().then(
-      (n) => alive && setCache(n),
-      () => alive && setCache(null),
-    )
-    return () => {
-      alive = false
-    }
-  }, [modelState])
-
-  const change = (update: Partial<DepthSettings>) => {
-    useDepth.getState().setSettings(update)
-    reloadDepth()
-  }
-
-  const clear = async () => {
-    if (await clearModelCache()) notify(t.depth.cacheCleared)
-    setCache(0)
-  }
-
-  return (
-    <Group id="depth.settings" title={t.depth.settings} summary={t.depth.sources[settings.source]} help={t.depth.settingsHint} testId="depth-settings">
-      <SelectField
-        label={t.depth.source}
-        value={settings.source}
-        options={MODEL_SOURCES.map((s) => ({ value: s, label: t.depth.sources[s] }))}
-        onChange={(source) => change({ source })}
-        testId="depth-source"
-      />
-      <SelectField
-        label={t.depth.device}
-        value={settings.device}
-        options={(['auto', 'webgpu', 'wasm'] as const).map((d) => ({ value: d, label: t.depth.devices[d] }))}
-        onChange={(device) => change({ device })}
-        testId="depth-device"
-      />
-      <SelectField
-        label={t.depth.precision}
-        value={settings.precision}
-        options={[{ value: 'auto' as const, label: t.depth.auto }, ...PRECISIONS.map((p) => ({ value: p, label: p }))]}
-        onChange={(precision) => change({ precision })}
-        testId="depth-precision"
-      />
-      <div className="flex items-center justify-between">
-        <span className="text-on-surface-variant" data-testid="depth-cache">
-          {cache === null ? '' : t.depth.cache(formatBytes(cache))}
-        </span>
-        <mdui-button variant="text" onClick={clear} data-testid="depth-clear-cache">
-          <mdui-icon-delete-sweep--outlined slot="icon" />
-          {t.depth.clearCache}
-        </mdui-button>
       </div>
     </Group>
   )

@@ -4,10 +4,12 @@ import { startAutoAnalysis } from '@/analysis/service'
 import { startAutoDepth } from '@/depth/service'
 import { startAutoFusion } from '@/fusion/service'
 import { t } from '@/i18n'
+import { useSettingsDialog } from '@/state/dialogs'
 import { cameraPending, needsCamera, useApp, type StepId } from '@/state/store'
 import { cn } from '@/ui/lib/cn'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { AboutDialog } from './AboutDialog'
+import { SettingsDialog } from './SettingsDialog'
 import { LegalLinks } from './LegalLinks'
 import { AdjustPanel } from './panels/AdjustPanel'
 import { AssetsPanel } from './panels/AssetsPanel'
@@ -75,10 +77,17 @@ export function Editor() {
               {createElement(`mdui-icon-${s.icon}`, { slot: 'icon' })}
             </mdui-navigation-rail-item>
           ))}
-          <div slot="bottom" className="pb-2">
-            <mdui-button-icon onClick={() => setAboutOpen(true)} data-testid="about-button">
-              <mdui-icon-info--outlined />
-            </mdui-button-icon>
+          <div slot="bottom" className="flex flex-col items-center gap-1 pb-2">
+            <mdui-tooltip content={t.toolbar.settings} placement="right">
+              <mdui-button-icon onClick={() => useSettingsDialog.getState().setOpen(true)} data-testid="settings-button">
+                <mdui-icon-settings--outlined />
+              </mdui-button-icon>
+            </mdui-tooltip>
+            <mdui-tooltip content={t.toolbar.about} placement="right">
+              <mdui-button-icon onClick={() => setAboutOpen(true)} data-testid="about-button">
+                <mdui-icon-info--outlined />
+              </mdui-button-icon>
+            </mdui-tooltip>
           </div>
         </mdui-navigation-rail>
       </nav>
@@ -104,6 +113,7 @@ export function Editor() {
       </div>
 
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <SettingsDialog />
       <span className="sr-only">{t.app.name}</span>
     </>
   )
