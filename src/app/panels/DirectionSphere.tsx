@@ -125,16 +125,16 @@ export function DirectionSphere({ camera, lights, preview, selected, onSelect, o
         ref={svgRef}
         width={SIZE}
         height={SIZE}
-        className="absolute inset-0 touch-none overflow-visible"
+        className="absolute inset-0 touch-none overflow-visible text-on-surface"
         onPointerDown={onBackground}
         onPointerMove={move}
         onPointerUp={end}
         onPointerCancel={end}
         data-testid="light-sphere"
       >
-        <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} fill="none" stroke="white" strokeOpacity={0.25} />
-        <line x1={SIZE / 2 - RADIUS} y1={SIZE / 2} x2={SIZE / 2 + RADIUS} y2={SIZE / 2} stroke="white" strokeOpacity={0.12} />
-        <line x1={SIZE / 2} y1={SIZE / 2 - RADIUS} x2={SIZE / 2} y2={SIZE / 2 + RADIUS} stroke="white" strokeOpacity={0.12} />
+        <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} fill="none" stroke="currentColor" strokeOpacity={0.25} />
+        <line x1={SIZE / 2 - RADIUS} y1={SIZE / 2} x2={SIZE / 2 + RADIUS} y2={SIZE / 2} stroke="currentColor" strokeOpacity={0.12} />
+        <line x1={SIZE / 2} y1={SIZE / 2 - RADIUS} x2={SIZE / 2} y2={SIZE / 2 + RADIUS} stroke="currentColor" strokeOpacity={0.12} />
         {pointMarkers.map(({ light, d }) => {
           const p = at(d)
           const s = light!.id === selected ? HANDLE : HANDLE - 2

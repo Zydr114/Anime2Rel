@@ -27,7 +27,7 @@ export function ColorSwatch({ value, label, onBegin, onChange, onEnd, testId }: 
         aria-haspopup="dialog"
         aria-expanded={open}
         title={label}
-        className="size-8 shrink-0 cursor-pointer rounded-full ring-1 ring-white/25 transition-shadow hover:ring-2 hover:ring-white/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        className="size-8 shrink-0 cursor-pointer rounded-full ring-1 ring-on-surface/25 transition-shadow hover:ring-2 hover:ring-on-surface/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         style={{ backgroundColor: value }}
         data-testid={testId}
       />

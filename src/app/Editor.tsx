@@ -99,7 +99,7 @@ export function Editor() {
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           <StepPanel step={step} />
         </div>
-        <footer className="border-t border-white/10 px-4 py-3">
+        <footer className="border-t border-on-surface/10 px-4 py-3">
           <LegalLinks />
         </footer>
       </aside>

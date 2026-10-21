@@ -40,7 +40,7 @@ export function IconButton({ label, onClick, disabled, children, className, test
         data-testid={testId}
         className={cn(
           'flex size-full cursor-pointer items-center justify-center rounded-full text-on-surface transition-colors',
-          'hover:bg-white/10 active:bg-white/15 disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent',
+          'hover:bg-on-surface/10 active:bg-on-surface/15 disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent',
           '[&>*]:size-[55%]',
           className,
         )}

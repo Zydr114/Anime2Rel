@@ -25,7 +25,7 @@ export function BitmapThumb({ assetId, maxEdge = 160, className }: { assetId: st
     <canvas
       ref={ref}
       className={cn('rounded-lg', className)}
-      style={{ background: 'repeating-conic-gradient(#3a3a40 0 25%, #2a2a30 0 50%) 0 0 / 12px 12px' }}
+      style={{ background: 'repeating-conic-gradient(var(--a2r-checker-a) 0 25%, var(--a2r-checker-b) 0 50%) 0 0 / 12px 12px' }}
     />
   )
 }

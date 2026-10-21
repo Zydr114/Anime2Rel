@@ -217,7 +217,7 @@ function LightRow({ light, name, active }: { light: Light; name: string; active:
 
   return (
     <li
-      className={cn('flex cursor-pointer items-center gap-2 rounded-xl py-1 pr-1 pl-2 transition-colors hover:bg-white/5', active && 'bg-white/10 hover:bg-white/10')}
+      className={cn('flex cursor-pointer items-center gap-2 rounded-xl py-1 pr-1 pl-2 transition-colors hover:bg-on-surface/5', active && 'bg-on-surface/10 hover:bg-on-surface/10')}
       onClick={() => useLighting.getState().select(light.id)}
       data-testid={`light-row-${light.id}`}
       data-type={light.type}

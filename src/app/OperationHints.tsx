@@ -72,7 +72,7 @@ export function OperationHints() {
         <button
           type="button"
           aria-label={h.collapse}
-          className="flex size-6 cursor-pointer items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-white/10 hover:text-on-surface"
+          className="flex size-6 cursor-pointer items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-on-surface/10 hover:text-on-surface"
           onClick={() => usePrefs.getState().setPrefs({ opHintsCollapsed: true })}
           data-testid="op-hints-collapse"
         >

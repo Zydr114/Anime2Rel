@@ -101,7 +101,7 @@ export function CurveEditor({ points, color, others, onBegin, onChange, onEnd, t
     <svg
       ref={svgRef}
       viewBox={`0 0 ${SIZE} ${SIZE}`}
-      className="aspect-square w-full touch-none overflow-visible rounded-lg bg-black/30"
+      className="aspect-square w-full touch-none overflow-visible rounded-lg bg-well text-on-surface"
       onPointerDown={down}
       onPointerMove={move}
       onPointerUp={end}
@@ -109,12 +109,12 @@ export function CurveEditor({ points, color, others, onBegin, onChange, onEnd, t
       data-testid={testId}
     >
       {[0.25, 0.5, 0.75].map((v) => (
-        <g key={v} stroke="rgba(255,255,255,0.08)">
+        <g key={v} stroke="currentColor" strokeOpacity={0.08}>
           <line x1={v * SIZE} y1={0} x2={v * SIZE} y2={SIZE} />
           <line x1={0} y1={v * SIZE} x2={SIZE} y2={v * SIZE} />
         </g>
       ))}
-      <line x1={0} y1={SIZE} x2={SIZE} y2={0} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4" />
+      <line x1={0} y1={SIZE} x2={SIZE} y2={0} stroke="currentColor" strokeOpacity={0.15} strokeDasharray="4 4" />
       {others.map((o, i) => (
         <path key={i} d={path(o.points)} fill="none" stroke={o.color} strokeOpacity={0.35} strokeWidth={1.5} />
       ))}

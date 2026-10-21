@@ -18,7 +18,8 @@ const formatEv = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)} EV`
 
 /** 色相段色块的颜色（sRGB），与 src/grade/color.ts 的色相段中心一致 */
 const BAND_SWATCHES = ['#ff0000', '#ff8000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#8000ff', '#ff00ff']
-const CHANNEL_COLORS: Record<CurveChannel, string> = { master: '#e5e5e5', r: '#f87171', g: '#4ade80', b: '#60a5fa' }
+/** 主曲线用前景色（随主题变化） */
+const CHANNEL_COLORS: Record<CurveChannel, string> = { master: 'currentColor', r: '#f87171', g: '#4ade80', b: '#60a5fa' }
 
 const currentAdjust = () => {
   const level = useGradeUi.getState().level
@@ -157,7 +158,7 @@ function HslSection() {
               title={t.adjust.bands[b]}
               aria-pressed={band === i}
               onClick={() => useGradeUi.getState().setBand(i)}
-              className={`relative size-7 rounded-full border-2 ${band === i ? 'border-white' : 'border-transparent'}`}
+              className={`relative size-7 rounded-full border-2 ${band === i ? 'border-on-surface' : 'border-transparent'}`}
               style={{ background: BAND_SWATCHES[i] }}
               data-testid={`hsl-band-${b}`}
             >

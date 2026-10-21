@@ -51,7 +51,7 @@ export function Toolbar() {
           <mdui-icon-fit-screen--outlined />
         </IconButton>
       </DockIcon>
-      <div className="mx-1 h-6 w-px bg-white/15" />
+      <div className="mx-1 h-6 w-px bg-on-surface/15" />
       <DockIcon>
         <IconButton label={t.toolbar.undo} onClick={undo} disabled={!canUndo} testId="undo">
           <mdui-icon-undo--outlined />
@@ -62,7 +62,7 @@ export function Toolbar() {
           <mdui-icon-redo--outlined />
         </IconButton>
       </DockIcon>
-      <div className="mx-1 h-6 w-px bg-white/15" />
+      <div className="mx-1 h-6 w-px bg-on-surface/15" />
       <DockIcon>
         <IconButton
           label={gradeStep ? t.toolbar.compareGrade : t.toolbar.compare}
@@ -125,12 +125,12 @@ function TaskStatus() {
   if (!task) return null
   return (
     <>
-      <div className="mx-1 h-6 w-px bg-white/15" />
+      <div className="mx-1 h-6 w-px bg-on-surface/15" />
       {task.error ? (
         <mdui-tooltip content={t.tasks.open} placement="top">
           <button
             type="button"
-            className="flex h-10 cursor-pointer items-center gap-1.5 rounded-full px-3 text-sm whitespace-nowrap text-error transition-colors hover:bg-white/10"
+            className="flex h-10 cursor-pointer items-center gap-1.5 rounded-full px-3 text-sm whitespace-nowrap text-error transition-colors hover:bg-on-surface/10"
             onClick={() => goToStep(task.step, task.group)}
             data-testid="task-status"
             data-state="error"

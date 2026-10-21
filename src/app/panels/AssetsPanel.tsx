@@ -6,7 +6,7 @@ import { pickFiles } from '../importer'
 
 function AssetCard({ title, asset, actions }: { title: string; asset: AssetRef | null; actions: React.ReactNode }) {
   return (
-    <section className="rounded-2xl bg-white/5 p-3">
+    <section className="rounded-2xl bg-on-surface/5 p-3">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-medium">{title}</h3>
         <div className="flex gap-1">{actions}</div>

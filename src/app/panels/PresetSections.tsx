@@ -41,7 +41,7 @@ export function PresetItem({ name, description, active, onClick, testId }: { nam
   return (
     <button
       type="button"
-      className={cn('flex flex-col items-start gap-0.5 rounded-xl px-3 py-2 text-left transition-colors', active ? 'bg-primary/20' : 'bg-white/5 hover:bg-white/10')}
+      className={cn('flex flex-col items-start gap-0.5 rounded-xl px-3 py-2 text-left transition-colors', active ? 'bg-primary/20' : 'bg-on-surface/5 hover:bg-on-surface/10')}
       onClick={onClick}
       aria-pressed={active}
       data-testid={testId}

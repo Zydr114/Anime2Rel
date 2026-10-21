@@ -65,7 +65,7 @@ const start = () => useApp.getState().start()
 
 /** 玻璃按钮的悬停高亮：玻璃元素自身的背景会被当作玻璃后面的背景，所以另用一层叠在玻璃之上、内容之下（按钮需带 group 类） */
 function HoverLayer() {
-  return <span className="pointer-events-none absolute inset-0 -z-1 rounded-[inherit] transition-colors [corner-shape:inherit] group-hover:bg-white/5" />
+  return <span className="pointer-events-none absolute inset-0 -z-1 rounded-[inherit] transition-colors [corner-shape:inherit] group-hover:bg-on-surface/5" />
 }
 
 /** 与“开始”按钮同高的胶囊按钮 */
@@ -113,7 +113,7 @@ function ProjectEntries() {
         {last.url ? (
           <img src={last.url} alt="" className="h-10 w-14 rounded-full object-cover" />
         ) : (
-          <span className="flex h-10 w-14 items-center justify-center rounded-full bg-white/5">
+          <span className="flex h-10 w-14 items-center justify-center rounded-full bg-on-surface/5">
             <mdui-icon-history--outlined className="text-champagne" />
           </span>
         )}

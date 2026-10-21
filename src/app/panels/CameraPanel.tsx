@@ -73,7 +73,7 @@ function ConfirmSection() {
   const confirmed = useApp((s) => s.doc.camera.confirmed)
   if (confirmed) {
     return (
-      <section className="flex flex-col gap-1 rounded-2xl bg-white/5 p-3 text-sm" data-testid="camera-confirmed">
+      <section className="flex flex-col gap-1 rounded-2xl bg-on-surface/5 p-3 text-sm" data-testid="camera-confirmed">
         <div className="flex items-center gap-2">
           <mdui-icon-check-circle--outlined className="size-5 text-primary" />
           <span className="font-medium">{t.camera.confirmed}</span>

@@ -250,7 +250,7 @@ function RegionList() {
         <button
           key={r.id}
           type="button"
-          className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left ${r.id === active ? 'bg-white/15' : 'hover:bg-white/5'}`}
+          className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left ${r.id === active ? 'bg-on-surface/15' : 'hover:bg-on-surface/5'}`}
           onClick={() => (r.id === active ? doneRegion() : editRegion(r.id))}
           data-testid={`region-${i}`}
           data-active={r.id === active}
@@ -267,7 +267,7 @@ function RegionList() {
         </mdui-button>
       )}
       {region && (
-        <div className="flex flex-col gap-3 rounded-xl bg-white/5 p-2" data-testid="region-editor">
+        <div className="flex flex-col gap-3 rounded-xl bg-on-surface/5 p-2" data-testid="region-editor">
           <Segmented value={tool} options={BRUSH_TOOLS} label={(v) => t.focus.tools[v]} onChange={setTool} testId="region-tool" />
           <SliderField label={t.focus.brushSize} value={size} min={4} max={200} format={(v) => `${Math.round(v)} px`} onChange={(v) => setSize(v)} testId="region-size" />
           <ToggleRow label={t.focus.snap} checked={snap} onChange={(v) => useApp.getState().updateFocus('occlusion', { snap: v })} testId="region-snap" />

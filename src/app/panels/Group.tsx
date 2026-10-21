@@ -30,7 +30,7 @@ interface GroupProps {
 export function Group({ id, title, summary, help, toggle, defaultOpen = false, testId, state, children }: GroupProps) {
   const open = useGroups((s) => s.open[id] ?? defaultOpen)
   return (
-    <section className="flex flex-col rounded-2xl bg-white/5 text-sm" data-testid={testId} data-group={id} data-open={open} data-state={state}>
+    <section className="flex flex-col rounded-2xl bg-on-surface/5 text-sm" data-testid={testId} data-group={id} data-open={open} data-state={state}>
       <div className="flex min-h-11 items-center gap-1 pr-1.5">
         <button
           type="button"
@@ -95,7 +95,7 @@ export function Help({ title, text, className }: { title?: string; text: HelpTex
         type="button"
         aria-label={title ? `${t.ui.help}：${title}` : t.ui.help}
         aria-expanded={!!open}
-        className={cn('flex size-7 shrink-0 cursor-help items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-white/10 hover:text-on-surface', className)}
+        className={cn('flex size-7 shrink-0 cursor-help items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-on-surface/10 hover:text-on-surface', className)}
         onMouseEnter={(e) => {
           const el = e.currentTarget
           window.clearTimeout(timer.current)

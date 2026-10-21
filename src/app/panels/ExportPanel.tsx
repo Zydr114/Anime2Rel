@@ -19,7 +19,7 @@ export function ExportPanel() {
 
   return (
     <div className="flex flex-col gap-3">
-      <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3">
+      <section className="flex flex-col gap-3 rounded-2xl bg-on-surface/5 p-3">
         <Segmented value={format} options={IMAGE_FORMATS} label={(f) => t.export.formats[f]} onChange={setFormat} testId="export-format" />
         <p className="text-xs leading-5 text-on-surface-variant">{t.export.formatHints[format]}</p>
         {format !== 'png' && (
@@ -49,7 +49,7 @@ export function ExportPanel() {
         </div>
       )}
 
-      <section className="mt-1 flex flex-col gap-3 rounded-2xl bg-white/5 p-3">
+      <section className="mt-1 flex flex-col gap-3 rounded-2xl bg-on-surface/5 p-3">
         <h3 className="text-sm font-medium">{t.project.title}</h3>
         <p className="text-xs leading-5 text-on-surface-variant">{t.project.hint}</p>
         <mdui-button variant="tonal" onClick={() => void saveProjectFile()} data-testid="save-project">

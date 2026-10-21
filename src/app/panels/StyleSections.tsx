@@ -184,7 +184,7 @@ function BlendLayerCard({ layer, index, count }: { layer: BlendLayer; index: num
   const setStop = (k: number, hex: string) => update({ gradient: (currentLayer(id)?.gradient ?? layer.gradient).map((c, j) => (j === k ? hex : c)) })
   const testId = (name: string) => `blend-${index}-${name}`
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-white/5 p-2.5" data-testid={`blend-layer-${index}`}>
+    <div className="flex flex-col gap-3 rounded-xl bg-on-surface/5 p-2.5" data-testid={`blend-layer-${index}`}>
       <div className="flex items-center gap-1">
         <span className="flex-1 font-medium">{t.style.blendLayer(index + 1)}</span>
         <mdui-button-icon disabled={index >= count - 1 || undefined} onClick={() => moveBlendLayer(id, 1)} aria-label={t.style.blendUp} data-testid={testId('up')}>
@@ -205,7 +205,7 @@ function BlendLayerCard({ layer, index, count }: { layer: BlendLayer; index: num
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          <div className="h-3 rounded-full ring-1 ring-white/15" style={{ background: `linear-gradient(to right, ${layer.gradient.join(', ')})` }} />
+          <div className="h-3 rounded-full ring-1 ring-on-surface/15" style={{ background: `linear-gradient(to right, ${layer.gradient.join(', ')})` }} />
           <div className="flex items-center gap-2">
             {layer.gradient.map((c, k) => (
               <ColorSwatch key={k} value={c} label={t.style.gradientStop(k, layer.gradient.length)} onBegin={beginGesture} onChange={(hex) => setStop(k, hex)} onEnd={endGesture} testId={testId(`stop-${k}`)} />

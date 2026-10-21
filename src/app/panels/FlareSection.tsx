@@ -162,14 +162,14 @@ function FlareElements({ elements, element, index, full, select }: { elements: F
             <button
               key={e.id}
               type="button"
-              className={cn('flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors', e === element ? 'bg-primary/20' : 'bg-white/5 hover:bg-white/10')}
+              className={cn('flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors', e === element ? 'bg-primary/20' : 'bg-on-surface/5 hover:bg-on-surface/10')}
               onClick={() => select(e.id)}
               aria-pressed={e === element}
               data-testid={`flare-element-${i}`}
               data-type={e.type}
             >
               <span
-                className="size-3 shrink-0 rounded-full ring-1 ring-white/30"
+                className="size-3 shrink-0 rounded-full ring-1 ring-on-surface/30"
                 style={{ background: e.type === 'rainbow' ? 'conic-gradient(#f44, #fd4, #4f4, #4ff, #44f, #f4f, #f44)' : e.color }}
               />
               <span className="flex-1">{f.types[e.type]}</span>
@@ -221,7 +221,7 @@ function ElementEditor({ element }: { element: FlareElement }) {
   const onCount = useGestureChange(useCallback((count: number) => update({ count }), [update]))
   const { beginGesture, endGesture } = useApp.getState()
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-white/5 p-2.5" data-testid="flare-editor" data-type={type}>
+    <div className="flex flex-col gap-3 rounded-xl bg-on-surface/5 p-2.5" data-testid="flare-editor" data-type={type}>
       <div className="flex items-center gap-1">
         <span className="font-medium">{f.types[type]}</span>
         <Help title={f.types[type]} text={f.typeHints[type]} />

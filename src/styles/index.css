@@ -14,10 +14,12 @@
   --color-outline: rgb(var(--mdui-color-outline));
   --color-outline-variant: rgb(var(--mdui-color-outline-variant));
   --color-error: rgb(var(--mdui-color-error));
-  /* 暖灰 + 香槟金：主题色由 main.tsx 的种子色生成，这里是首页标题等处直接使用的固定色 */
-  --color-ivory: #f2ede4;
-  --color-champagne: #c9a96e;
-  --color-taupe: #a39e94;
+  /* 暖灰 + 香槟金：首页标题等处直接使用的颜色，随主题变化（见下方 --a2r-*） */
+  --color-ivory: var(--a2r-ivory);
+  --color-champagne: var(--a2r-champagne);
+  --color-taupe: var(--a2r-taupe);
+  /* 面板中的凹槽，如曲线编辑器的底 */
+  --color-well: var(--a2r-well);
   --font-display: 'Instrument Serif', 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
   --font-sans: 'Inter', 'Noto Sans SC', 'Source Han Sans SC', system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 
@@ -70,11 +72,25 @@
   }
 }
 
+:root,
 :root[data-theme='dark'] {
   color-scheme: dark;
+  --a2r-ivory: #f2ede4;
+  --a2r-champagne: #c9a96e;
+  --a2r-taupe: #a39e94;
+  --a2r-well: rgb(0 0 0 / 0.3);
+  /* 透明图片底下的棋盘格 */
+  --a2r-checker-a: #3a3a40;
+  --a2r-checker-b: #2a2a30;
 }
 :root[data-theme='light'] {
   color-scheme: light;
+  --a2r-ivory: #2b2723;
+  --a2r-champagne: #8a6a30;
+  --a2r-taupe: #67625a;
+  --a2r-well: rgb(60 50 30 / 0.07);
+  --a2r-checker-a: #e6e4e0;
+  --a2r-checker-b: #d4d1cb;
 }
 
 /* 深色主题配色：暖灰底 + 香槟金强调色（胶片感）。种子色自动生成的金色偏黄、偏艳，所以手动给出整套 Material 3 角色色。 */
@@ -335,6 +351,9 @@ mdui-segmented-button::part(label) {
 mdui-text-field,
 mdui-select {
   --mdui-color-surface-container-highest: 255 255 255 / 0.06;
+}
+:root[data-theme='light'] :is(mdui-text-field, mdui-select) {
+  --mdui-color-surface-container-highest: 60 50 30 / 0.06;
 }
 
 /* 选项较多的下拉框（如 16 种混合模式）限制菜单高度并滚动，否则菜单超出窗口、末尾的选项无法选中 */

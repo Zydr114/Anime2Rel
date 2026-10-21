@@ -41,7 +41,7 @@ export function ColorWheel({ hue, amount, onBegin, onChange, onEnd, testId }: Pr
   return (
     <div
       ref={ref}
-      className="relative mx-auto aspect-square w-full max-w-44 touch-none rounded-full ring-1 ring-white/15"
+      className="relative mx-auto aspect-square w-full max-w-44 touch-none rounded-full ring-1 ring-on-surface/15"
       style={{ background: BACKGROUND }}
       onPointerDown={(e) => {
         if (e.button !== 0) return

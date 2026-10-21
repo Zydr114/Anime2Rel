@@ -126,7 +126,7 @@ export function ColorPicker({ value, onBegin, onChange, onEnd, testId }: Props) 
 
       <div className="flex items-center gap-2">
         <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-(--mdui-shape-corner-extra-small) px-3 ring-1 ring-outline focus-within:ring-2 focus-within:ring-primary">
-          <span className="size-5 shrink-0 rounded-full ring-1 ring-white/20" style={{ backgroundColor: hex }} />
+          <span className="size-5 shrink-0 rounded-full ring-1 ring-on-surface/20" style={{ backgroundColor: hex }} />
           <span className="text-on-surface-variant">#</span>
           <input
             value={draft ?? hex.slice(1)}
@@ -176,7 +176,7 @@ export function ColorPicker({ value, onBegin, onChange, onEnd, testId }: Props) 
             onClick={() => commit(c)}
             aria-label={t.colorPicker.swatch(c)}
             className={cn(
-              'size-6 cursor-pointer rounded-full ring-1 ring-white/20 transition-transform hover:scale-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
+              'size-6 cursor-pointer rounded-full ring-1 ring-on-surface/20 transition-transform hover:scale-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
               c === hex && 'outline-2 outline-offset-2 outline-primary',
             )}
             style={{ backgroundColor: c }}
