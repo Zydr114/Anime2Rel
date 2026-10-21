@@ -1,0 +1,70 @@
+name: E2E
+
+# 端到端测试（Playwright）。GitHub 托管的 runner 没有 GPU，WebGPU 和 WebGL2 都由 Chromium 自带的
+# SwiftShader 软件渲染（E2E_GPU=swiftshader，见 playwright.config.ts）。用例按分片并行运行。
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'deploy/**', 'licenses/**', 'LICENSE']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'deploy/**', 'licenses/**', 'LICENSE']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一分支上新的推送取消还在运行的旧测试
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: e2e (${{ matrix.shard }}/${{ strategy.job-total }})
+    # 固定 Ubuntu 版本，Playwright 安装系统依赖需要它支持的发行版
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    env:
+      E2E_GPU: swiftshader
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # 模型约 146 MB，按清单缓存
+      - uses: actions/cache@v6
+        with:
+          path: public/models
+          key: models-${{ hashFiles('src/depth/models.json') }}
+      - run: node scripts/fetch-models.mjs
+      # 类型检查在 CI 工作流中进行，这里只构建
+      - run: pnpm exec vite build
+
+      - id: playwright
+        run: echo "version=$(pnpm exec playwright --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+      - id: browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.browsers.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps --no-shell chromium
+      - if: steps.browsers.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - run: pnpm exec playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.shard }}
+          path: test-results
+          retention-days: 7
