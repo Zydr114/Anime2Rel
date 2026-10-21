@@ -4,19 +4,20 @@ import { startAutoAnalysis } from '@/analysis/service'
 import { startAutoDepth } from '@/depth/service'
 import { startAutoFusion } from '@/fusion/service'
 import { t } from '@/i18n'
-import { cameraPending, needsCamera, stepLocked, useApp, type StepId } from '@/state/store'
+import { cameraPending, needsCamera, useApp, type StepId } from '@/state/store'
 import { cn } from '@/ui/lib/cn'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { AboutDialog } from './AboutDialog'
 import { LegalLinks } from './LegalLinks'
 import { AdjustPanel } from './panels/AdjustPanel'
-import { notify } from './notify'
 import { AssetsPanel } from './panels/AssetsPanel'
 import { ExportPanel } from './panels/ExportPanel'
 import { FusionPanel } from './panels/FusionPanel'
 import { LensPanel } from './panels/LensPanel'
 import { PlacePanel } from './panels/PlacePanel'
 import { ScenePanel } from './panels/ScenePanel'
+import { goToStep } from './navigation'
+import { OperationHints } from './OperationHints'
 import { startAutosave } from './project'
 import { steps } from './steps'
 import { Toolbar } from './Toolbar'
@@ -30,17 +31,6 @@ function StepPanel({ step }: { step: StepId }) {
   if (step === 'adjust') return <AdjustPanel />
   if (step === 'lens') return <LensPanel />
   return <ExportPanel />
-}
-
-/** 切换步骤；相机标定还没有确认时提示并留在原处 */
-function goToStep(step: StepId): boolean {
-  const s = useApp.getState()
-  if (stepLocked(s.doc, step)) {
-    notify(t.camera.lockedNotice)
-    return false
-  }
-  s.setStep(step)
-  return true
 }
 
 /** 编辑器外框：左侧步骤导航、右侧检查器、底部工具栏。画布由 App 常驻渲染。 */
@@ -105,8 +95,12 @@ export function Editor() {
         </footer>
       </aside>
 
+      <div className="absolute bottom-21 left-28">
+        <OperationHints />
+      </div>
+
       <div className="absolute bottom-4 left-28 right-88 flex justify-center">
-        <Toolbar onExport={() => goToStep('export')} />
+        <Toolbar />
       </div>
 
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />

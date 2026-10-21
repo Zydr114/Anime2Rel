@@ -4,10 +4,13 @@ import type { Menu } from 'mdui/components/menu.js'
 import { t } from '@/i18n'
 import { DEBUG_VIEWS, useDepth, type DebugView } from '@/state/depth'
 import { useFusion } from '@/state/fusion'
-import { useApp } from '@/state/store'
+import { useLighting } from '@/state/lighting'
+import { useApp, type StepId } from '@/state/store'
+import { isView3dStep, useView3d } from '@/state/view3d'
 import { Dock, DockIcon } from '@/ui/magicui/dock'
 import { IconButton } from '@/ui/IconButton'
 import { useDomEvent } from '@/ui/useDomEvent'
+import { goToStep } from './navigation'
 import { isGradeStep } from './steps'
 import { zoomBy } from './viewActions'
 
@@ -15,7 +18,7 @@ import { zoomBy } from './viewActions'
 const ACTIVE = 'bg-primary/20 text-primary hover:bg-primary/25'
 
 /** 底部工具栏（Magic UI Dock）。 */
-export function Toolbar({ onExport }: { onExport: () => void }) {
+export function Toolbar() {
   const zoom = useApp((s) => s.view.zoom)
   const canUndo = useApp((s) => s.past.length > 0)
   const canRedo = useApp((s) => s.future.length > 0)
@@ -25,6 +28,8 @@ export function Toolbar({ onExport }: { onExport: () => void }) {
   const hasCharacter = useApp((s) => !!s.doc.character)
   const gradeStep = useApp((s) => isGradeStep(s.step))
   const compare = useFusion((s) => s.compare)
+  const view3dStep = useApp((s) => isView3dStep(s.step) && s.doc.background !== null)
+  const view3d = useView3d((s) => s.open) && view3dStep
 
   return (
     <Dock className="glass relative" iconSize={40} iconMagnification={52} iconDistance={110}>
@@ -71,14 +76,76 @@ export function Toolbar({ onExport }: { onExport: () => void }) {
         </IconButton>
       </DockIcon>
       <DockIcon>
+        <IconButton
+          label={view3dStep ? t.toolbar.view3d : t.toolbar.view3dUnavailable}
+          onClick={() => useView3d.getState().setOpen(!view3d)}
+          disabled={!view3dStep}
+          pressed={view3d}
+          className={view3d ? ACTIVE : undefined}
+          testId="view3d-toggle"
+        >
+          <mdui-icon-3d-rotation--outlined />
+        </IconButton>
+      </DockIcon>
+      <DockIcon>
         <DebugViewMenu />
       </DockIcon>
       <DockIcon>
-        <IconButton label={t.toolbar.export} onClick={onExport}>
+        <IconButton label={t.toolbar.export} onClick={() => goToStep('export')}>
           <mdui-icon-download--outlined />
         </IconButton>
       </DockIcon>
+      <TaskStatus />
     </Dock>
+  )
+}
+
+type Task = { error: false; text: string; progress?: number } | { error: true; text: string; step: StepId; group: string }
+
+/** 正在进行或出错的后台任务：深度模型的加载、深度估计和光源分析，按先后顺序只显示一项 */
+function useTask(): Task | null {
+  const model = useDepth((s) => s.model)
+  const jobs = useDepth((s) => s.jobs)
+  const background = useApp((s) => s.doc.background?.id)
+  const character = useApp((s) => s.doc.character?.id)
+  const analysis = useLighting((s) => (background ? s.analyses[background] : undefined))
+  const depth = [background, character].map((id) => (id ? jobs[id] : undefined))
+  if (model.state === 'error') return { error: true, text: t.tasks.modelFailed, step: 'scene', group: 'depth.estimate' }
+  if (depth.some((j) => j?.state === 'error')) return { error: true, text: t.tasks.depthFailed, step: 'scene', group: 'depth.estimate' }
+  if (analysis?.state === 'error') return { error: true, text: t.tasks.analysisFailed, step: 'fusion', group: 'light.analysis' }
+  if (model.state === 'loading') return { error: false, text: t.depth.phase[model.phase], progress: model.total > 0 ? model.loaded / model.total : undefined }
+  if (depth.some((j) => j?.state === 'queued' || j?.state === 'running')) return { error: false, text: t.tasks.depth }
+  if (analysis?.state === 'running') return { error: false, text: t.tasks.analysis }
+  return null
+}
+
+/** 后台任务的状态（docs/Plan.md §3.7 M8.7），完成后隐藏；出错时点击进入对应的步骤 */
+function TaskStatus() {
+  const task = useTask()
+  if (!task) return null
+  return (
+    <>
+      <div className="mx-1 h-6 w-px bg-white/15" />
+      {task.error ? (
+        <mdui-tooltip content={t.tasks.open} placement="top">
+          <button
+            type="button"
+            className="flex h-10 cursor-pointer items-center gap-1.5 rounded-full px-3 text-sm whitespace-nowrap text-error transition-colors hover:bg-white/10"
+            onClick={() => goToStep(task.step, task.group)}
+            data-testid="task-status"
+            data-state="error"
+          >
+            <mdui-icon-error--outlined className="size-5" />
+            {task.text}
+          </button>
+        </mdui-tooltip>
+      ) : (
+        <div className="flex items-center gap-2 px-2 text-sm whitespace-nowrap text-on-surface-variant" data-testid="task-status" data-state="running">
+          <mdui-circular-progress className="size-5" value={task.progress} max={1} />
+          <span className="tabular-nums">{task.progress === undefined ? task.text : `${task.text} ${Math.round(task.progress * 100)}%`}</span>
+        </div>
+      )}
+    </>
   )
 }
 

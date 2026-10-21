@@ -229,9 +229,6 @@ function View3DLayer({ characterStep }: { characterStep: boolean }) {
           <mdui-icon-photo-camera--outlined slot="icon" />
           {t.view3d.toCamera}
         </mdui-button>
-        <p className="rounded-xl bg-black/45 px-3 py-1 text-center text-xs leading-5 text-white/80" data-testid="view3d-notice">
-          {t.view3d.notice}
-        </p>
       </div>
     </div>
   )

@@ -16,7 +16,6 @@ import { openGroup } from '@/state/groups'
 import { useHints } from '@/state/hints'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
-import { useView3d } from '@/state/view3d'
 import { ColorSwatch } from '@/ui/ColorSwatch'
 import { cn } from '@/ui/lib/cn'
 import { SliderField } from '@/ui/SliderField'
@@ -25,7 +24,7 @@ import { lightName } from '../lightName'
 import { notify } from '../notify'
 import { useGestureChange } from '../useGestureChange'
 import { DirectionSphere } from './DirectionSphere'
-import { Group, Help, Hint } from './Group'
+import { Group, Hint } from './Group'
 
 const DEG = 180 / Math.PI
 const RAD = Math.PI / 180
@@ -50,7 +49,6 @@ export function LightSections({ assetId }: { assetId: string }) {
   return (
     <>
       <IntroSection />
-      <View3dSection />
       <LightsSection />
       <SelectedSection />
       <AnalysisSection assetId={assetId} />
@@ -397,21 +395,6 @@ function currentLight(id: string): Light | undefined {
 
 function currentDirection(id: string): Vec3 {
   return currentLight(id)?.direction ?? [0, 0, 1]
-}
-
-function View3dSection() {
-  const open = useView3d((s) => s.open)
-  const ref = useRef<Switch>(null)
-  useDomEvent(ref, 'change', (e, el) => {
-    if (e.target === el) useView3d.getState().setOpen(el.checked)
-  })
-  return (
-    <div className="flex min-h-11 items-center gap-1 rounded-2xl bg-white/5 py-1 pr-1.5 pl-3 text-sm">
-      <span className="flex-1 font-medium">{t.light.view3d}</span>
-      <mdui-switch ref={ref} checked={open} className="mx-1" data-testid="light-view3d" />
-      <Help title={t.light.view3d} text={t.light.view3dHint} />
-    </div>
-  )
 }
 
 function PreviewSection() {

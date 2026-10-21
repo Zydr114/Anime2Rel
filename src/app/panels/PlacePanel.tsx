@@ -13,7 +13,6 @@ import { characterInfo, PLACE_TOOLS, useCharacterInfo, useFusion, type Character
 import { openGroup } from '@/state/groups'
 import { useRegionTool } from '@/state/regions'
 import { useApp } from '@/state/store'
-import { useView3d } from '@/state/view3d'
 import { SliderField } from '@/ui/SliderField'
 import { NumberField } from '@/ui/NumberField'
 import { Segmented } from '@/ui/Segmented'
@@ -193,11 +192,9 @@ function DepthEditSection() {
   const brush = useDepthBrush()
   // 深度结果存在模块级缓存里，resultsVersion 变化会让选择器重新读取
   const ready = useDepth(() => !!getDepthResult(characterId))
-  const view3d = useView3d((s) => s.open)
   const d = t.depthEdit
   return (
     <Group id="character.depthEdit" title={d.title} summary={d.strokes(strokes)} help={[d.thicknessHint, d.brushHint, d.modesHint, d.overlayHint]} testId="char-depth-edit">
-      <ToggleRow label={t.light.view3d} checked={view3d} onChange={useView3d.getState().setOpen} testId="char-view3d" />
       <ThicknessSlider />
       <ToggleRow label={d.brush} checked={active} onChange={(on) => selectTool(on ? 'depth' : 'transform')} testId="char-depth-brush" />
       {active && (
