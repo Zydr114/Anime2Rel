@@ -58,6 +58,7 @@ import type { DepthEditRaster } from '@/fusion/depthEdit'
 import { OCCLUSION_MODES } from '@/focus/model'
 import type { FocusParams } from '@/focus/params'
 import type { FusionParams } from '@/fusion/params'
+import { distortionReach } from '@/grade/distortion'
 import { GRADE_LEVELS, type GradeLevel } from '@/grade/model'
 import { getLut } from '@/grade/luts'
 import type { GradeParams } from '@/grade/params'
@@ -175,6 +176,8 @@ export interface FusionDisplay {
   original: boolean
   /** 立绘半透明地叠加深度伪彩色（摆放步骤中使用深度画笔时） */
   relief: boolean
+  /** 显示镜头失真（镜头、导出步骤中）；其他步骤的画布控件需要与未失真的画面对位 */
+  distortion: boolean
 }
 
 interface Effects {
@@ -194,6 +197,7 @@ interface Effects {
   softFocus: boolean
   /** 钝化：从全局调整结果的 mipmap 采样 */
   soften: boolean
+  distortion: boolean
   rays: boolean
   rim: boolean
   flare: boolean
@@ -340,7 +344,7 @@ export class Engine {
   private matte: { map: MatteMap; foreground: THREE.DataTexture; background: THREE.DataTexture } | null = null
   private matteApplied = false
   private readonly mattePlaceholders = [makePlaceholder(), makePlaceholder()] as const
-  private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false }
+  private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: false }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
@@ -753,6 +757,7 @@ export class Engine {
       diffusion: post && p!.diffusion > 0,
       softFocus: post && p!.softFocus > 0,
       soften: post && p!.soften > 0,
+      distortion: post && display.distortion && p!.distortion !== 0,
       rays: post && (p!.rays > 0 || p!.raysRim > 0) && !!p!.raysLight,
       rim: post && p!.raysRim > 0 && !!p!.raysLight,
       flare: post && p!.flare > 0 && p!.flareCount > 0 && !!p!.flareLight,
@@ -782,7 +787,7 @@ export class Engine {
       else this.adjust[level].enabled.value = 0
     }
     applyFinishParams(this.finish, this.grade?.creative ?? null, effects.grade)
-    applyPostParams(this.post, this.postParams, effects.post)
+    applyPostParams(this.post, this.postParams, effects.post, effects.distortion)
     this.encode.dither.value = effects.dither ? 1 : 0
     this.syncPresent()
     this.docDirty = true
@@ -1130,7 +1135,7 @@ export class Engine {
     const bg = this.doc?.background
     if (!size || !bg || !this.docSize) throw new Error('没有可导出的文档')
     // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
-    const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false }
+    const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: true }
     const effects = this.effects(display)
     const skip: SkipLayers = {
       backgroundDof: !effects.dof,
@@ -1215,6 +1220,7 @@ export class Engine {
       scale,
       coc: Math.max(effects.dof || effects.occlusion ? Math.max(u.aperture.value, u.characterCoc.value) * long : 0, reflection),
       aberration: this.post.aberration.value,
+      distortion: effects.distortion ? distortionReach(this.postParams!.distortion, this.postParams!.distortionZoom, size) * long : 0,
       soften: effects.soften ? this.post.softenRadius.value * long : 0,
       reach: water + (cropped ? this.character.fusion.wrapRadius.value : 0),
       maxEdge: this.textureLimit,

@@ -1,3 +1,4 @@
+import type { DebugView } from '@/state/depth'
 import type { StepId } from '@/state/store'
 import { t } from '@/i18n'
 
@@ -19,3 +20,9 @@ export const steps: StepDef[] = [
 
 /** 调色、镜头步骤：前后对比显示调色前的结果，没有立绘时也可以对比 */
 export const isGradeStep = (step: StepId) => step === 'adjust' || step === 'lens'
+
+/**
+ * 画布是否显示镜头失真：只在镜头、导出步骤中，且没有前后对比和调试视图（调试视图叠加的是未失真的深度等信息）。
+ * 其他步骤的画布控件需要与未失真的画面对位（docs/Plan.md §3.7 M8.8a）
+ */
+export const showsDistortion = (step: StepId, compare: boolean, view: DebugView) => (step === 'lens' || step === 'export') && !compare && view === 'composite'

@@ -7,6 +7,7 @@ import { hexToLinear, srgbToLinear } from '@/algo/color'
 import type { Point, Size } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
 import type { Light, LightingDoc } from '@/lighting/model'
+import { DISTORTION_SCALE, distortionZoom } from './distortion'
 import { DEFAULT_FLARE, flareScale, MAX_FLARE_ELEMENTS, packFlareElements, type FlareDoc } from './flare'
 
 export type ToneMapping = 'none' | 'agx' | 'neutral'
@@ -25,8 +26,8 @@ export interface PostDoc {
   halation: { intensity: number; threshold: number; radius: number; color: string }
   /** 丁达尔光束：light 为光源 id，null 为自动选择；skyOnly 为只让天空发光（有深度时）；rim 为轮廓光束的强度 */
   rays: { intensity: number; threshold: number; length: number; light: string | null; skyOnly: boolean; rim: number }
-  /** 色差 [0,1]；暗角 [-1,1]，负值压暗；中点、羽化 [0,1] */
-  lens: { aberration: number; vignette: number; midpoint: number; feather: number }
+  /** 色差 [0,1]；暗角 [-1,1]，负值压暗；中点、羽化 [0,1]；失真 [-1,1]，正值为桶形、负值为枕形（M8.8a） */
+  lens: { aberration: number; vignette: number; midpoint: number; feather: number; distortion: number }
   /** 颗粒强度、尺寸、彩色程度 [0,1] */
   grain: { amount: number; size: number; color: number }
   /** 镜头光晕（M8.2），见 src/grade/flare.ts */
@@ -43,7 +44,7 @@ export const DEFAULT_POST: PostDoc = {
   soften: { intensity: 0, radius: 0.3 },
   halation: { intensity: 0, threshold: 0.85, radius: 0.3, color: '#ff5a1f' },
   rays: { intensity: 0, threshold: 0.8, length: 0.5, light: null, skyOnly: true, rim: 0 },
-  lens: { aberration: 0, vignette: 0, midpoint: 0.5, feather: 0.5 },
+  lens: { aberration: 0, vignette: 0, midpoint: 0.5, feather: 0.5, distortion: 0 },
   grain: { amount: 0, size: 0.3, color: 0.3 },
   flare: DEFAULT_FLARE,
   toneMapping: 'none',
@@ -62,6 +63,7 @@ export function isNeutralPost(p: PostDoc): boolean {
     p.rays.rim === 0 &&
     p.lens.aberration === 0 &&
     p.lens.vignette === 0 &&
+    p.lens.distortion === 0 &&
     p.grain.amount === 0 &&
     !flareActive(p.flare) &&
     p.toneMapping === 'none'
@@ -123,6 +125,9 @@ export interface PostParams {
   raysLight: Point | null
   skyOnly: boolean
   aberration: number
+  /** 镜头失真的 a（0 为关闭）与填满画面的缩放，见 src/grade/distortion.ts */
+  distortion: number
+  distortionZoom: number
   /** 角落处的曝光变化（EV） */
   vignette: number
   /** 暗角从 inner 开始、到 outer 达到满格；半径以画面角落为 1 */
@@ -207,6 +212,8 @@ export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null,
     raysLight: light?.uv ?? null,
     skyOnly: p.rays.skyOnly,
     aberration: p.lens.aberration * ABERRATION_SCALE,
+    distortion: DISTORTION_SCALE * p.lens.distortion,
+    distortionZoom: size ? distortionZoom(DISTORTION_SCALE * p.lens.distortion, size) : 1,
     vignette: p.lens.vignette * VIGNETTE_STOPS,
     vignetteInner: mid - width / 2,
     vignetteOuter: mid + width / 2,

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import type { Engine, EngineOptions } from '@/engine/Engine'
 import { zoomAt } from '@/algo/geometry'
 import { importFiles } from '@/app/importer'
-import { isGradeStep } from '@/app/steps'
+import { isGradeStep, showsDistortion } from '@/app/steps'
 import { currentFocusParams, currentRegionMask } from '@/focus/service'
 import { currentFusionParams, currentMatte, currentNormals, currentShadowParams } from '@/fusion/service'
 import { gradeParams } from '@/grade/params'
@@ -105,7 +105,15 @@ export function Viewport() {
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
           // 二维摆放步骤中使用深度画笔时，立绘叠加深度伪彩色
           const relief = step === 'place' && f.tool === 'depth' && !useView3d.getState().open
-          e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'place', original: step === 'scene' && useDepth.getState().view === 'composite', relief })
+          const view = useDepth.getState().view
+          e.setDisplay({
+            compare,
+            showNormals: f.showNormals,
+            showMask: f.showMask && step === 'place',
+            original: step === 'scene' && view === 'composite',
+            relief,
+            distortion: showsDistortion(step, f.compare, view),
+          })
         }
         // 3D 视图在摆放和融合步骤中显示；灰球和选中的光源只在融合步骤中显示
         const sync3d = () => {

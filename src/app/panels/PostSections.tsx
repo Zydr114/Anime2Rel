@@ -31,7 +31,11 @@ function PostSlider<K extends PostSection>({ section, field, label, min = 0, for
 export function PostSections() {
   const post = useApp((s) => s.doc.post)
   const e = t.effects
-  const lens = [post.lens.aberration > 0 && `${e.aberration} ${formatPercent(post.lens.aberration * 100)}`, post.lens.vignette !== 0 && `${e.vignette} ${formatSigned(post.lens.vignette * 100)}`].filter(Boolean)
+  const lens = [
+    post.lens.distortion !== 0 && `${e.distortion} ${formatSigned(post.lens.distortion * 100)}`,
+    post.lens.aberration > 0 && `${e.aberration} ${formatPercent(post.lens.aberration * 100)}`,
+    post.lens.vignette !== 0 && `${e.vignette} ${formatSigned(post.lens.vignette * 100)}`,
+  ].filter(Boolean)
   return (
     <>
       <Group id="post.bloom" title={e.bloom} summary={intensitySummary(post.bloom.intensity)} help={[e.bloomHint, e.hint]} testId="post-bloom">
@@ -56,7 +60,8 @@ export function PostSections() {
       <HalationSection />
       <RaysSection />
       <FlareSection />
-      <Group id="post.lens" title={e.lens} summary={lens.length ? lens.join(' · ') : e.off} testId="post-lens">
+      <Group id="post.lens" title={e.lens} summary={lens.length ? lens.join(' · ') : e.off} help={e.distortionHint} testId="post-lens">
+        <PostSlider section="lens" field="distortion" label={e.distortion} min={-100} format={formatSigned} />
         <PostSlider section="lens" field="aberration" label={e.aberration} />
         <PostSlider section="lens" field="vignette" label={e.vignette} min={-100} format={formatSigned} />
         <More id="post.lens.more">

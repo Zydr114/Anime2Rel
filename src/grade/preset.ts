@@ -131,7 +131,7 @@ export function conformPost(v: unknown, light: (id: unknown) => string | null = 
     const src = record(o[key])
     const out: Json = {}
     for (const [field, fallback] of Object.entries(DEFAULT_POST[key])) {
-      if (typeof fallback === 'number') out[field] = num(src[field], fallback, field === 'vignette' ? -1 : 0, 1)
+      if (typeof fallback === 'number') out[field] = num(src[field], fallback, field === 'vignette' || field === 'distortion' ? -1 : 0, 1)
       else if (typeof fallback === 'boolean') out[field] = bool(src[field], fallback)
       else if (typeof fallback === 'string') out[field] = hex(src[field], fallback)
       else out[field] = light(src[field])

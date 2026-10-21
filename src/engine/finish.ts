@@ -1,7 +1,8 @@
 /**
  * 终处理 pass：全局基础调整之后的处理（docs/Plan.md M5 实现方案）。依次为：
- * 色差 → 钝化 → 光学扩散 → 柔焦 → 叠加 Bloom、Halation、光束、镜头光晕（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
+ * 镜头失真与色差 → 钝化 → 光学扩散 → 柔焦 → 叠加 Bloom、Halation、光束、镜头光晕（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
  * 全局调色的公式与 src/grade/creative.ts 一致，后期参数见 src/grade/post.ts。输入输出都是线性 sRGB。
+ * 失真后，画面内容（含 Bloom 等整幅的结果）都在失真后的位置采样；暗角、颗粒按输出位置计算，不随画面变形。
  */
 import * as THREE from 'three/webgpu'
 import {
@@ -151,9 +152,16 @@ const ABERRATION_WEIGHTS = (() => {
   return raw.map((w) => w.map((v, c) => v / sums[c]))
 })()
 
-/** 色差：各通道按到画面中心的距离做不同的缩放 */
-function aberration(post: PostUniforms, image: TextureNode, tile: TileMapping): Vec3Node {
-  const d = tile.uv.sub(0.5)
+/** 镜头失真：输出图像的 UV → 原画面的 UV，公式见 src/grade/distortion.ts；半对角线为单位 */
+function distort(post: PostUniforms, uv: Vec2Node): Vec2Node {
+  const d = uv.sub(0.5)
+  const p = d.mul(post.aspect).mul(2).div(length(post.aspect))
+  return d.mul(post.distortionZoom.mul(dot(p, p).mul(post.distortion).add(1))).add(0.5)
+}
+
+/** 色差：各通道按到画面中心的距离做不同的缩放；at 为失真后的位置（输出图像 UV） */
+function aberration(post: PostUniforms, image: TextureNode, tile: TileMapping, at: Vec2Node): Vec3Node {
+  const d = at.sub(0.5)
   let sum: Vec3Node = vec3(0)
   ABERRATION_WEIGHTS.forEach(([r, g, b], i) => {
     const t = (2 * i) / (ABERRATION_TAPS - 1) - 1
@@ -171,15 +179,15 @@ const SOFTEN_OFFSETS = Array.from({ length: SOFTEN_TAPS }, (_, i) => {
 })
 
 /**
- * 钝化：以当前像素为中心的圆盘模糊减去中心的值，即被去掉的细节。
+ * 钝化：以 at（失真后的位置）为中心的圆盘模糊减去中心的值，即被去掉的细节。
  * 采样点的间距约为半径的一半，按间距选 mip 层级，使采样点之间没有空隙（需要图像有 mipmap）
  */
-function softenDetail(post: PostUniforms, image: TextureNode, tile: TileMapping): Vec3Node {
+function softenDetail(post: PostUniforms, image: TextureNode, tile: TileMapping, at: Vec2Node): Vec3Node {
   const lod = max(log2(post.softenRadius.mul(post.long).mul(0.5)), 0)
   const step = vec2(post.softenRadius).div(post.aspect)
   let sum: Vec3Node = vec3(0)
-  for (const [x, y] of SOFTEN_OFFSETS) sum = sum.add(sampleAt(image, tile.toTarget(tile.uv.add(step.mul(vec2(x, y)))), lod).rgb)
-  return sum.div(SOFTEN_TAPS).sub(sampleAt(image, tile.toTarget(tile.uv), float(0)).rgb)
+  for (const [x, y] of SOFTEN_OFFSETS) sum = sum.add(sampleAt(image, tile.toTarget(at.add(step.mul(vec2(x, y)))), lod).rgb)
+  return sum.div(SOFTEN_TAPS).sub(sampleAt(image, tile.toTarget(at), float(0)).rgb)
 }
 
 /** 颗粒满格时的幅度（编码值） */
@@ -241,12 +249,17 @@ export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: 
   const softFocusMap = texture(inputs.softFocus)
   const raysMap = texture(inputs.rays)
   const visibilityMap = texture(inputs.flareVisibility)
-  const uv = inputs.tile.uv
+  const out = inputs.tile.uv
   const node = Fn(() => {
-    const c = aberration(post, inputs.image, inputs.tile).toVar()
+    // uv 为画面内容的采样位置（失真后），out 为输出位置
+    const uv = out.toVar()
+    If(post.distortion.notEqual(0), () => {
+      uv.assign(distort(post, out))
+    })
+    const c = aberration(post, inputs.image, inputs.tile, uv).toVar()
     // 钝化：减去一部分细节；与色差分开计算，色差的彩边保留
     If(post.soften.greaterThan(0), () => {
-      c.addAssign(softenDetail(post, inputs.image, inputs.tile).mul(post.soften))
+      c.addAssign(softenDetail(post, inputs.image, inputs.tile, uv).mul(post.soften))
     })
     // 光学扩散：参与扩散的部分 c·w 按比例换成它的模糊，总亮度不变
     If(post.diffusion.greaterThan(0), () => {
@@ -269,7 +282,7 @@ export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: 
       c.addAssign(flareColor(post, uv).mul(post.flare.mul(sampleAt(visibilityMap, vec2(0.5), float(0)).r)))
     })
     // 暗角：椭圆形，画面角落处半径为 1
-    const r = length(uv.sub(0.5)).mul(Math.SQRT2)
+    const r = length(out.sub(0.5)).mul(Math.SQRT2)
     c.mulAssign(exp2(post.vignette.mul(smoothstep(post.vignetteRange.x, post.vignetteRange.y, r))))
     If(post.toneMapping.equal(1), () => {
       c.assign(agxToneMapping(c, float(1)))
@@ -280,7 +293,7 @@ export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: 
       c.assign(creative(u, c))
     })
     If(post.grain.greaterThan(0), () => {
-      c.assign(grain(post, c, uv))
+      c.assign(grain(post, c, out))
     })
     return vec4(c, 1)
   })

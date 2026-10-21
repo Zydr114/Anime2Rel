@@ -89,6 +89,9 @@ export function createPostUniforms() {
     halationColor: uniform(new THREE.Vector3(1, 0.1, 0)),
     rays: uniform(0),
     aberration: uniform(0),
+    /** 镜头失真的 a（0 为不失真）与填满画面的缩放 */
+    distortion: uniform(0),
+    distortionZoom: uniform(1),
     vignette: uniform(0),
     vignetteRange: uniform(new THREE.Vector2(0.35, 0.85)),
     toneMapping: uniform(0),
@@ -107,7 +110,8 @@ export function createPostUniforms() {
 
 export type PostUniforms = ReturnType<typeof createPostUniforms>
 
-export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: boolean): void {
+/** distortion 为是否显示镜头失真：预览只在镜头、导出步骤中显示 */
+export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: boolean, distortion: boolean): void {
   const on = enabled && !!p?.active
   u.bloom.value = on ? p!.bloom : 0
   u.diffusion.value = on ? p!.diffusion : 0
@@ -116,6 +120,7 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   u.halation.value = on ? p!.halation * HALATION_GAIN : 0
   u.rays.value = on && p!.raysLight && (p!.rays > 0 || p!.raysRim > 0) ? RAYS_GAIN : 0
   u.aberration.value = on ? p!.aberration : 0
+  u.distortion.value = on && distortion ? p!.distortion : 0
   u.vignette.value = on ? p!.vignette : 0
   u.toneMapping.value = on ? p!.toneMapping : 0
   u.grain.value = on ? p!.grain : 0
@@ -137,6 +142,7 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   if (p.raysLight) u.raysLight.value.set(p.raysLight.x, p.raysLight.y)
   u.skyOnly.value = p.skyOnly ? 1 : 0
   u.vignetteRange.value.set(p.vignetteInner, p.vignetteOuter)
+  u.distortionZoom.value = p.distortionZoom
   u.grainCell.value = p.grainCell
   u.grainColor.value = p.grainColor
   if (p.flareLight) u.flareLight.value.set(p.flareLight.x, p.flareLight.y)

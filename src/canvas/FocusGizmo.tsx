@@ -1,9 +1,12 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { showsDistortion } from '@/app/steps'
 import { clamp, docToScreen, screenToDoc, type Point } from '@/algo/geometry'
 import type { FocusTarget } from '@/focus/model'
 import { focusPoint } from '@/focus/params'
+import { DISTORTION_SCALE, distortionMapping } from '@/grade/distortion'
 import { pickAlpha } from '@/lighting/sampling'
-import { useCharacterInfo } from '@/state/fusion'
+import { useDepth } from '@/state/depth'
+import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { characterUV } from '@/fusion/placement'
 import { useApp, type DocState } from '@/state/store'
 
@@ -27,22 +30,25 @@ function targetAt(doc: DocState, p: Point): FocusTarget | null {
   return { kind: 'background', x: clamp(p.x, 0, bg.width), y: clamp(p.y, 0, bg.height) }
 }
 
-/** 镜头步骤的画布控件：在文档上点击或拖动选择对焦点，并标出当前焦点。 */
+/** 镜头步骤的画布控件：在文档上点击或拖动选择对焦点，并标出当前焦点。画布显示镜头失真时，位置按失真换算。 */
 export function FocusGizmo({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
+  const compare = useFusion((s) => s.compare)
+  const debugView = useDepth((s) => s.view)
   const info = useCharacterInfo(doc)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<number | null>(null)
 
   const background = doc.background
   if (!background || step !== 'lens') return null
+  const lens = distortionMapping(showsDistortion(step, compare, debugView) ? doc.post.lens.distortion * DISTORTION_SCALE : 0, background)
 
   const setTarget = (e: ReactPointerEvent) => {
     const rect = svgRef.current!.getBoundingClientRect()
     const s = useApp.getState()
-    const target = targetAt(s.doc, screenToDoc(s.view, { x: e.clientX - rect.left, y: e.clientY - rect.top }))
+    const target = targetAt(s.doc, lens.toDoc(screenToDoc(s.view, { x: e.clientX - rect.left, y: e.clientY - rect.top })))
     if (target) s.setFocus({ target })
   }
 
@@ -69,7 +75,7 @@ export function FocusGizmo({ passThrough }: { passThrough: boolean }) {
   const tl = docToScreen(view, { x: 0, y: 0 })
   const br = docToScreen(view, { x: background.width, y: background.height })
   const point = focusPoint(doc, info)
-  const at = point && docToScreen(view, point)
+  const at = point && docToScreen(view, lens.toView(point))
   const auto = !doc.focus.target
 
   return (
