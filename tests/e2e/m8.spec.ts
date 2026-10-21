@@ -4,12 +4,14 @@ import { renderScene } from '@/analysis/synthetic'
 import { docPixels } from './canvas'
 import { exportPixels, pixel, type ExportedImage } from './export'
 import { figure } from './figure'
+import { swiftshader } from './gpu'
 import { encodePng, makeImage } from './png'
 
 const W = 640
 const H = 480
 
 test.setTimeout(180_000)
+test.slow(swiftshader, '软件渲染')
 
 const rendererQuery = (renderer: unknown) => (renderer === 'webgl' ? '?renderer=webgl' : '')
 

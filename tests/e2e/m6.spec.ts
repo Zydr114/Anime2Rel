@@ -5,6 +5,7 @@ import { renderScene } from '@/analysis/synthetic'
 import { readZip } from '@/io/zip'
 import { exportPixels, type ExportedImage } from './export'
 import { figure } from './figure'
+import { swiftshader } from './gpu'
 import { encodePng } from './png'
 
 const W = 640
@@ -28,6 +29,7 @@ const SWAP_CUBE = (() => {
 })()
 
 test.setTimeout(240_000)
+test.slow(swiftshader, '软件渲染')
 
 /** 等深度、光源分析和融合统计就绪，之后画面不再变化；最后停在摆放步骤 */
 async function settle(page: Page) {

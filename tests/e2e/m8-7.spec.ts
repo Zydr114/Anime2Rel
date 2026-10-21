@@ -1,12 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
 import { pagePixels } from './canvas'
 import { figure } from './figure'
+import { swiftshader } from './gpu'
 import { makeImage } from './png'
 
 const W = 640
 const H = 480
 
 test.setTimeout(180_000)
+test.slow(swiftshader, '软件渲染')
 
 async function choose(page: Page, testId: string, name: string, buffer: Buffer) {
   const chooser = page.waitForEvent('filechooser')

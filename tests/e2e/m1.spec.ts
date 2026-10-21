@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { docPixels } from './canvas'
+import { swiftshader } from './gpu'
 import { makeImage, type Rgba } from './png'
 
 // 需要 dist 中带有自托管模型（pnpm test:e2e 会先下载）。
@@ -47,6 +48,7 @@ const GROUND_NEAR = [0.15, 0.95] as const
 const GROUND_FAR = [0.15, 0.45] as const
 
 test.setTimeout(120_000)
+test.slow(swiftshader, '软件渲染')
 
 async function start(page: Page, renderer: string) {
   await page.goto(renderer === 'webgl' ? '/?renderer=webgl' : '/')
@@ -107,6 +109,7 @@ test('depth, normal and sky debug views', async ({ page }, info) => {
 
 test('falls back when a model variant is unavailable', async ({ page }, info) => {
   test.skip(info.project.metadata.renderer === 'webgl', '推理与渲染后端无关，只在一个项目中运行')
+  test.skip(swiftshader, '软件渲染下推理固定用 WASM，也没有 shader-f16')
   await page.route(/model_q4f16\.onnx/, (r) => r.fulfill({ status: 404, body: '' }))
   await start(page, 'webgpu')
   await waitDone(page)
@@ -116,6 +119,7 @@ test('falls back when a model variant is unavailable', async ({ page }, info) =>
 
 test('switching to WASM reloads the model', async ({ page }, info) => {
   test.skip(info.project.metadata.renderer === 'webgl', '推理与渲染后端无关，只在一个项目中运行')
+  test.skip(swiftshader, '软件渲染下推理固定用 WASM，也没有 shader-f16')
   await start(page, 'webgpu')
   await waitDone(page)
   // 推理设备在设置对话框中

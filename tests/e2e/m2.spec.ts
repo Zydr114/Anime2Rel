@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { pixelToRay } from '@/algo/camera'
 import { renderScene, type SyntheticLight } from '@/analysis/synthetic'
 import { docPixels, type DocPoint } from './canvas'
+import { swiftshader } from './gpu'
 import { encodePng } from './png'
 
 // 需要 dist 中带有自托管模型（pnpm test:e2e 会先下载）。
@@ -26,6 +27,7 @@ const overcast = scene({ direction: null, color: [0, 0, 0], ambient: [0.1, 0.1, 
 const night = scene({ direction: null, color: [0, 0, 0], ambient: [0.03, 0.03, 0.04], lamp: { x: LAMP[0] * W, y: LAMP[1] * H, r: 7 }, night: true })
 
 test.setTimeout(120_000)
+test.slow(swiftshader, '软件渲染')
 
 async function open(page: Page, renderer: string, image: Buffer) {
   await page.goto(renderer === 'webgl' ? '/?renderer=webgl' : '/')

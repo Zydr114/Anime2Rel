@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { exportPixels, pixel } from './export'
+import { swiftshader } from './gpu'
 import { makeImage } from './png'
 
 // 背景 400×300：左半 sRGB 灰 128，右半纯蓝。
@@ -22,6 +23,8 @@ async function choose(page: Page, testId: string, name: string, buffer: Buffer) 
 function expectRed(px: number[]) {
   expect(px[0] - Math.max(px[1], px[2])).toBeGreaterThan(60)
 }
+
+test.slow(swiftshader, '软件渲染')
 
 test.beforeEach(async ({ page }, info) => {
   const renderer = info.project.metadata.renderer as string

@@ -5,6 +5,7 @@ import { renderScene } from '@/analysis/synthetic'
 import { docPixels, type DocPoint } from './canvas'
 import { exportPixels, pixel } from './export'
 import { figure } from './figure'
+import { swiftshader } from './gpu'
 import { encodePng } from './png'
 
 // 立绘是程序生成的简笔人物（240×480，蓝色裙子），默认摆放缩放 0.8、中心 (320, 278)，裙子中心在文档 (320, 293)。
@@ -34,6 +35,7 @@ const SWAP_CUBE = (() => {
 })()
 
 test.setTimeout(150_000)
+test.slow(swiftshader, '软件渲染')
 
 async function open(page: Page, renderer: string) {
   await page.goto(renderer === 'webgl' ? '/?renderer=webgl' : '/')

@@ -4,6 +4,7 @@ import { renderScene } from '@/analysis/synthetic'
 import { docPixels } from './canvas'
 import { exportPixels, pixel, type ExportedImage } from './export'
 import { figure } from './figure'
+import { swiftshader } from './gpu'
 import { encodePng } from './png'
 
 // 立绘是程序生成的简笔人物（240×480），默认摆放缩放 0.8、中心 (320, 278)。
@@ -26,6 +27,7 @@ const sunny = (() => {
 })()
 
 test.setTimeout(150_000)
+test.slow(swiftshader, '软件渲染')
 
 async function open(page: Page, renderer: string) {
   await page.goto(renderer === 'webgl' ? '/?renderer=webgl' : '/')
