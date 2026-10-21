@@ -3,6 +3,7 @@ import type { Mat3 } from '@/algo/cat'
 import type { Size } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
 import type { CharWarp } from './warp'
+import type { DepthEditRaster } from './depthEdit'
 import type { NormalWeights } from './normals'
 import type { LabStats } from './stats'
 
@@ -63,6 +64,8 @@ export interface NormalRequest {
   weights: NormalWeights
   /** 膨胀半径，相对立绘长边 */
   inflateRadius: number
+  /** 立绘深度修正的增量（M8.6b）：有修正时深度法线按修正后的深度重新计算 */
+  depthEdit: DepthEditRaster | null
 }
 
 export interface NormalMap {

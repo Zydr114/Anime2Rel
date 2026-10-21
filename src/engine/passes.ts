@@ -133,9 +133,15 @@ export type Placement = ReturnType<typeof createPlacement>
 
 /**
  * 背景与立绘的深度：引导分辨率的系数与全分辨率颜色组合，得到边缘锐利的深度。
- * 立绘的引导图是合成到中性灰上的 sRGB 颜色，与推理输入一致。
+ * 立绘的引导图是合成到中性灰上的 sRGB 颜色，与推理输入一致。立绘深度再加上深度修正的增量（r 通道，M8.6b）。
  */
-export function createDepthNodes(placement: Placement, background: TextureNode, character: TextureNode, placeholder: { background: DepthTextures; character: DepthTextures }) {
+export function createDepthNodes(
+  placement: Placement,
+  background: TextureNode,
+  character: TextureNode,
+  placeholder: { background: DepthTextures; character: DepthTextures },
+  editPlaceholder: THREE.Texture,
+) {
   const u = { edgeAlign: uniform(1), hasBgDepth: uniform(0), hasCharDepth: uniform(0) }
   const uv = placement.tile.uv
   const bgCoef = texture(placeholder.background.coef, uv)
@@ -148,12 +154,13 @@ export function createDepthNodes(placement: Placement, background: TextureNode, 
   const chCoef = texture(placeholder.character.coef, placement.charUV)
   const chAux = texture(placeholder.character.aux, placement.charUV)
   const chNormal = texture(placeholder.character.normal, placement.charUV)
-  const chDepth = saturate(mix(chAux.r, dot(chCoef.rgb, chGuide).add(chCoef.a), u.edgeAlign))
+  const chEdit = texture(editPlaceholder, placement.charUV)
+  const chDepth = saturate(mix(chAux.r, dot(chCoef.rgb, chGuide).add(chCoef.a), u.edgeAlign)).add(chEdit.r)
   return {
     uniforms: u,
     textures: {
       background: { coef: bgCoef, aux: bgAux, normal: bgNormal },
-      character: { coef: chCoef, aux: chAux, normal: chNormal },
+      character: { coef: chCoef, aux: chAux, normal: chNormal, edit: chEdit },
     },
     background: { depth: bgDepth, sky: bgAux.g, normal: bgNormal },
     character: { depth: chDepth, normal: chNormal, straight },

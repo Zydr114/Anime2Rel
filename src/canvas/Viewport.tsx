@@ -15,6 +15,7 @@ import { isExporting, useExport } from '@/state/export'
 import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
+import { currentDepthEdit } from '@/state/depthEdit'
 import { currentScene, useView3d } from '@/state/view3d'
 import { CameraGizmo, CharacterGuide } from './CameraGizmo'
 import { FocusGizmo } from './FocusGizmo'
@@ -75,6 +76,7 @@ export function Viewport() {
           const d = useDepth.getState()
           e.setDepth('background', getDepthResult(doc.background?.id))
           e.setDepth('character', getDepthResult(doc.character?.id))
+          e.setDepthEdit(currentDepthEdit(doc))
           e.setDebug({ view: d.view, overlay: d.overlay, edgeAlign: d.edgeAlign })
         }
         // 灰球只在光源步骤显示

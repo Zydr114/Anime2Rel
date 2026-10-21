@@ -5,6 +5,7 @@ import type { Vec3 } from '@/algo/sh'
 import { cameraFocal, cameraUp, homographyToUV, horizonLine, mirrorHomography } from '@/camera/geometry'
 import type { DepthResult } from '@/depth/protocol'
 import { characterBox, characterDepth, characterGround, characterHeight, characterPoint } from '@/fusion/placement'
+import { sampleEdit, type DepthEditRaster } from '@/fusion/depthEdit'
 import type { CharacterInfo } from '@/fusion/protocol'
 import type { Homography } from '@/fusion/warp'
 import { sampleDepth } from '@/lighting/sampling'
@@ -22,6 +23,8 @@ export interface FocusInputs {
   character: DepthResult | undefined
   /** 融合 Worker 给出的立绘信息；未就绪时为 undefined */
   info: CharacterInfo | undefined
+  /** 立绘深度修正的增量（M8.6b）；没有修正时缺省 */
+  edit?: DepthEditRaster | null
 }
 
 /** 立绘深度：平面深度 + (起伏 − 基准) × 比例，见 reliefDepth */
@@ -53,7 +56,7 @@ export function focusDepth(input: FocusInputs, relief = characterRelief(input)):
   const target = doc.focus.target
   if (!target) return relief.plane
   if (target.kind === 'background') return doc.background ? sampleDepth(input.background, target, doc.background).depth : relief.plane
-  const r = input.character ? sampleRelief(input.character, target.u, target.v) : relief.reference
+  const r = input.character ? sampleRelief(input.character, target.u, target.v) + (input.edit ? sampleEdit(input.edit, target.u, target.v) : 0) : relief.reference
   return reliefDepth(relief.plane, r, relief.reference, relief.scale)
 }
 

@@ -1,6 +1,6 @@
 /**
  * 3D 视图中点选表面（docs/Plan.md §3.7 M8.6a）：沿视线步进，在原相机的深度中找到第一处从表面前方穿到后方的位置。
- * 与 3D 视图中的网格一样：背景按校准后的深度，立绘按浮雕的起伏；穿到表面后方很远时视为从深度跳变的空缺中穿过，继续向前。
+ * 与 3D 视图中的网格一样：背景按校准后的深度，立绘按浮雕的起伏（含深度修正）；穿到表面后方很远时视为从深度跳变的空缺中穿过，继续向前。
  * 照片之外的地方退回到标定的地面。
  */
 import { sceneDepth, type DepthScale } from '@/algo/camera'
@@ -12,6 +12,7 @@ import { add } from '@/camera/vec'
 import type { DepthResult } from '@/depth/protocol'
 import { DEPTH_SHIFT, reliefDepth } from '@/focus/dof'
 import { characterRelief } from '@/focus/params'
+import { sampleEdit, type DepthEditRaster } from '@/fusion/depthEdit'
 import { characterUV } from '@/fusion/placement'
 import type { CharacterInfo } from '@/fusion/protocol'
 import { assetPixels, sampleDepth } from '@/lighting/sampling'
@@ -43,7 +44,14 @@ const REFINE = 20
 const SKY = 0.5
 const OPAQUE = 128
 
-export function surfaceModel(doc: DocState, scale: DepthScale, background: DepthResult | undefined, character: DepthResult | undefined, info: CharacterInfo | undefined): SurfaceModel | null {
+export function surfaceModel(
+  doc: DocState,
+  scale: DepthScale,
+  background: DepthResult | undefined,
+  character: DepthResult | undefined,
+  info: CharacterInfo | undefined,
+  edit: DepthEditRaster | null,
+): SurfaceModel | null {
   const bg = doc.background
   if (!bg) return null
   const relief = characterRelief({ doc, background, character, info })
@@ -64,7 +72,7 @@ export function surfaceModel(doc: DocState, scale: DepthScale, background: Depth
       const x = Math.min(pixels.width - 1, Math.max(0, Math.floor(uv.x * pixels.width)))
       const y = Math.min(pixels.height - 1, Math.max(0, Math.floor(uv.y * pixels.height)))
       if (pixels.data[(y * pixels.width + x) * 4 + 3] < OPAQUE) return null
-      const r = character ? sampleDepth(character, uv, { width: 1, height: 1 }).depth : relief.reference
+      const r = character ? sampleDepth(character, uv, { width: 1, height: 1 }).depth + (edit ? sampleEdit(edit, uv.x, uv.y) : 0) : relief.reference
       return k / (reliefDepth(relief.plane, r, relief.reference, relief.scale) + DEPTH_SHIFT)
     },
   }

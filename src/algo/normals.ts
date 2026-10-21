@@ -123,3 +123,16 @@ export function depthToNormals(
   }
   return { normal, confidence }
 }
+
+/** 法线与置信度打包成 RGBA8：rgb = n·0.5 + 0.5，a = 置信度 */
+export function packNormals({ normal, confidence }: NormalMap): Uint8Array {
+  const n = confidence.length
+  const packed = new Uint8Array(n * 4)
+  for (let i = 0; i < n; i++) {
+    packed[i * 4] = Math.round((normal[i * 3] * 0.5 + 0.5) * 255)
+    packed[i * 4 + 1] = Math.round((normal[i * 3 + 1] * 0.5 + 0.5) * 255)
+    packed[i * 4 + 2] = Math.round((normal[i * 3 + 2] * 0.5 + 0.5) * 255)
+    packed[i * 4 + 3] = Math.round(confidence[i] * 255)
+  }
+  return packed
+}

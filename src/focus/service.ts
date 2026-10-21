@@ -1,6 +1,7 @@
 /** 主线程侧的景深参数换算：从当前文档、深度结果和融合 Worker 的立绘信息得到着色器参数。 */
 import { assetPixels } from '@/lighting/sampling'
 import { getDepthResult } from '@/state/depth'
+import { currentDepthEdit } from '@/state/depthEdit'
 import { characterInfo } from '@/state/fusion'
 import type { DocState } from '@/state/store'
 import type { BrushStroke, OcclusionRegion } from './model'
@@ -13,6 +14,7 @@ export function focusInputs(doc: DocState): FocusInputs {
     background: getDepthResult(doc.background?.id),
     character: getDepthResult(doc.character?.id),
     info: characterInfo(doc),
+    edit: currentDepthEdit(doc),
   }
 }
 

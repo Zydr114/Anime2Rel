@@ -52,6 +52,7 @@ import { createWarpPass, WARP_LAYERS, type WarpLayer } from './warp'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
+import type { DepthEditRaster } from '@/fusion/depthEdit'
 import { OCCLUSION_MODES } from '@/focus/model'
 import type { FocusParams } from '@/focus/params'
 import type { FusionParams } from '@/fusion/params'
@@ -234,7 +235,15 @@ function warpTargets(): Record<WarpLayer, THREE.RenderTarget> {
       minFilter: mipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
     })
-  return { character: linearTarget(1, 1, true), coef: linearTarget(1, 1), aux: linearTarget(1, 1), depthNormal: bytes(false), normal: bytes(true), rim: bytes(true) }
+  return {
+    character: linearTarget(1, 1, true),
+    coef: linearTarget(1, 1),
+    aux: linearTarget(1, 1),
+    depthNormal: bytes(false),
+    depthEdit: linearTarget(1, 1),
+    normal: bytes(true),
+    rim: bytes(true),
+  }
 }
 
 /** 变形后立绘纹理的面积上限：原立绘面积的 2 倍，至少 2048²，避免把四角拉得很远时占用过多显存 */
@@ -330,6 +339,10 @@ export class Engine {
   private grade: GradeParams | null = null
   private postParams: PostParams | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
+  /** 立绘深度修正的增量（RGBA16F，r 为增量）；没有修正时为 null */
+  private depthEdit: THREE.DataTexture | null = null
+  private editRaster: DepthEditRaster | null = null
+  private readonly editPlaceholder = dataTexture(new Uint16Array(4), 1, 1, THREE.HalfFloatType)
   private readonly charRT = linearTarget(1, 1, true)
   /** 立绘纹理节点：预处理后的立绘，或变形后的立绘 */
   private readonly characterNode: THREE.TextureNode
@@ -422,7 +435,7 @@ export class Engine {
     this.backgroundNode = texture(this.placeholder, this.tile.toBackground(this.tile.uv))
     const characterNode = (this.characterNode = texture(this.charRT.texture, placement.charUV))
     this.shadowCharacter = texture(this.charRT.texture)
-    this.depthNodes = createDepthNodes(placement, this.backgroundNode, characterNode, this.depthPlaceholder)
+    this.depthNodes = createDepthNodes(placement, this.backgroundNode, characterNode, this.depthPlaceholder, this.editPlaceholder)
     const layer = (key: keyof LayerTargets) => texture(this.layers[key].texture)
     const nodes = (this.layerNodes = {
       background: layer('background'),
@@ -580,6 +593,32 @@ export class Engine {
       u.hasCharDepth.value = textures ? 1 : 0
       this.warpDirty = true
     }
+    this.docDirty = true
+    this.schedule()
+  }
+
+  /** 设置立绘深度修正的增量（M8.6b）；尺寸不变时只更新纹理数据 */
+  setDepthEdit(raster: DepthEditRaster | null): void {
+    if (raster === this.editRaster) return
+    this.editRaster = raster
+    const old = this.depthEdit
+    if (!raster) {
+      if (!old) return
+      old.dispose()
+      this.depthEdit = null
+    } else {
+      const { width, height, delta } = raster
+      const reuse = old && old.image.width === width && old.image.height === height
+      const data = reuse ? (old.image.data as Uint16Array) : new Uint16Array(width * height * 4)
+      for (let i = 0; i < delta.length; i++) data[i * 4] = THREE.DataUtils.toHalfFloat(delta[i])
+      if (reuse) old.needsUpdate = true
+      else {
+        old?.dispose()
+        this.depthEdit = dataTexture(data, width, height, THREE.HalfFloatType)
+      }
+    }
+    // 增量随立绘一起变形，纹理在 bindCharacter 中设置
+    if (this.warpBox || this.depthEdit !== old) this.warpDirty = true
     this.docDirty = true
     this.schedule()
   }
@@ -881,6 +920,7 @@ export class Engine {
       coef: depth && guide ? { texture: depth.textures.coef, ...guide } : null,
       aux: depth && guide ? { texture: depth.textures.aux, ...guide } : null,
       depthNormal: depth && guide ? { texture: depth.textures.normal, ...guide } : null,
+      depthEdit: this.depthEdit ? { texture: this.depthEdit, width: this.depthEdit.image.width, height: this.depthEdit.image.height } : null,
       normal: normals && size ? { texture: normals.texture, ...size } : null,
       rim: normals && size ? { texture: normals.rim, ...size } : null,
     }
@@ -900,6 +940,7 @@ export class Engine {
     nodes.coef.value = pick('coef', depth?.coef, placeholder.coef)
     nodes.aux.value = pick('aux', depth?.aux, placeholder.aux)
     nodes.normal.value = pick('depthNormal', depth?.normal, placeholder.normal)
+    nodes.edit.value = pick('depthEdit', this.depthEdit ?? undefined, this.editPlaceholder)
     this.character.characterNormal.value = pick('normal', this.charNormal?.texture, this.normalPlaceholder)
     this.character.characterRim.value = pick('rim', this.charNormal?.rim, this.rimPlaceholder)
 
@@ -1247,6 +1288,8 @@ export class Engine {
     disposePostPasses(this.postPasses)
     for (const set of Object.values(this.depthPlaceholder)) for (const t of Object.values(set)) t.dispose()
     for (const layer of Object.values(this.depth)) if (layer) for (const t of Object.values(layer.textures)) t.dispose()
+    this.depthEdit?.dispose()
+    this.editPlaceholder.dispose()
     for (const q of [...Object.values(this.quads), ...Object.values(this.toneQuads)]) (q.material as THREE.Material).dispose()
     this.renderer.dispose()
   }

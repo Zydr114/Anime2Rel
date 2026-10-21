@@ -9,6 +9,8 @@ import { fitWithin } from '@/algo/geometry'
 import { oklabImage } from '@/algo/oklab'
 import { quantiles, resizeBilinear } from '@/algo/raster'
 import type { Vec3 } from '@/algo/sh'
+import { DEFAULT_NORMAL_OPTIONS, depthToNormals, packNormals } from '@/algo/normals'
+import type { DepthEditRaster } from '@/fusion/depthEdit'
 import { estimateForeground } from '@/fusion/matte'
 import { characterNormals, rimMap } from '@/fusion/normals'
 import { rasterizeWarp, warpMesh } from '@/fusion/warp'
@@ -50,6 +52,10 @@ interface Character {
   rgb: Float32Array
   alpha: Float32Array
   depthNormal: Uint8Array | null
+  /** 立绘自身的归一化逆深度（引导分辨率）；深度未就绪时为 null */
+  depth: Float32Array | null
+  /** 按深度修正重新计算的深度法线，以及它对应的增量 */
+  edited: { delta: Float32Array; depthNormal: Uint8Array } | null
   /** 统计分辨率下的线性 RGB 与 alpha */
   small: { linear: Float32Array; alpha: Float32Array }
   /** 轮廓光的边缘带，只与立绘本身有关，首次求法线时计算 */
@@ -59,6 +65,19 @@ interface Character {
 
 let background: Background | null = null
 let character: Character | null = null
+
+/** 深度法线：有深度修正时按修正后的深度重新计算（增量不变时沿用上次的结果） */
+function editedNormals(ch: Character, edit: DepthEditRaster | null): Uint8Array | null {
+  if (!edit || !ch.depth) return ch.depthNormal
+  const e = ch.edited
+  if (e && e.delta.length === edit.delta.length && e.delta.every((v, i) => v === edit.delta[i])) return e.depthNormal
+  const { width: w, height: h } = ch
+  const delta = resizeBilinear(edit.delta, edit.width, edit.height, w, h)
+  const depth = Float32Array.from(ch.depth, (d, i) => d + delta[i])
+  const depthNormal = packNormals(depthToNormals(depth, w, h, DEFAULT_NORMAL_OPTIONS, ch.alpha))
+  ch.edited = { delta: edit.delta, depthNormal }
+  return depthNormal
+}
 
 function pixels(bitmap: ImageBitmap | OffscreenCanvas, sx: number, sy: number, sw: number, sh: number, dw: number, dh: number): Uint8ClampedArray {
   const canvas = new OffscreenCanvas(dw, dh)
@@ -194,7 +213,8 @@ const api: FusionWorkerApi = {
     const sa = resizeBilinear(alpha, width, height, small.width, small.height)
     for (let i = 0; i < sa.length; i++) for (let c = 0; c < 3; c++) sp[i * 3 + c] = sa[i] > 1e-3 ? sp[i * 3 + c] / sa[i] : 0
     const previous = character
-    character = { id: input.id, width, height, rgb, alpha, depthNormal: input.depthNormal, small: { linear: sp, alpha: sa }, rim: null, matte: null }
+    const depth = input.depth?.length === n ? input.depth : null
+    character = { id: input.id, width, height, rgb, alpha, depthNormal: input.depthNormal, depth, edited: null, small: { linear: sp, alpha: sa }, rim: null, matte: null }
     // 同一张立绘只是深度结果更新时，沿用只与像素有关的结果
     if (previous?.id === input.id && previous.width === width && previous.height === height) {
       character.rim = previous.rim
@@ -202,7 +222,7 @@ const api: FusionWorkerApi = {
     }
 
     const opaque = Uint8Array.from(alpha, (a) => (a > 0.5 ? 1 : 0))
-    const reliefMedian = (input.depth?.length === n ? quantiles(input.depth, [0.5], opaque)?.[0] : undefined) ?? 0.5
+    const reliefMedian = (depth ? quantiles(depth, [0.5], opaque)?.[0] : undefined) ?? 0.5
     const geometry = opaqueGeometry(alpha, width, height)
     if (!geometry) return { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 }, reliefMedian, cut: false, rows: emptyRows(), rowSpan: [0, 1] }
     const cut = geometry.bbox.y1 >= CUT_EDGE && geometry.bottomCoverage > CUT_COVERAGE
@@ -217,7 +237,7 @@ const api: FusionWorkerApi = {
       height: ch.height,
       rgb: ch.rgb,
       alpha: ch.alpha,
-      depthNormal: ch.depthNormal,
+      depthNormal: editedNormals(ch, request.depthEdit),
       weights: request.weights,
       inflateRadius: request.inflateRadius * Math.max(ch.width, ch.height),
     })

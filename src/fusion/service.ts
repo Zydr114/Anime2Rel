@@ -8,6 +8,7 @@ import { guideSize } from '@/depth/pipeline'
 import type { DepthResult } from '@/depth/protocol'
 import { getAsset } from '@/state/assets'
 import { getDepthResult, useDepth } from '@/state/depth'
+import { currentDepthEdit } from '@/state/depthEdit'
 import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis } from '@/state/lighting'
 import { useApp, type DocState } from '@/state/store'
@@ -98,7 +99,7 @@ async function runNormals(): Promise<void> {
   const run = ++normalsRun
   const { inflateRadius, ...weights } = useApp.getState().doc.fusion.normals
   try {
-    const map = await remote().normals({ id: character.id, weights, inflateRadius })
+    const map = await remote().normals({ id: character.id, weights, inflateRadius, depthEdit: currentDepthEdit(useApp.getState().doc) })
     if (run === normalsRun && useFusion.getState().character?.id === character.id) useFusion.getState().setNormals({ id: character.id, map })
   } catch (e) {
     report(e)
@@ -189,7 +190,7 @@ export function startAutoFusion(): () => void {
     const old = prev.doc
     if (doc.background?.id !== old.background?.id || doc.character?.id !== old.character?.id) sync()
     if (doc.charWarp !== old.charWarp) requestWarp()
-    if (doc.fusion.normals !== old.fusion.normals) {
+    if (doc.fusion.normals !== old.fusion.normals || doc.charDepthEdit !== old.charDepthEdit) {
       clearTimeout(normalsTimer)
       normalsTimer = setTimeout(() => void runNormals(), NORMALS_DEBOUNCE)
     }

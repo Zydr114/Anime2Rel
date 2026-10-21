@@ -7,8 +7,8 @@ import * as THREE from 'three/webgpu'
 import { float, positionGeometry, texture, uv, vec4 } from 'three/tsl'
 import type { Bounds, WarpMesh } from '@/fusion/warp'
 
-/** 需要变形的各层：预处理后的立绘、立绘深度的引导滤波系数与辅助数据、深度法线、融合法线、轮廓光边缘带 */
-export const WARP_LAYERS = ['character', 'coef', 'aux', 'depthNormal', 'normal', 'rim'] as const
+/** 需要变形的各层：预处理后的立绘、立绘深度的引导滤波系数与辅助数据、深度法线、深度修正的增量、融合法线、轮廓光边缘带 */
+export const WARP_LAYERS = ['character', 'coef', 'aux', 'depthNormal', 'depthEdit', 'normal', 'rim'] as const
 export type WarpLayer = (typeof WARP_LAYERS)[number]
 
 export function createWarpPass(segments: number, placeholder: THREE.Texture) {

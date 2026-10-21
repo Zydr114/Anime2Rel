@@ -3,7 +3,7 @@
  */
 import { DEFAULT_SNAP_OPTIONS, snapEdges } from '@/algo/edgeSnap'
 import { applyGuided, guidedCoefficients } from '@/algo/guidedFilter'
-import { DEFAULT_NORMAL_OPTIONS, depthToNormals } from '@/algo/normals'
+import { DEFAULT_NORMAL_OPTIONS, depthToNormals, packNormals } from '@/algo/normals'
 import { quantiles, resizeBilinear } from '@/algo/raster'
 import { skyMask } from '@/algo/sky'
 
@@ -149,13 +149,6 @@ export function postprocess(kind: DepthKind, raw: Float32Array, model: Size, mod
 
   const sky = kind === 'background' ? skyMask(depth, guideIn.guide, gw, gh) : null
   const mask = kind === 'character' ? guideIn.alpha : undefined
-  const { normal, confidence } = depthToNormals(depth, gw, gh, DEFAULT_NORMAL_OPTIONS, mask, sky ?? undefined)
-  const packed = new Uint8Array(gw * gh * 4)
-  for (let i = 0; i < gw * gh; i++) {
-    packed[i * 4] = Math.round((normal[i * 3] * 0.5 + 0.5) * 255)
-    packed[i * 4 + 1] = Math.round((normal[i * 3 + 1] * 0.5 + 0.5) * 255)
-    packed[i * 4 + 2] = Math.round((normal[i * 3 + 2] * 0.5 + 0.5) * 255)
-    packed[i * 4 + 3] = Math.round(confidence[i] * 255)
-  }
+  const packed = packNormals(depthToNormals(depth, gw, gh, DEFAULT_NORMAL_OPTIONS, mask, sky ?? undefined))
   return { kind, model, guideSize: guideIn.size, rawUp, coef, depth, normal: packed, sky }
 }

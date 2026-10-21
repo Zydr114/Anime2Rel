@@ -3,6 +3,7 @@ import { sceneLayout, type SceneLayout } from '@/scene3d/layout'
 import { surfaceModel, type SurfaceModel } from '@/scene3d/pick'
 import { viewProjection, type Projection, type View3d } from '@/scene3d/space'
 import { getDepthResult } from './depth'
+import { currentDepthEdit } from './depthEdit'
 import { characterInfo } from './fusion'
 import { useApp } from './store'
 
@@ -35,5 +36,5 @@ export function currentScene(view?: View3d): { layout: SceneLayout; projection: 
 export function currentSurface(layout: SceneLayout): SurfaceModel | null {
   const { doc } = useApp.getState()
   if (!doc.background) return null
-  return surfaceModel(doc, layout.scale, getDepthResult(doc.background.id), getDepthResult(doc.character?.id), characterInfo(doc))
+  return surfaceModel(doc, layout.scale, getDepthResult(doc.background.id), getDepthResult(doc.character?.id), characterInfo(doc), currentDepthEdit(doc))
 }
