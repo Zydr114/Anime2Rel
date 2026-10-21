@@ -132,7 +132,8 @@ function TargetSection() {
   )
 }
 
-function ThicknessSlider() {
+/** 立绘厚度：景深步骤与立绘步骤共用 */
+export function ThicknessSlider() {
   const thickness = useApp((s) => s.doc.focus.thickness)
   const onChange = useGestureChange(useCallback((v: number) => useApp.getState().setFocus({ thickness: v / 100 }), []))
   return <SliderField label={t.focus.thickness} value={thickness * 100} min={0} max={50} step={1} format={formatPercent} onChange={onChange} testId="focus-thickness" />

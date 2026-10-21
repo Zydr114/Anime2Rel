@@ -67,12 +67,16 @@ function circle(center: Vec3, radius: number): Vec3[] {
   })
 }
 
-/** 3D 视图中的光源控件：太阳在球面上，灯有落到地面的投影线；拖动改变方向或位置，选中与面板同步 */
-export function View3DLights() {
+/**
+ * 3D 视图中的光源控件：太阳在球面上，灯有落到地面的投影线；拖动改变方向或位置，选中与面板同步。
+ * editable 为 false 时（立绘步骤）只显示，不能选中和拖动。
+ */
+export function View3DLights({ editable }: { editable: boolean }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<Drag | null>(null)
   const lights = useApp((s) => s.doc.lighting.lights)
   const selected = useLighting((s) => s.selected)
+  const current = editable ? selected : null
   // 以下状态变化时场景布局或投影随之变化，需要重画
   useApp((s) => s.doc)
   useApp((s) => s.view)
@@ -151,7 +155,7 @@ export function View3DLights() {
     const at = projectToScreen(p, l.position)
     const light = lights.find((x) => x.id === l.id)
     if (!light) continue
-    const active = l.id === selected
+    const active = l.id === current
     const color = linearToHex(l.color)
     const opacity = l.enabled ? 1 : 0.45
     const stroke = active ? 'white' : 'rgba(0,0,0,0.7)'
@@ -226,7 +230,7 @@ export function View3DLights() {
   return (
     <svg ref={svgRef} className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" data-testid="view3d-lights">
       <g>{guides}</g>
-      <g style={{ pointerEvents: 'auto' }}>{markers}</g>
+      <g style={{ pointerEvents: editable ? 'auto' : 'none' }}>{markers}</g>
     </svg>
   )
 }

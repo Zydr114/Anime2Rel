@@ -5,6 +5,7 @@ import { waterActive } from '@/focus/model'
 import { characterBox, characterGround, characterUV } from '@/fusion/placement'
 import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
+import { useView3dShown } from '@/state/view3d'
 
 /** 接地点标记的半宽（屏幕像素） */
 const HALF = 14
@@ -20,13 +21,14 @@ export function GroundGizmo({ passThrough }: { passThrough: boolean }) {
   const doc = useApp((s) => s.doc)
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
+  const view3d = useView3dShown()
   const warping = useFusion((s) => s.tool !== 'transform') && step === 'character'
   const bbox = useCharacterInfo(doc)?.bbox
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ id: number; offset: Point } | null>(null)
 
   const { background, character } = doc
-  if (!background || !character || (step !== 'character' && step !== 'focus')) return null
+  if (!background || !character || (step !== 'character' && step !== 'focus') || view3d) return null
 
   const ground = characterGround(doc, background, bbox)
   const at = docToScreen(view, ground)

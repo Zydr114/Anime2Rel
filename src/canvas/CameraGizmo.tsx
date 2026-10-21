@@ -10,6 +10,7 @@ import { t } from '@/i18n'
 import { guideOrigin, guideRod, useCameraGuide } from '@/state/cameraGuide'
 import { useCharacterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
+import { useView3dShown } from '@/state/view3d'
 import { GuideLayer, type GuideTarget } from './CameraGuide'
 import { Loupe, type LoupeFocus } from './Loupe'
 
@@ -108,8 +109,9 @@ export function CharacterGuide() {
   const showGuide = useFusion((s) => s.showGuide)
   const { kind, scale } = useCameraGuide()
   const info = useCharacterInfo(doc)
+  const view3d = useView3dShown()
   const bg = doc.background
-  if (!bg || step !== 'character' || !showGuide || kind === 'none') return null
+  if (!bg || step !== 'character' || !showGuide || kind === 'none' || view3d) return null
   const foot = doc.character ? characterGround(doc, bg, info?.bbox) : null
   const origin = foot && groundPoint(doc.camera, bg, foot) ? foot : guideOrigin(doc, null)!
   const handles = HANDLE_X.map((k) => docToScreen(view, horizonAt(doc.camera, bg, k * bg.width)))

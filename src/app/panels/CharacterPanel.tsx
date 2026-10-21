@@ -11,12 +11,14 @@ import { getDepthResult, useDepth } from '@/state/depth'
 import { useDepthBrush } from '@/state/depthEdit'
 import { characterInfo, useCharacterInfo, useFusion, WARP_TOOLS, type WarpTool } from '@/state/fusion'
 import { useApp } from '@/state/store'
+import { useView3d } from '@/state/view3d'
 import { SliderField } from '@/ui/SliderField'
 import { NumberField } from '@/ui/NumberField'
 import { Segmented } from '@/ui/Segmented'
 import { SelectField } from '@/ui/SelectField'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { notify } from '../notify'
+import { ThicknessSlider } from './FocusPanel'
 import { FusionSections, Hint, Section, ToggleRow } from './FusionSections'
 
 const RAD = Math.PI / 180
@@ -162,9 +164,14 @@ function DepthEditSection() {
   const brush = useDepthBrush()
   // 深度结果存在模块级缓存里，resultsVersion 变化会让选择器重新读取
   const ready = useDepth(() => !!getDepthResult(characterId))
+  const view3d = useView3d((s) => s.open)
   const d = t.depthEdit
   return (
     <Section title={d.title} testId="char-depth-edit">
+      <ToggleRow label={t.light.view3d} checked={view3d} onChange={useView3d.getState().setOpen} testId="char-view3d" />
+      <Hint>{d.view3dHint}</Hint>
+      <ThicknessSlider />
+      <Hint>{d.thicknessHint}</Hint>
       <ToggleRow label={d.brush} checked={active} onChange={(on) => useFusion.getState().setTool(on ? 'depth' : 'transform')} testId="char-depth-brush" />
       <Hint>{d.brushHint}</Hint>
       {active && (

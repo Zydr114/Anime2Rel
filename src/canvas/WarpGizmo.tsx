@@ -4,6 +4,7 @@ import { characterOutline, layerUVToDoc } from '@/fusion/placement'
 import { gridPoints, moveCorner, moveGridPoint, resetCorner, resetGridPoint, UNIT_CORNERS, warpPoint, type CharWarp } from '@/fusion/warp'
 import { useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
+import { useView3dShown } from '@/state/view3d'
 
 const HANDLE = 6
 /** 网格线在相邻两个控制点之间的采样数 */
@@ -32,11 +33,12 @@ export function WarpGizmo({ passThrough }: { passThrough: boolean }) {
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
   const tool = useFusion((s) => s.tool)
+  const view3d = useView3dShown()
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ id: number; index: number; offset: Point } | null>(null)
 
   const { character, charWarp: warp } = doc
-  if (!character || step !== 'character' || tool === 'transform' || tool === 'depth') return null
+  if (!character || step !== 'character' || tool === 'transform' || tool === 'depth' || view3d) return null
 
   const perspective = tool === 'perspective'
   const screen = (uv: Point) => docToScreen(view, layerUVToDoc(doc, uv))

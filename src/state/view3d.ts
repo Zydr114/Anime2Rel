@@ -5,7 +5,7 @@ import { viewProjection, type Projection, type View3d } from '@/scene3d/space'
 import { getDepthResult } from './depth'
 import { currentDepthEdit } from './depthEdit'
 import { characterInfo } from './fusion'
-import { useApp } from './store'
+import { useApp, type StepId } from './store'
 
 /** 3D 视图的界面状态（docs/Plan.md §3.7 M8.6a），不参与撤销。view 为 null 时打开后按场景定出初始的环绕视角 */
 interface View3dState {
@@ -21,6 +21,16 @@ export const useView3d = create<View3dState>()((set) => ({
   setOpen: (open) => set({ open }),
   setView: (view) => set({ view }),
 }))
+
+/** 可以打开 3D 视图的步骤：光源（M8.6a）与立绘（M8.6b） */
+export const isView3dStep = (step: StepId) => step === 'light' || step === 'character'
+
+/** 3D 视图是否正在显示；显示时二维的控件隐藏 */
+export function useView3dShown(): boolean {
+  const open = useView3d((s) => s.open)
+  const step = useApp((s) => s.step)
+  return open && isView3dStep(step)
+}
 
 /** 当前的场景布局与投影；view 缺省时取 3D 视图当前的视角 */
 export function currentScene(view?: View3d): { layout: SceneLayout; projection: Projection } | null {

@@ -16,7 +16,7 @@ import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
 import { currentDepthEdit } from '@/state/depthEdit'
-import { currentScene, useView3d } from '@/state/view3d'
+import { currentScene, isView3dStep, useView3d } from '@/state/view3d'
 import { CameraGizmo, CharacterGuide } from './CameraGizmo'
 import { DepthBrush } from './DepthBrush'
 import { FocusGizmo } from './FocusGizmo'
@@ -104,16 +104,18 @@ export function Viewport() {
           const relief = step === 'character' && f.tool === 'depth' && !useView3d.getState().open
           e.setDisplay({ compare, showNormals: f.showNormals, showMask: f.showMask && step === 'focus', original: step === 'camera', relief })
         }
-        // 3D 视图只在光源步骤中显示
+        // 3D 视图在光源和立绘步骤中显示；灰球和选中的光源只在光源步骤中显示
         const sync3d = () => {
           const { doc, step } = useApp.getState()
           const { open, view } = useView3d.getState()
           const bg = doc.background
-          const s = open && view && step === 'light' ? currentScene(view) : null
+          const s = open && view && isView3dStep(step) ? currentScene(view) : null
           if (!s || !view || !bg) return e.setScene3d(null)
           const depth = getDepthResult(bg.id)
-          const ball = useLighting.getState().showBall ? computeBallPreview(doc, getAnalysis(bg.id), depth, characterInfo(doc)?.bbox) : null
-          e.setScene3d({ ...s, cameraView: view.kind === 'camera', camera: doc.camera, size: bg, depth, ball, insets: useApp.getState().viewInsets, selected: useLighting.getState().selected })
+          const light = step === 'light'
+          const ball = light && useLighting.getState().showBall ? computeBallPreview(doc, getAnalysis(bg.id), depth, characterInfo(doc)?.bbox) : null
+          const selected = light ? useLighting.getState().selected : null
+          e.setScene3d({ ...s, cameraView: view.kind === 'camera', camera: doc.camera, size: bg, depth, ball, insets: useApp.getState().viewInsets, selected })
         }
         const syncAll = () => {
           e.setDocument(useApp.getState().doc)

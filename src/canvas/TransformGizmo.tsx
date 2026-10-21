@@ -5,6 +5,7 @@ import { characterGround, characterHeight, characterOutline, characterPoint } fr
 import { UNIT_CORNERS } from '@/fusion/warp'
 import { characterInfo, useFusion } from '@/state/fusion'
 import { useApp } from '@/state/store'
+import { useView3dShown } from '@/state/view3d'
 
 const HANDLE_RADIUS = 6
 const ROTATE_OFFSET = 32
@@ -33,11 +34,12 @@ export function TransformGizmo({ passThrough }: { passThrough: boolean }) {
   const view = useApp((s) => s.view)
   const step = useApp((s) => s.step)
   const tool = useFusion((s) => s.tool)
+  const view3d = useView3dShown()
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<Drag | null>(null)
 
   const { character, charTransform: transform } = doc
-  if (!character || (step !== 'assets' && step !== 'character') || (step === 'character' && tool !== 'transform')) return null
+  if (!character || (step !== 'assets' && step !== 'character') || (step === 'character' && tool !== 'transform') || view3d) return null
 
   const corners = UNIT_CORNERS.map((c) => docToScreen(view, characterPoint(doc, c)))
   const center = docToScreen(view, transform)
