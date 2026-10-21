@@ -550,3 +550,64 @@ test('the 3D view shows the calibrated scene, places lamps and suns by dragging,
   await expect(view).toHaveCount(0)
   await expect(page.getByTestId('light-gizmo')).toBeVisible()
 })
+
+test('the character depth is corrected by a brush in 2D and 3D, and the character is moved along the ground in 3D, undoably', async ({ page }, info) => {
+  await page.goto(`/${rendererQuery(info.project.metadata.renderer)}`)
+  await importAndStart(page, [
+    ['drop-background', 'sunny.png', sunny],
+    ['drop-character', 'figure.png', figure(240, 480)],
+  ])
+  await page.getByTestId('step-depth').click()
+  await expect(page.getByTestId('depth-scale')).toHaveAttribute('data-state', 'ground', { timeout: 120_000 })
+  await expect(page.getByTestId('depth-job-character')).toHaveAttribute('data-state', 'done', { timeout: 120_000 })
+  await page.getByTestId('step-character').click()
+  await expect(page.getByTestId('fusion-color')).toContainText('影调和色调参照', { timeout: 60_000 })
+
+  // 默认摆放下裙子上部在文档 (0.5, 0.54)；用深度画笔时立绘叠加深度伪彩色
+  const dress = async () => (await docPixels(page, [[0.5, 0.54]]))[0]
+  expect(isBlue(await dress())).toBe(true)
+  await page.getByTestId('char-depth-brush').click()
+  await expect.poll(async () => isBlue(await dress())).toBe(false)
+  const before = luma(await dress())
+
+  // 横着拉近一笔：越亮越近；一笔一次撤销
+  const strokes = page.getByTestId('char-depth-strokes')
+  const doc = (await page.getByTestId('depth-brush-canvas').boundingBox())!
+  await page.mouse.move(doc.x + 0.42 * doc.width, doc.y + 0.54 * doc.height)
+  await page.mouse.down()
+  await page.mouse.move(doc.x + 0.58 * doc.width, doc.y + 0.54 * doc.height, { steps: 10 })
+  await page.mouse.up()
+  await expect(strokes).toHaveText('已修正 1 笔')
+  await expect.poll(async () => luma(await dress())).toBeGreaterThan(before + 5)
+  await page.getByTestId('undo').click()
+  await expect(strokes).toHaveText('还没有修正')
+
+  // 3D 视图中在人物（环绕中心）上向下拖动：沿地面走近相机，按透视放大；可撤销
+  await page.getByTestId('char-depth-brush').click()
+  await page.getByTestId('char-view3d').click()
+  const view = page.getByTestId('view3d')
+  await expect(view).toHaveAttribute('data-view', 'orbit')
+  await expect(page.getByTestId('gizmo')).toHaveCount(0)
+  const box = (await view.boundingBox())!
+  const center = { x: box.x + (112 + box.width - 352) / 2, y: box.y + 16 + (box.height - 104) / 2 }
+  await page.mouse.move(center.x, center.y)
+  await expect(view).toHaveAttribute('data-hover', 'character')
+  const scale = await sliderValue(page, 'char-scale')
+  await page.mouse.down()
+  await page.mouse.move(center.x, center.y + 50, { steps: 8 })
+  await page.mouse.up()
+  expect(await sliderValue(page, 'char-scale')).toBeGreaterThan(scale + 3)
+  await page.getByTestId('undo').click()
+  expect(await sliderValue(page, 'char-scale')).toBeCloseTo(scale, 3)
+
+  // 3D 中用深度画笔在人物上画
+  await page.getByTestId('char-depth-brush').click()
+  await page.mouse.move(center.x - 15, center.y)
+  await page.mouse.down()
+  await page.mouse.move(center.x + 15, center.y, { steps: 6 })
+  await expect(page.getByTestId('view3d-brush')).toHaveCount(1)
+  await page.mouse.up()
+  await expect(strokes).toHaveText('已修正 1 笔')
+  await page.getByTestId('char-depth-clear').click()
+  await expect(strokes).toHaveText('还没有修正')
+})
