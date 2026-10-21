@@ -44,6 +44,15 @@ export function PostSections() {
         <PostSlider section="diffusion" field="radius" label={e.radius} />
         <PostSlider section="diffusion" field="threshold" label={e.threshold} />
       </Group>
+      <Group id="post.softFocus" title={e.softFocus} summary={intensitySummary(post.softFocus.intensity)} help={e.softFocusHint} testId="post-softFocus">
+        <PostSlider section="softFocus" field="intensity" label={e.intensity} />
+        <PostSlider section="softFocus" field="radius" label={e.radius} />
+        <PostSlider section="softFocus" field="glow" label={e.softFocusGlow} />
+      </Group>
+      <Group id="post.soften" title={e.soften} summary={intensitySummary(post.soften.intensity)} help={e.softenHint} testId="post-soften">
+        <PostSlider section="soften" field="intensity" label={e.intensity} />
+        <PostSlider section="soften" field="radius" label={e.radius} />
+      </Group>
       <HalationSection />
       <RaysSection />
       <FlareSection />

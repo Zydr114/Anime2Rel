@@ -1,6 +1,6 @@
 /**
  * 终处理 pass：全局基础调整之后的处理（docs/Plan.md M5 实现方案）。依次为：
- * 色差 → 光学扩散 → 叠加 Bloom、Halation、光束、镜头光晕（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
+ * 色差 → 钝化 → 光学扩散 → 柔焦 → 叠加 Bloom、Halation、光束、镜头光晕（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
  * 全局调色的公式与 src/grade/creative.ts 一致，后期参数见 src/grade/post.ts。输入输出都是线性 sRGB。
  */
 import * as THREE from 'three/webgpu'
@@ -16,6 +16,7 @@ import {
   hash,
   If,
   length,
+  log2,
   max,
   min,
   mix,
@@ -161,6 +162,26 @@ function aberration(post: PostUniforms, image: TextureNode, tile: TileMapping): 
   return sum
 }
 
+/** 钝化的采样点：Vogel 螺旋（黄金角）均匀覆盖半径为 1 的圆盘 */
+const SOFTEN_TAPS = 12
+const SOFTEN_OFFSETS = Array.from({ length: SOFTEN_TAPS }, (_, i) => {
+  const r = Math.sqrt((i + 0.5) / SOFTEN_TAPS)
+  const a = i * Math.PI * (3 - Math.sqrt(5))
+  return [r * Math.cos(a), r * Math.sin(a)] as const
+})
+
+/**
+ * 钝化：以当前像素为中心的圆盘模糊减去中心的值，即被去掉的细节。
+ * 采样点的间距约为半径的一半，按间距选 mip 层级，使采样点之间没有空隙（需要图像有 mipmap）
+ */
+function softenDetail(post: PostUniforms, image: TextureNode, tile: TileMapping): Vec3Node {
+  const lod = max(log2(post.softenRadius.mul(post.long).mul(0.5)), 0)
+  const step = vec2(post.softenRadius).div(post.aspect)
+  let sum: Vec3Node = vec3(0)
+  for (const [x, y] of SOFTEN_OFFSETS) sum = sum.add(sampleAt(image, tile.toTarget(tile.uv.add(step.mul(vec2(x, y)))), lod).rgb)
+  return sum.div(SOFTEN_TAPS).sub(sampleAt(image, tile.toTarget(tile.uv), float(0)).rgb)
+}
+
 /** 颗粒满格时的幅度（编码值） */
 const GRAIN_AMPLITUDE = 0.15
 const LUMA = vec3(0.2126, 0.7152, 0.0722)
@@ -202,6 +223,8 @@ export interface FinishInputs {
   bloom: THREE.Texture
   /** 光学扩散金字塔的结果：参与扩散部分的模糊 */
   diffusion: THREE.Texture
+  /** 柔焦金字塔的结果：整幅图像的模糊 */
+  softFocus: THREE.Texture
   rays: THREE.Texture
   /** 光晕的可见度（1×1） */
   flareVisibility: THREE.Texture
@@ -215,15 +238,25 @@ export interface FinishInputs {
 export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: FinishInputs) {
   const bloomMap = texture(inputs.bloom)
   const diffusionMap = texture(inputs.diffusion)
+  const softFocusMap = texture(inputs.softFocus)
   const raysMap = texture(inputs.rays)
   const visibilityMap = texture(inputs.flareVisibility)
   const uv = inputs.tile.uv
   const node = Fn(() => {
     const c = aberration(post, inputs.image, inputs.tile).toVar()
+    // 钝化：减去一部分细节；与色差分开计算，色差的彩边保留
+    If(post.soften.greaterThan(0), () => {
+      c.addAssign(softenDetail(post, inputs.image, inputs.tile).mul(post.soften))
+    })
     // 光学扩散：参与扩散的部分 c·w 按比例换成它的模糊，总亮度不变
     If(post.diffusion.greaterThan(0), () => {
       const w = softThreshold(dot(c, LUMA), post.diffusionThreshold)
       c.addAssign(sampleAt(diffusionMap, uv, float(0)).rgb.sub(c.mul(w)).mul(post.diffusion))
+    })
+    // 柔焦：模糊副本提亮后按“变亮”逐通道叠加
+    If(post.softFocus.greaterThan(0), () => {
+      const b = sampleAt(softFocusMap, uv, float(0)).rgb.mul(post.softFocusGain)
+      c.assign(mix(c, max(c, b), post.softFocus))
     })
     If(post.bloom.add(post.halation).greaterThan(0), () => {
       const bloom = sampleAt(bloomMap, uv, float(0))

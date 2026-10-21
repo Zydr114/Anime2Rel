@@ -1,6 +1,6 @@
 /**
  * 后期效果中需要多个 pass 的部分（docs/Plan.md M5 实现方案）：Bloom 与 Halation 共用一个 mip 金字塔，光束为低分辨率的径向模糊。
- * 光学扩散（M8.8a）另用一个同样的金字塔。
+ * 光学扩散、柔焦（M8.8a）各用一个同样的金字塔。
  * 轮廓光束（M8.1）在光束遮罩中加入立绘的轮廓光，轮廓光由融合节点在光束的分辨率上单独渲染一次。
  * 镜头光晕（M8.2）的可见度在这里渲染到 1×1 的目标，见 src/engine/flare.ts。
  * 各金字塔第 0 级的长边固定为 BLOOM_SIZE，与渲染分辨率无关，所以预览与导出的光晕相同；第 0 级由全分辨率图像的 mip 预滤波得到。
@@ -78,6 +78,13 @@ export function createPostUniforms() {
     diffusion: uniform(0),
     diffusionThreshold: uniform(0),
     diffusionScatter: uniform(0.6),
+    /** 柔焦的强度、散射、模糊副本的倍数 */
+    softFocus: uniform(0),
+    softFocusScatter: uniform(0.45),
+    softFocusGain: uniform(1),
+    /** 钝化的强度、半径（相对长边） */
+    soften: uniform(0),
+    softenRadius: uniform(0.001),
     halation: uniform(0),
     halationColor: uniform(new THREE.Vector3(1, 0.1, 0)),
     rays: uniform(0),
@@ -104,6 +111,8 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   const on = enabled && !!p?.active
   u.bloom.value = on ? p!.bloom : 0
   u.diffusion.value = on ? p!.diffusion : 0
+  u.softFocus.value = on ? p!.softFocus : 0
+  u.soften.value = on ? p!.soften : 0
   u.halation.value = on ? p!.halation * HALATION_GAIN : 0
   u.rays.value = on && p!.raysLight && (p!.rays > 0 || p!.raysRim > 0) ? RAYS_GAIN : 0
   u.aberration.value = on ? p!.aberration : 0
@@ -115,6 +124,9 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   u.bloomThreshold.value = p.bloomThreshold
   u.diffusionThreshold.value = p.diffusionThreshold
   u.diffusionScatter.value = p.diffusionScatter
+  u.softFocusScatter.value = p.softFocusScatter
+  u.softFocusGain.value = p.softFocusGain
+  u.softenRadius.value = p.softenRadius
   u.halationThreshold.value = p.halationThreshold
   u.scatter.value.set(p.bloomScatter, p.halationScatter)
   u.halationColor.value.set(...p.halationColor)
@@ -195,6 +207,7 @@ function pyramidPasses(p: Pyramid, texels: Texel[], level0: Vec4Node, combine: (
 export interface PostTargets {
   bloom: Pyramid
   diffusion: Pyramid
+  softFocus: Pyramid
   /** 光束：遮罩与两张交替使用的模糊结果 */
   rays: THREE.RenderTarget[]
   /** 轮廓光束的发光区域 */
@@ -207,6 +220,7 @@ export function createPostTargets(): PostTargets {
   return {
     bloom: pyramidTargets(),
     diffusion: pyramidTargets(),
+    softFocus: pyramidTargets(),
     rays: Array.from({ length: 3 }, halfTarget),
     rim: halfTarget(),
     visibility: halfTarget(),
@@ -220,18 +234,20 @@ export interface PostPasses {
   texels: Texel[]
   bloom: Pass[]
   diffusion: Pass[]
+  softFocus: Pass[]
   rays: Pass[]
   rim: Pass
   visibility: Pass
   /** 叠加用的结果 */
   bloomResult: THREE.Texture
   diffusionResult: THREE.Texture
+  softFocusResult: THREE.Texture
   raysResult: THREE.Texture
   visibilityResult: THREE.Texture
 }
 
 /**
- * 创建 Bloom、光学扩散、光束和光晕可见度的 pass。image 为全局调整后的线性图像（需有 mipmap），
+ * 创建 Bloom、光学扩散、柔焦、光束和光晕可见度的 pass。image 为全局调整后的线性图像（需有 mipmap），
  * skyMap 为背景的深度辅助图（g 为天空遮罩，hasSky 为 0 时不可用），character 为立绘层（预乘 alpha，需有 mipmap），rimGlow 为融合节点输出的轮廓光。
  */
 export function createPostPasses(u: PostUniforms, image: TextureNode, skyMap: TextureNode, hasSky: FloatNode, character: TextureNode, rimGlow: Vec4Node): PostPasses {
@@ -253,6 +269,8 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, skyMap: Te
   const diffusion = pyramidPasses(targets.diffusion, texels, vec4(source.mul(softThreshold(l, u.diffusionThreshold)), 1), (d, t) =>
     vec4(mix(d.rgb, t.rgb, u.diffusionScatter), 1),
   )
+  // 柔焦：整幅图像的中等半径模糊，不设阈值
+  const softFocus = pyramidPasses(targets.softFocus, texels, vec4(source, 1), (d, t) => vec4(mix(d.rgb, t.rgb, u.softFocusScatter), 1))
 
   // 光束遮罩：亮度超过阈值的像素（可限制为天空），离光源越远越弱，立绘挡住的部分不发光；
   // 再加上立绘的轮廓光（不受阈值和距离影响），光束从立绘边缘向外散开
@@ -294,11 +312,13 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, skyMap: Te
     texels,
     bloom,
     diffusion,
+    softFocus,
     rays: raysPasses,
     rim,
     visibility,
     bloomResult: targets.bloom.up[0].texture,
     diffusionResult: targets.diffusion.up[0].texture,
+    softFocusResult: targets.softFocus.up[0].texture,
     raysResult: blurTarget(RAYS_PASSES - 1).texture,
     visibilityResult: targets.visibility.texture,
   }
@@ -308,7 +328,7 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, skyMap: Te
 export function resizePostPasses(p: PostPasses, doc: Size): void {
   const sizes = bloomSizes(doc)
   sizes.forEach((s, k) => {
-    for (const { down, up } of [p.targets.bloom, p.targets.diffusion]) {
+    for (const { down, up } of [p.targets.bloom, p.targets.diffusion, p.targets.softFocus]) {
       down[k].setSize(s.width, s.height)
       if (k < BLOOM_LEVELS - 1) up[k].setSize(s.width, s.height)
     }
@@ -318,7 +338,7 @@ export function resizePostPasses(p: PostPasses, doc: Size): void {
 }
 
 /** rim 为是否需要轮廓光束：不需要时遮罩中的权重为 0，不必更新轮廓光 */
-export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloom: boolean; diffusion: boolean; rays: boolean; rim: boolean; flare: boolean }): void {
+export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloom: boolean; diffusion: boolean; softFocus: boolean; rays: boolean; rim: boolean; flare: boolean }): void {
   const run = (passes: Pass[]) => {
     for (const { target, quad } of passes) {
       r.setRenderTarget(target)
@@ -327,13 +347,14 @@ export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloo
   }
   if (which.bloom) run(p.bloom)
   if (which.diffusion) run(p.diffusion)
+  if (which.softFocus) run(p.softFocus)
   if (which.rays && which.rim) run([p.rim])
   if (which.rays) run(p.rays)
   if (which.flare) run([p.visibility])
 }
 
 export function disposePostPasses(p: PostPasses): void {
-  const { bloom, diffusion, rays, rim, visibility } = p.targets
-  for (const rt of [...bloom.down, ...bloom.up, ...diffusion.down, ...diffusion.up, ...rays, rim, visibility]) rt.dispose()
-  for (const { quad } of [...p.bloom, ...p.diffusion, ...p.rays, p.rim, p.visibility]) (quad.material as THREE.Material).dispose()
+  const { bloom, diffusion, softFocus, rays, rim, visibility } = p.targets
+  for (const rt of [...[bloom, diffusion, softFocus].flatMap((q) => [...q.down, ...q.up]), ...rays, rim, visibility]) rt.dispose()
+  for (const { quad } of [...p.bloom, ...p.diffusion, ...p.softFocus, ...p.rays, p.rim, p.visibility]) (quad.material as THREE.Material).dispose()
 }

@@ -141,6 +141,8 @@ export function conformPost(v: unknown, light: (id: unknown) => string | null = 
   return {
     bloom: section('bloom'),
     diffusion: section('diffusion'),
+    softFocus: section('softFocus'),
+    soften: section('soften'),
     halation: section('halation'),
     rays: section('rays'),
     lens: section('lens'),

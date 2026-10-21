@@ -187,10 +187,13 @@ interface Effects {
   grade: boolean
   /** 各级是否有局部调整 */
   local: Record<GradeLevel, boolean>
-  /** 后期效果，以及其中需要单独 pass 的 Bloom/Halation、光学扩散、光束和其中的轮廓光束、光晕的可见度 */
+  /** 后期效果，以及其中需要单独 pass 的 Bloom/Halation、光学扩散、柔焦、光束和其中的轮廓光束、光晕的可见度 */
   post: boolean
   bloom: boolean
   diffusion: boolean
+  softFocus: boolean
+  /** 钝化：从全局调整结果的 mipmap 采样 */
+  soften: boolean
   rays: boolean
   rim: boolean
   flare: boolean
@@ -269,7 +272,7 @@ type SkipLayers = Partial<Record<LayerKey | CoefKey, boolean>>
 const tileCount = (n: number) => Math.max(1, Math.ceil(n / TILE))
 const coefSize = (n: number) => Math.max(1, Math.ceil(n / 4))
 
-/** 创建中间图层（1×1，由 sizeLayers 设置尺寸）。Bloom 和光束从全局调整结果的 mipmap 采样 */
+/** 创建中间图层（1×1，由 sizeLayers 设置尺寸）。Bloom、光束等金字塔和钝化从全局调整结果的 mipmap 采样 */
 function layerTargets(adjustedMips = true): LayerTargets {
   const target = (mipmaps = false) => linearTarget(1, 1, mipmaps)
   return {
@@ -475,6 +478,7 @@ export class Engine {
       image: nodes.adjusted,
       bloom: this.postPasses.bloomResult,
       diffusion: this.postPasses.diffusionResult,
+      softFocus: this.postPasses.softFocusResult,
       rays: this.postPasses.raysResult,
       flareVisibility: this.postPasses.visibilityResult,
       tile: this.tile,
@@ -747,6 +751,8 @@ export class Engine {
       post,
       bloom: post && (p!.bloom > 0 || p!.halation > 0),
       diffusion: post && p!.diffusion > 0,
+      softFocus: post && p!.softFocus > 0,
+      soften: post && p!.soften > 0,
       rays: post && (p!.rays > 0 || p!.raysRim > 0) && !!p!.raysLight,
       rim: post && p!.raysRim > 0 && !!p!.raysLight,
       flare: post && p!.flare > 0 && p!.flareCount > 0 && !!p!.flareLight,
@@ -1174,7 +1180,7 @@ export class Engine {
   }
 
   private async exportWhole({ width, height }: Size, effects: Effects, skip: SkipLayers, options: ExportOptions): Promise<void> {
-    const targets = layerTargets(effects.bloom || effects.diffusion || effects.rays)
+    const targets = layerTargets(effects.bloom || effects.diffusion || effects.softFocus || effects.rays || effects.soften)
     sizeLayers(targets, width, height, skip)
     const linear = linearTarget(width, height)
     const out = byteTarget(width, height)
@@ -1209,6 +1215,7 @@ export class Engine {
       scale,
       coc: Math.max(effects.dof || effects.occlusion ? Math.max(u.aperture.value, u.characterCoc.value) * long : 0, reflection),
       aberration: this.post.aberration.value,
+      soften: effects.soften ? this.post.softenRadius.value * long : 0,
       reach: water + (cropped ? this.character.fusion.wrapRadius.value : 0),
       maxEdge: this.textureLimit,
       inner: this.exportTile,
@@ -1226,7 +1233,7 @@ export class Engine {
     const rows = planTiles(width, height, plan.inner, plan.margin)
     const total = rows.length * rows[0].length
     // 各级局部调整的系数使用代理渲染的结果
-    const { backgroundCoef, characterCoef, globalCoef, ...own } = layerTargets(false)
+    const { backgroundCoef, characterCoef, globalCoef, ...own } = layerTargets(effects.soften)
     const targets: LayerTargets = { ...own, backgroundCoef: this.layers.backgroundCoef, characterCoef: this.layers.characterCoef, globalCoef: this.layers.globalCoef }
     for (const rt of [backgroundCoef, characterCoef, globalCoef]) rt.dispose()
     const linear = linearTarget(1, 1)

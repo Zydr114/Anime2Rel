@@ -1,7 +1,7 @@
 /**
  * 分块导出的划分（docs/Plan.md §5）：输出图像按 inner 切成若干块，每块向四周扩展 margin 一起渲染，只取中间的部分写入结果。
  * 扩展的范围在图像边界处截断，此时边缘与整幅渲染一样钳位到图像边界。
- * 扩展量覆盖各 pass 读取邻近像素的距离（景深、锐化、色差等）；超出这个距离的效果（局部调整的大半径滤波、Bloom、光束）由整幅的预览分辨率渲染提供。
+ * 扩展量覆盖各 pass 读取邻近像素的距离（景深、锐化、色差、钝化等）；超出这个距离的效果（局部调整的大半径滤波、Bloom、光束）由整幅的预览分辨率渲染提供。
  */
 import { SHARPEN_RADIUS } from '@/grade/color'
 
@@ -37,6 +37,8 @@ export interface TilePlanInput {
   coc: number
   /** 色差的缩放量（相对画面中心） */
   aberration: number
+  /** 钝化的半径（输出像素），没有钝化时为 0 */
+  soften?: number
   /** 其余超出当前像素的采样距离（文档像素）：水体折射、从原图裁剪背景时的 Light Wrap */
   reach: number
   /** 渲染目标的边长上限 */
@@ -46,14 +48,15 @@ export interface TilePlanInput {
 }
 
 /**
- * 块的边长和扩展量。块的左上角对齐到不小于弥散圆的 2 的幂（16–512），
+ * 块的边长和扩展量。块的左上角对齐到不小于弥散圆、钝化半径的 2 的幂（16–512），
  * 使景深的 16 像素统计块、各级 mip 的划分与整幅渲染一致。
  */
 export function tilePlan(i: TilePlanInput): { inner: number; margin: number } {
-  const align = Math.min(512, Math.max(16, 2 ** Math.ceil(Math.log2(Math.max(i.coc, 1)))))
+  const soften = i.soften ?? 0
+  const align = Math.min(512, Math.max(16, 2 ** Math.ceil(Math.log2(Math.max(i.coc, soften, 1)))))
   const sharpen = Math.max(i.long * SHARPEN_RADIUS, 1)
-  // 色差在终处理中读取；锐化在背景层、立绘层、全局各读一次；景深按弥散圆加上 mip 预模糊的范围
-  let margin = roundUp(0.5 * i.aberration * i.long + 3 * sharpen + 1.3 * i.coc + i.reach * i.scale + BASE_MARGIN, align)
+  // 色差、钝化在终处理中读取（钝化加上 mip 的范围）；锐化在背景层、立绘层、全局各读一次；景深按弥散圆加上 mip 预模糊的范围
+  let margin = roundUp(0.5 * i.aberration * i.long + 1.5 * soften + 3 * sharpen + 1.3 * i.coc + i.reach * i.scale + BASE_MARGIN, align)
   const edge = Math.min(TILE_EDGE, i.maxEdge)
   const inner = i.inner ? roundUp(i.inner, align) : Math.max(roundUp(MIN_INNER, align), Math.floor((edge - 2 * margin) / align) * align)
   // 扩展量过大时缩小到渲染目标的上限以内，接缝处的远距离效果会有误差
