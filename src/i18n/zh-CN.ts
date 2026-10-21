@@ -730,6 +730,8 @@ export const zhCN = {
     radius: '半径',
     bloom: '泛光（Bloom）',
     bloomHint: '泛光：让亮部向周围扩散出柔和的光。阈值越低，参与发光的区域越多。',
+    diffusion: '光学扩散',
+    diffusionHint: '模拟柔光镜：把一部分光从原处移到周围，高光周围发柔、反差降低，但画面不会变亮（与泛光不同）。阈值为 0 时整幅画面都参与，像蒙上一层薄雾（白柔）；提高阈值后只扩散亮部，暗部保持干净（黑柔）。',
     halation: '胶片红晕（Halation）',
     halationHint: '胶片上高光周围的红橙色光晕。',
     halationColor: '颜色',

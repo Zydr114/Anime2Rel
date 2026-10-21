@@ -39,6 +39,11 @@ export function PostSections() {
         <PostSlider section="bloom" field="threshold" label={e.threshold} />
         <PostSlider section="bloom" field="radius" label={e.radius} />
       </Group>
+      <Group id="post.diffusion" title={e.diffusion} summary={intensitySummary(post.diffusion.intensity)} help={e.diffusionHint} testId="post-diffusion">
+        <PostSlider section="diffusion" field="intensity" label={e.intensity} />
+        <PostSlider section="diffusion" field="radius" label={e.radius} />
+        <PostSlider section="diffusion" field="threshold" label={e.threshold} />
+      </Group>
       <HalationSection />
       <RaysSection />
       <FlareSection />

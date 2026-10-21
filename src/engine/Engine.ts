@@ -187,9 +187,10 @@ interface Effects {
   grade: boolean
   /** 各级是否有局部调整 */
   local: Record<GradeLevel, boolean>
-  /** 后期效果，以及其中需要单独 pass 的 Bloom/Halation、光束和其中的轮廓光束、光晕的可见度 */
+  /** 后期效果，以及其中需要单独 pass 的 Bloom/Halation、光学扩散、光束和其中的轮廓光束、光晕的可见度 */
   post: boolean
   bloom: boolean
+  diffusion: boolean
   rays: boolean
   rim: boolean
   flare: boolean
@@ -473,6 +474,7 @@ export class Engine {
     const finishInputs = {
       image: nodes.adjusted,
       bloom: this.postPasses.bloomResult,
+      diffusion: this.postPasses.diffusionResult,
       rays: this.postPasses.raysResult,
       flareVisibility: this.postPasses.visibilityResult,
       tile: this.tile,
@@ -744,6 +746,7 @@ export class Engine {
       local: Object.fromEntries(GRADE_LEVELS.map((level) => [level, grade && !!this.grade?.levels[level].local])) as Record<GradeLevel, boolean>,
       post,
       bloom: post && (p!.bloom > 0 || p!.halation > 0),
+      diffusion: post && p!.diffusion > 0,
       rays: post && (p!.rays > 0 || p!.raysRim > 0) && !!p!.raysLight,
       rim: post && p!.raysRim > 0 && !!p!.raysLight,
       flare: post && p!.flare > 0 && p!.flareCount > 0 && !!p!.flareLight,
@@ -1171,7 +1174,7 @@ export class Engine {
   }
 
   private async exportWhole({ width, height }: Size, effects: Effects, skip: SkipLayers, options: ExportOptions): Promise<void> {
-    const targets = layerTargets(effects.bloom || effects.rays)
+    const targets = layerTargets(effects.bloom || effects.diffusion || effects.rays)
     sizeLayers(targets, width, height, skip)
     const linear = linearTarget(width, height)
     const out = byteTarget(width, height)

@@ -1,6 +1,6 @@
 /**
  * 终处理 pass：全局基础调整之后的处理（docs/Plan.md M5 实现方案）。依次为：
- * 色差 → 叠加 Bloom、Halation、光束、镜头光晕（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
+ * 色差 → 光学扩散 → 叠加 Bloom、Halation、光束、镜头光晕（线性 HDR）→ 暗角 → 色调映射 → 色轮、分离色调、LUT、混色层（显示空间）→ 颗粒。
  * 全局调色的公式与 src/grade/creative.ts 一致，后期参数见 src/grade/post.ts。输入输出都是线性 sRGB。
  */
 import * as THREE from 'three/webgpu'
@@ -39,7 +39,7 @@ import { MAX_BLEND_LAYERS } from '@/grade/model'
 import { blend, blendLuma } from './blend'
 import { flareColor } from './flare'
 import { fromOklab, material, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type TileMapping, type Vec2Node, type Vec3Node } from './nodes'
-import type { PostUniforms } from './post'
+import { softThreshold, type PostUniforms } from './post'
 
 /** LUT → RGBA 半精度三维纹理，线性插值 */
 function lutTexture(lut: Pick<CubeLut, 'size' | 'data'>): THREE.Data3DTexture {
@@ -200,6 +200,8 @@ export interface FinishInputs {
   image: TextureNode
   /** Bloom 金字塔（rgb 为 Bloom，a 为 Halation 的亮度）与光束的结果，覆盖整幅图像 */
   bloom: THREE.Texture
+  /** 光学扩散金字塔的结果：参与扩散部分的模糊 */
+  diffusion: THREE.Texture
   rays: THREE.Texture
   /** 光晕的可见度（1×1） */
   flareVisibility: THREE.Texture
@@ -212,11 +214,17 @@ export interface FinishInputs {
  */
 export function createFinishPass(u: FinishUniforms, post: PostUniforms, inputs: FinishInputs) {
   const bloomMap = texture(inputs.bloom)
+  const diffusionMap = texture(inputs.diffusion)
   const raysMap = texture(inputs.rays)
   const visibilityMap = texture(inputs.flareVisibility)
   const uv = inputs.tile.uv
   const node = Fn(() => {
     const c = aberration(post, inputs.image, inputs.tile).toVar()
+    // 光学扩散：参与扩散的部分 c·w 按比例换成它的模糊，总亮度不变
+    If(post.diffusion.greaterThan(0), () => {
+      const w = softThreshold(dot(c, LUMA), post.diffusionThreshold)
+      c.addAssign(sampleAt(diffusionMap, uv, float(0)).rgb.sub(c.mul(w)).mul(post.diffusion))
+    })
     If(post.bloom.add(post.halation).greaterThan(0), () => {
       const bloom = sampleAt(bloomMap, uv, float(0))
       c.addAssign(bloom.rgb.mul(post.bloom).add(post.halationColor.mul(bloom.a.mul(post.halation))))

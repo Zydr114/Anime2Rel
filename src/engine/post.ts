@@ -1,8 +1,9 @@
 /**
  * 后期效果中需要多个 pass 的部分（docs/Plan.md M5 实现方案）：Bloom 与 Halation 共用一个 mip 金字塔，光束为低分辨率的径向模糊。
+ * 光学扩散（M8.8a）另用一个同样的金字塔。
  * 轮廓光束（M8.1）在光束遮罩中加入立绘的轮廓光，轮廓光由融合节点在光束的分辨率上单独渲染一次。
  * 镜头光晕（M8.2）的可见度在这里渲染到 1×1 的目标，见 src/engine/flare.ts。
- * 金字塔第 0 级的长边固定为 BLOOM_SIZE，与渲染分辨率无关，所以预览与导出的光晕相同；第 0 级由全分辨率图像的 mip 预滤波得到。
+ * 各金字塔第 0 级的长边固定为 BLOOM_SIZE，与渲染分辨率无关，所以预览与导出的光晕相同；第 0 级由全分辨率图像的 mip 预滤波得到。
  * 结果在终处理 pass（src/engine/finish.ts）中叠加。
  */
 import * as THREE from 'three/webgpu'
@@ -73,6 +74,10 @@ export function createPostUniforms() {
 
     // 以下由终处理 pass 使用；强度为 0 时不叠加
     bloom: uniform(0),
+    /** 光学扩散移到周围的比例、线性亮度阈值、散射 */
+    diffusion: uniform(0),
+    diffusionThreshold: uniform(0),
+    diffusionScatter: uniform(0.6),
     halation: uniform(0),
     halationColor: uniform(new THREE.Vector3(1, 0.1, 0)),
     rays: uniform(0),
@@ -98,6 +103,7 @@ export type PostUniforms = ReturnType<typeof createPostUniforms>
 export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: boolean): void {
   const on = enabled && !!p?.active
   u.bloom.value = on ? p!.bloom : 0
+  u.diffusion.value = on ? p!.diffusion : 0
   u.halation.value = on ? p!.halation * HALATION_GAIN : 0
   u.rays.value = on && p!.raysLight && (p!.rays > 0 || p!.raysRim > 0) ? RAYS_GAIN : 0
   u.aberration.value = on ? p!.aberration : 0
@@ -107,6 +113,8 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
   u.flare.value = on && p!.flareLight && p!.flareCount > 0 ? p!.flare : 0
   if (!p) return
   u.bloomThreshold.value = p.bloomThreshold
+  u.diffusionThreshold.value = p.diffusionThreshold
+  u.diffusionScatter.value = p.diffusionScatter
   u.halationThreshold.value = p.halationThreshold
   u.scatter.value.set(p.bloomScatter, p.halationScatter)
   u.halationColor.value.set(...p.halationColor)
@@ -126,7 +134,7 @@ export function applyPostParams(u: PostUniforms, p: PostParams | null, enabled: 
 }
 
 /** 软阈值（带过渡区）：br 为亮度，返回乘到颜色上的权重 */
-function softThreshold(br: FloatNode, t: FloatNode): FloatNode {
+export function softThreshold(br: FloatNode, t: FloatNode): FloatNode {
   const knee = max(t.mul(0.5), 1e-4)
   const soft = clamp(br.sub(t).add(knee), 0, knee.mul(2))
   return max(soft.mul(soft).div(knee.mul(4)), br.sub(t)).div(max(br, 1e-4))
@@ -149,10 +157,44 @@ function tent(t: TextureNode, texel: Vec2Node): Vec4Node {
   return sum.div(16)
 }
 
-export interface PostTargets {
+type Pass = { target: THREE.RenderTarget; quad: THREE.QuadMesh }
+type Texel = THREE.UniformNode<'vec2', THREE.Vector2>
+
+const pass = (target: THREE.RenderTarget, node: Vec4Node): Pass => ({ target, quad: new THREE.QuadMesh(material(node)) })
+
+/** mip 金字塔：down 为各级降采样，up[k] 与 down[k] 同尺寸，最粗一级没有 up；结果在 up[0] */
+interface Pyramid {
   down: THREE.RenderTarget[]
-  /** up[k] 与 down[k] 同尺寸；最粗一级没有 up */
   up: THREE.RenderTarget[]
+}
+
+function pyramidTargets(): Pyramid {
+  return { down: Array.from({ length: BLOOM_LEVELS }, halfTarget), up: Array.from({ length: BLOOM_LEVELS - 1 }, halfTarget) }
+}
+
+/** 第 0 级的源：在比它精细一级的 mip 上做 13 点降采样 */
+function pyramidSource(u: PostUniforms, image: TextureNode, texels: Texel[]): Vec3Node {
+  return downsample(image, texels[0].mul(0.5), max(u.sourceLod.sub(1), 0)).rgb
+}
+
+/**
+ * 金字塔的各个 pass：第 0 级写入 level0，再逐级 13 点降采样；然后由粗到细上采样，
+ * up_k = combine(down_k, tent(up_{k+1}), k)，通常为按散射混合，各级权重之和为 1
+ */
+function pyramidPasses(p: Pyramid, texels: Texel[], level0: Vec4Node, combine: (d: Vec4Node, t: Vec4Node, k: number) => Vec4Node): Pass[] {
+  const passes = [pass(p.down[0], level0)]
+  for (let k = 1; k < BLOOM_LEVELS; k++) passes.push(pass(p.down[k], downsample(texture(p.down[k - 1].texture), texels[k - 1], float(0))))
+  for (let k = BLOOM_LEVELS - 2; k >= 0; k--) {
+    const coarse = k === BLOOM_LEVELS - 2 ? p.down[k + 1] : p.up[k + 1]
+    const d = sampleAt(texture(p.down[k].texture), screenUV, float(0))
+    passes.push(pass(p.up[k], combine(d, tent(texture(coarse.texture), texels[k + 1]), k)))
+  }
+  return passes
+}
+
+export interface PostTargets {
+  bloom: Pyramid
+  diffusion: Pyramid
   /** 光束：遮罩与两张交替使用的模糊结果 */
   rays: THREE.RenderTarget[]
   /** 轮廓光束的发光区域 */
@@ -163,8 +205,8 @@ export interface PostTargets {
 
 export function createPostTargets(): PostTargets {
   return {
-    down: Array.from({ length: BLOOM_LEVELS }, halfTarget),
-    up: Array.from({ length: BLOOM_LEVELS - 1 }, halfTarget),
+    bloom: pyramidTargets(),
+    diffusion: pyramidTargets(),
     rays: Array.from({ length: 3 }, halfTarget),
     rim: halfTarget(),
     visibility: halfTarget(),
@@ -174,51 +216,50 @@ export function createPostTargets(): PostTargets {
 /** 各 pass 的材质和源图像素尺寸（随文档尺寸变化） */
 export interface PostPasses {
   targets: PostTargets
-  texels: THREE.UniformNode<'vec2', THREE.Vector2>[]
-  bloom: { target: THREE.RenderTarget; quad: THREE.QuadMesh }[]
-  rays: { target: THREE.RenderTarget; quad: THREE.QuadMesh }[]
-  rim: { target: THREE.RenderTarget; quad: THREE.QuadMesh }
-  visibility: { target: THREE.RenderTarget; quad: THREE.QuadMesh }
+  /** 各级金字塔的像素在 UV 中的尺寸，几个金字塔共用 */
+  texels: Texel[]
+  bloom: Pass[]
+  diffusion: Pass[]
+  rays: Pass[]
+  rim: Pass
+  visibility: Pass
   /** 叠加用的结果 */
   bloomResult: THREE.Texture
+  diffusionResult: THREE.Texture
   raysResult: THREE.Texture
   visibilityResult: THREE.Texture
 }
 
 /**
- * 创建 Bloom、光束和光晕可见度的 pass。image 为全局调整后的线性图像（需有 mipmap），
+ * 创建 Bloom、光学扩散、光束和光晕可见度的 pass。image 为全局调整后的线性图像（需有 mipmap），
  * skyMap 为背景的深度辅助图（g 为天空遮罩，hasSky 为 0 时不可用），character 为立绘层（预乘 alpha，需有 mipmap），rimGlow 为融合节点输出的轮廓光。
  */
 export function createPostPasses(u: PostUniforms, image: TextureNode, skyMap: TextureNode, hasSky: FloatNode, character: TextureNode, rimGlow: Vec4Node): PostPasses {
   const targets = createPostTargets()
-  const { down, up, rays } = targets
+  const { rays } = targets
   const texels = Array.from({ length: BLOOM_LEVELS }, () => uniform(new THREE.Vector2(1, 1)))
-  const quad = (node: Vec4Node) => new THREE.QuadMesh(material(node))
-  const bloom: PostPasses['bloom'] = []
 
-  // 第 0 级：在比它精细一级的 mip 上做 13 点降采样，再提取高光：Bloom 按最大通道，Halation 按亮度（只记亮度，存在 alpha 中）
-  {
-    const c = downsample(image, texels[0].mul(0.5), max(u.sourceLod.sub(1), 0)).rgb
-    const l = dot(c, LUMA)
-    bloom.push({ target: down[0], quad: quad(vec4(c.mul(softThreshold(max(c.r, max(c.g, c.b)), u.bloomThreshold)), l.mul(softThreshold(l, u.halationThreshold)))) })
-  }
-  for (let k = 1; k < BLOOM_LEVELS; k++) bloom.push({ target: down[k], quad: quad(downsample(texture(down[k - 1].texture), texels[k - 1], float(0))) })
-  // 上采样：up_k = mix(down_k, tent(up_{k+1}), 散射)，由粗到细，各级权重之和为 1。
+  // Bloom：第 0 级提取高光，Bloom 按最大通道，Halation 按亮度（只记亮度，存在 alpha 中）。
   // Halation 在第 0 级只保留扩散到高光以外的部分（模糊结果减去高光本身），表现为亮部边缘向暗处渗出的红晕
-  for (let k = BLOOM_LEVELS - 2; k >= 0; k--) {
-    const coarse = k === BLOOM_LEVELS - 2 ? down[k + 1] : up[k + 1]
-    const d = sampleAt(texture(down[k].texture), screenUV, float(0))
-    const t = tent(texture(coarse.texture), texels[k + 1])
-    const rgb = mix(d.rgb, t.rgb, u.scatter.x)
-    bloom.push({ target: up[k], quad: quad(vec4(rgb, k === 0 ? max(t.a.sub(d.a), 0) : mix(d.a, t.a, u.scatter.y))) })
-  }
+  const source = pyramidSource(u, image, texels)
+  const l = dot(source, LUMA)
+  const bloom = pyramidPasses(
+    targets.bloom,
+    texels,
+    vec4(source.mul(softThreshold(max(source.r, max(source.g, source.b)), u.bloomThreshold)), l.mul(softThreshold(l, u.halationThreshold))),
+    (d, t, k) => vec4(mix(d.rgb, t.rgb, u.scatter.x), k === 0 ? max(t.a.sub(d.a), 0) : mix(d.a, t.a, u.scatter.y)),
+  )
+  // 光学扩散：按亮度的软阈值取出参与扩散的部分 c·w，结果为它按能量归一化的模糊
+  const diffusion = pyramidPasses(targets.diffusion, texels, vec4(source.mul(softThreshold(l, u.diffusionThreshold)), 1), (d, t) =>
+    vec4(mix(d.rgb, t.rgb, u.diffusionScatter), 1),
+  )
 
   // 光束遮罩：亮度超过阈值的像素（可限制为天空），离光源越远越弱，立绘挡住的部分不发光；
   // 再加上立绘的轮廓光（不受阈值和距离影响），光束从立绘边缘向外散开
-  const raysPasses: PostPasses['rays'] = []
+  const raysPasses: Pass[] = []
   const toLight = u.raysLight.sub(screenUV)
   const distance = length(toLight.mul(u.aspect))
-  const rim = { target: targets.rim, quad: quad(rimGlow) }
+  const rim = pass(targets.rim, rimGlow)
   {
     const lod = max(u.sourceLod, 0)
     const c = sampleAt(image, screenUV, lod).rgb
@@ -227,7 +268,7 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, skyMap: Te
     const phase = float(1).div(distance.div(RAYS_PHASE_RADIUS).pow(2).add(1))
     const bright = c.mul(softThreshold(dot(c, LUMA), u.raysThreshold).mul(skyWeight).mul(visible).mul(phase))
     const glow = sampleAt(texture(targets.rim.texture), screenUV, float(0)).rgb
-    raysPasses.push({ target: rays[0], quad: quad(vec4(bright.mul(u.raysSky).add(glow.mul(u.raysRim)), 1)) })
+    raysPasses.push(pass(rays[0], vec4(bright.mul(u.raysSky).add(glow.mul(u.raysRim)), 1)))
   }
   // 径向模糊：采样点 p + (光源 − p)·(1 − σ)，σ 在对数空间均匀分布；三个 pass 的步长依次乘以 RAYS_SAMPLES，合起来是均匀的 RAYS_SAMPLES^3 个采样。
   // 各 pass 按走过的距离指数衰减，几个 pass 的距离近似相加，合起来仍是按总距离衰减
@@ -244,18 +285,20 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, skyMap: Te
       const weight = exp(distance.mul(t).div(rayLength).mul(-RAYS_DECAY))
       sum = sum.add(sampleAt(src, screenUV.add(toLight.mul(t)), float(0)).rgb.mul(weight))
     }
-    raysPasses.push({ target: blurTarget(j), quad: quad(vec4(sum.div(RAYS_SAMPLES), 1)) })
+    raysPasses.push(pass(blurTarget(j), vec4(sum.div(RAYS_SAMPLES), 1)))
   }
 
-  const visibility = { target: targets.visibility, quad: quad(flareVisibility(u, character, skyMap, hasSky)) }
+  const visibility = pass(targets.visibility, flareVisibility(u, character, skyMap, hasSky))
   return {
     targets,
     texels,
     bloom,
+    diffusion,
     rays: raysPasses,
     rim,
     visibility,
-    bloomResult: up[0].texture,
+    bloomResult: targets.bloom.up[0].texture,
+    diffusionResult: targets.diffusion.up[0].texture,
     raysResult: blurTarget(RAYS_PASSES - 1).texture,
     visibilityResult: targets.visibility.texture,
   }
@@ -265,28 +308,32 @@ export function createPostPasses(u: PostUniforms, image: TextureNode, skyMap: Te
 export function resizePostPasses(p: PostPasses, doc: Size): void {
   const sizes = bloomSizes(doc)
   sizes.forEach((s, k) => {
-    p.targets.down[k].setSize(s.width, s.height)
-    if (k < BLOOM_LEVELS - 1) p.targets.up[k].setSize(s.width, s.height)
+    for (const { down, up } of [p.targets.bloom, p.targets.diffusion]) {
+      down[k].setSize(s.width, s.height)
+      if (k < BLOOM_LEVELS - 1) up[k].setSize(s.width, s.height)
+    }
     p.texels[k].value.set(1 / s.width, 1 / s.height)
   })
   for (const rt of [...p.targets.rays, p.targets.rim]) rt.setSize(sizes[0].width, sizes[0].height)
 }
 
 /** rim 为是否需要轮廓光束：不需要时遮罩中的权重为 0，不必更新轮廓光 */
-export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloom: boolean; rays: boolean; rim: boolean; flare: boolean }): void {
-  const run = (passes: PostPasses['bloom']) => {
+export function renderPost(r: THREE.WebGPURenderer, p: PostPasses, which: { bloom: boolean; diffusion: boolean; rays: boolean; rim: boolean; flare: boolean }): void {
+  const run = (passes: Pass[]) => {
     for (const { target, quad } of passes) {
       r.setRenderTarget(target)
       quad.render(r)
     }
   }
   if (which.bloom) run(p.bloom)
+  if (which.diffusion) run(p.diffusion)
   if (which.rays && which.rim) run([p.rim])
   if (which.rays) run(p.rays)
   if (which.flare) run([p.visibility])
 }
 
 export function disposePostPasses(p: PostPasses): void {
-  for (const rt of [...p.targets.down, ...p.targets.up, ...p.targets.rays, p.targets.rim, p.targets.visibility]) rt.dispose()
-  for (const { quad } of [...p.bloom, ...p.rays, p.rim, p.visibility]) (quad.material as THREE.Material).dispose()
+  const { bloom, diffusion, rays, rim, visibility } = p.targets
+  for (const rt of [...bloom.down, ...bloom.up, ...diffusion.down, ...diffusion.up, ...rays, rim, visibility]) rt.dispose()
+  for (const { quad } of [...p.bloom, ...p.diffusion, ...p.rays, p.rim, p.visibility]) (quad.material as THREE.Material).dispose()
 }

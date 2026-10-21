@@ -15,6 +15,8 @@ export const TONE_MAPPINGS: readonly ToneMapping[] = ['none', 'agx', 'neutral']
 export interface PostDoc {
   /** 阈值为 sRGB 编码的亮度 [0,1]，其他参数为 [0,1] */
   bloom: { intensity: number; threshold: number; radius: number }
+  /** 光学扩散（M8.8a）：把一部分光移到周围，总亮度不变。阈值为 0 时整幅画面都参与（白柔），提高后只扩散亮部（黑柔） */
+  diffusion: { intensity: number; radius: number; threshold: number }
   /** 胶片红晕：color 为 #rrggbb */
   halation: { intensity: number; threshold: number; radius: number; color: string }
   /** 丁达尔光束：light 为光源 id，null 为自动选择；skyOnly 为只让天空发光（有深度时）；rim 为轮廓光束的强度 */
@@ -32,6 +34,7 @@ export type PostSection = Exclude<keyof PostDoc, 'toneMapping'>
 
 export const DEFAULT_POST: PostDoc = {
   bloom: { intensity: 0, threshold: 0.75, radius: 0.5 },
+  diffusion: { intensity: 0, radius: 0.6, threshold: 0 },
   halation: { intensity: 0, threshold: 0.85, radius: 0.3, color: '#ff5a1f' },
   rays: { intensity: 0, threshold: 0.8, length: 0.5, light: null, skyOnly: true, rim: 0 },
   lens: { aberration: 0, vignette: 0, midpoint: 0.5, feather: 0.5 },
@@ -45,6 +48,7 @@ const flareActive = (f: FlareDoc) => f.enabled && f.intensity > 0 && f.elements.
 export function isNeutralPost(p: PostDoc): boolean {
   return (
     p.bloom.intensity === 0 &&
+    p.diffusion.intensity === 0 &&
     p.halation.intensity === 0 &&
     p.rays.intensity === 0 &&
     p.rays.rim === 0 &&
@@ -59,6 +63,8 @@ export function isNeutralPost(p: PostDoc): boolean {
 /** 散射（上采样时粗一级所占的比例）的范围，由半径换算 */
 const SCATTER_MIN = 0.4
 const SCATTER_MAX = 0.95
+/** 光学扩散强度满格时移到周围的比例 */
+const DIFFUSION_GAIN = 0.7
 /** 色差满格时，画面边缘处红、蓝通道相对放大的比例 */
 export const ABERRATION_SCALE = 0.015
 /** 暗角满格时画面角落的曝光变化（EV） */
@@ -78,6 +84,10 @@ export interface PostParams {
   /** 线性亮度 */
   bloomThreshold: number
   bloomScatter: number
+  /** 光学扩散：移到周围的比例（0 为关闭）、线性亮度阈值、散射 */
+  diffusion: number
+  diffusionThreshold: number
+  diffusionScatter: number
   halation: number
   halationThreshold: number
   halationScatter: number
@@ -157,6 +167,9 @@ export function postParams(p: PostDoc, lighting: LightingDoc, size: Size | null,
     bloom: p.bloom.intensity,
     bloomThreshold: srgbToLinear(p.bloom.threshold),
     bloomScatter: scatter(p.bloom.radius),
+    diffusion: p.diffusion.intensity * DIFFUSION_GAIN,
+    diffusionThreshold: srgbToLinear(p.diffusion.threshold),
+    diffusionScatter: scatter(p.diffusion.radius),
     halation: p.halation.intensity,
     halationThreshold: srgbToLinear(p.halation.threshold),
     halationScatter: scatter(p.halation.radius),
