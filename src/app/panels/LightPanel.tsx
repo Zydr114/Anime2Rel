@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Switch } from 'mdui/components/switch.js'
 import { toAngles, fromAngles } from '@/algo/camera'
 import { hexToLinear, linearToHex, normalizeColor } from '@/algo/color'
@@ -12,6 +12,7 @@ import { MAX_LIGHTS, newDirectionalLight, type Light, type LightType } from '@/l
 import { computeBallPreview } from '@/lighting/preview'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useCharacterInfo } from '@/state/fusion'
+import { openGroup } from '@/state/groups'
 import { useHints } from '@/state/hints'
 import { useLighting } from '@/state/lighting'
 import { useApp } from '@/state/store'
@@ -24,6 +25,7 @@ import { lightName } from '../lightName'
 import { notify } from '../notify'
 import { useGestureChange } from '../useGestureChange'
 import { DirectionSphere } from './DirectionSphere'
+import { Empty, Group, Help, Hint } from './Group'
 
 const DEG = 180 / Math.PI
 const RAD = Math.PI / 180
@@ -36,6 +38,8 @@ const percent = (v: number) => `${Math.round(v * 100)}%`
 /** 自动识别的光源在列表中只显示置信度的高低，具体数值在分析详情中 */
 const confidenceLevel = (c: number) => t.light.confidence[c >= 0.6 ? 'high' : c >= 0.3 ? 'medium' : 'low']
 const INTRO_HINT = 'light-intro'
+/** 光源种类的说明 */
+const typeHelp = (type: LightType) => `${t.light.types[type]}：${t.light.typeHints[type]}`
 
 /** 方位角与仰角相对地面（见 toGround） */
 const groundAngles = (d: Vec3) => toAngles(toGround(useApp.getState().doc.camera, d))
@@ -43,26 +47,16 @@ const fromGroundAngles = (azimuth: number, elevation: number) => fromGround(useA
 
 export function LightPanel() {
   const background = useApp((s) => s.doc.background)
-  if (!background) return <p className="px-1 text-sm text-on-surface-variant">{t.light.noBackground}</p>
+  if (!background) return <Empty>{t.light.noBackground}</Empty>
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-2">
       <IntroSection />
       <View3dSection />
-      <AnalysisSection assetId={background.id} />
       <LightsSection />
-      <SphereSection />
       <SelectedSection />
+      <AnalysisSection assetId={background.id} />
       <PreviewSection />
     </div>
-  )
-}
-
-function Section({ title, children, testId }: { title: string; children: ReactNode; testId?: string }) {
-  return (
-    <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3 text-sm" data-testid={testId}>
-      <h3 className="font-medium">{title}</h3>
-      {children}
-    </section>
   )
 }
 
@@ -95,10 +89,18 @@ function IntroSection() {
   )
 }
 
+/** 分析状态的摘要 */
+function analysisSummary(status: ReturnType<typeof useLighting.getState>['analyses'][string] | undefined): string {
+  if (!status) return t.light.waitingDepth
+  if (status.state === 'running') return t.light.analyzing
+  if (status.state === 'error') return t.light.failed
+  return status.result.diffuse ? t.light.diffuse : t.light.analyzed(formatMs(status.result.ms))
+}
+
 function AnalysisSection({ assetId }: { assetId: string }) {
   const status = useLighting((s) => s.analyses[assetId])
   return (
-    <Section title={t.light.analysis} testId="light-analysis">
+    <Group id="light.analysis" title={t.light.analysis} summary={analysisSummary(status)} help={[t.light.analysisHint, t.light.reanalyzeHint]} testId="light-analysis" state={status?.state ?? 'waiting'}>
       <div data-state={status?.state ?? 'waiting'} data-testid="light-analysis-state">
         {!status && <div className="text-on-surface-variant">{t.light.waitingDepth}</div>}
         {status?.state === 'running' && (
@@ -122,7 +124,7 @@ function AnalysisSection({ assetId }: { assetId: string }) {
         <mdui-icon-refresh--outlined slot="icon" />
         {t.light.reanalyze}
       </mdui-button>
-    </Section>
+    </Group>
   )
 }
 
@@ -170,9 +172,17 @@ function LightsSection() {
     useLighting.getState().select(light.id)
   }
 
+  const enabled = lights.filter((l) => l.enabled).length
   return (
-    <Section title={t.light.lights} testId="light-list">
-      {lights.length === 0 && <p className="text-xs leading-5 text-on-surface-variant">{t.light.empty}</p>}
+    <Group
+      id="light.lights"
+      title={t.light.lights}
+      summary={t.light.count(lights.length, enabled)}
+      help={[typeHelp('directional'), typeHelp('point'), t.light.sphereHint]}
+      defaultOpen
+      testId="light-list"
+    >
+      {lights.length === 0 && <Hint>{t.light.empty}</Hint>}
       <ul className="flex flex-col gap-1">
         {lights.map((l) => (
           <LightRow key={l.id} light={l} name={lightName(lights, l)} active={l.id === selected} />
@@ -193,9 +203,10 @@ function LightsSection() {
           {t.light.addOnCanvas}
         </mdui-button>
       </div>
-      {full && <p className="text-xs text-on-surface-variant">{t.light.full(MAX_LIGHTS)}</p>}
+      {full && <Hint>{t.light.full(MAX_LIGHTS)}</Hint>}
       {tool === 'add' && <p className="text-xs leading-5 text-primary">{t.light.addHint}</p>}
-    </Section>
+      <Sphere />
+    </Group>
   )
 }
 
@@ -247,7 +258,8 @@ function useBallPreview() {
   return useMemo(() => computeBallPreview(doc, analysis?.state === 'done' ? analysis.result : undefined, depth, bbox), [doc, analysis, depth, bbox])
 }
 
-function SphereSection() {
+/** 光照方向球 */
+function Sphere() {
   const lights = useApp((s) => s.doc.lighting.lights)
   const camera = useApp((s) => s.doc.camera)
   const selected = useLighting((s) => s.selected)
@@ -261,10 +273,10 @@ function SphereSection() {
   }, [])
 
   return (
-    <Section title={t.light.sphere}>
+    <div className="flex flex-col gap-2">
+      <span className="text-on-surface-variant">{t.light.sphere}</span>
       <DirectionSphere camera={camera} lights={lights} preview={preview} selected={selected} onSelect={useLighting.getState().select} onDirection={onDirection} />
-      <p className="text-xs leading-5 text-on-surface-variant">{t.light.sphereHint}</p>
-    </Section>
+    </div>
   )
 }
 
@@ -272,11 +284,22 @@ function SelectedSection() {
   const selected = useLighting((s) => s.selected)
   const light = useApp((s) => s.doc.lighting.lights.find((l) => l.id === selected))
   const name = useApp((s) => (light ? lightName(s.doc.lighting.lights, light) : ''))
+  // 选中光源时展开这一组
+  useEffect(() => {
+    if (selected) openGroup('light.selected')
+  }, [selected])
   if (!light) return null
   return (
-    <Section title={`${t.light.selected}：${name}`} testId="light-selected">
+    <Group
+      id="light.selected"
+      title={`${t.light.selected}：${name}`}
+      summary={t.light.types[light.type]}
+      help={light.type === 'point' ? [typeHelp('point'), t.light.depthHint] : typeHelp('directional')}
+      defaultOpen
+      testId="light-selected"
+    >
       <LightEditor key={light.id} light={light} />
-    </Section>
+    </Group>
   )
 }
 
@@ -323,10 +346,7 @@ function LightEditor({ light }: { light: Light }) {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-xs leading-5 text-on-surface-variant" data-testid="light-type-hint">
-        {t.light.typeHints[light.type]}
-      </p>
+    <div className="flex flex-col gap-3" data-testid="light-editor" data-type={light.type}>
       {light.type === 'directional' ? (
         <>
           <SliderField label={t.light.azimuth} value={azimuth * DEG} min={-180} max={180} format={formatDegrees} onChange={onAzimuth} testId="light-azimuth" />
@@ -339,7 +359,6 @@ function LightEditor({ light }: { light: Light }) {
       ) : (
         <>
           <SliderField label={t.light.depth} value={light.position.depth * 100} min={0} max={100} format={formatPercent} onChange={onDepth} testId="light-depth" />
-          <p className="text-xs leading-5 text-on-surface-variant">{t.light.depthHint}</p>
         </>
       )}
 
@@ -388,13 +407,11 @@ function View3dSection() {
     if (e.target === el) useView3d.getState().setOpen(el.checked)
   })
   return (
-    <Section title={t.light.view3d}>
-      <div className="flex items-center justify-between">
-        <span>{t.light.view3d}</span>
-        <mdui-switch ref={ref} checked={open} data-testid="light-view3d" />
-      </div>
-      <p className="text-xs leading-5 text-on-surface-variant">{t.light.view3dHint}</p>
-    </Section>
+    <div className="flex min-h-11 items-center gap-1 rounded-2xl bg-white/5 py-1 pr-1.5 pl-3 text-sm">
+      <span className="flex-1 font-medium">{t.light.view3d}</span>
+      <mdui-switch ref={ref} checked={open} className="mx-1" data-testid="light-view3d" />
+      <Help title={t.light.view3d} text={t.light.view3dHint} />
+    </div>
   )
 }
 
@@ -408,13 +425,12 @@ function PreviewSection() {
   const onAmbient = useGestureChange(useCallback((v: number) => useApp.getState().setLighting({ ambient: v / 100 }), []))
 
   return (
-    <Section title={t.light.preview}>
+    <Group id="light.preview" title={t.light.preview} summary={`${t.light.ambient} ${formatPercent(ambient * 100)}`} help={[t.light.ballHint, t.light.ambientHint]} testId="light-preview">
       <div className="flex items-center justify-between">
         <span>{t.light.ball}</span>
         <mdui-switch ref={ballRef} checked={showBall} data-testid="light-ball" />
       </div>
-      <p className="text-xs leading-5 text-on-surface-variant">{t.light.ballHint}</p>
       <SliderField label={t.light.ambient} value={ambient * 100} min={0} max={200} format={formatPercent} onChange={onAmbient} testId="light-ambient" />
-    </Section>
+    </Group>
   )
 }

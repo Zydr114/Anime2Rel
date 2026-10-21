@@ -24,7 +24,7 @@ import { SliderField } from '@/ui/SliderField'
 import { lightName } from '../lightName'
 import { askText, notify } from '../notify'
 import { useGestureChange } from '../useGestureChange'
-import { Hint, Section, ToggleRow } from './FusionSections'
+import { Group, Help, Hint, More } from './Group'
 import { PresetItem } from './PresetSections'
 
 const f = t.effects.flare
@@ -73,15 +73,22 @@ export function FlareSection() {
   const element = elements.find((e) => e.id === selectedId) ?? elements[0] ?? null
   const index = element ? elements.indexOf(element) : -1
   const full = elements.length >= MAX_FLARE_ELEMENTS
-  const { addFlareElement, duplicateFlareElement, moveFlareElement, removeFlareElement, setFlareElements } = useApp.getState()
+  const { setFlareElements } = useApp.getState()
+  const preset = FLARE_PRESET_IDS.find((id) => sameFlareElements(elements, BUILTIN[id]))
+  const customPreset = custom.find((c) => sameFlareElements(elements, c.elements))
   return (
-    <Section title={f.title} testId="post-flare">
-      <ToggleRow label={f.enabled} checked={flare.enabled} onChange={(enabled) => updateFlare({ enabled })} testId="post-flare-enabled" />
+    <Group
+      id="post.flare"
+      title={f.title}
+      summary={flare.enabled ? (preset ? f.presetNames[preset] : (customPreset?.name ?? f.custom)) : t.effects.off}
+      help={[f.hint, f.customHint]}
+      toggle={{ checked: flare.enabled, onChange: (enabled) => updateFlare({ enabled }), testId: 'post-flare-enabled' }}
+      testId="post-flare"
+    >
+      {flare.enabled && (!used ? <Hint warn>{t.effects.raysNoLight}</Hint> : background && flareFade(used.uv, background) === 0 && <Hint warn>{f.far}</Hint>)}
       <FlareSlider field="intensity" label={f.intensity} format={(v) => `${Math.round(v)}%`} />
       <FlareSlider field="size" label={f.size} format={(v) => `${Math.round(flareScale(v / 100) * 100)}%`} />
       <SelectField label={f.light} value={light} options={lightOptions} onChange={(v) => updateFlare({ light: v === AUTO ? null : v })} testId="post-flare-light" />
-      <Hint>{f.hint}</Hint>
-      {!used ? <Hint>{t.effects.raysNoLight}</Hint> : background && flareFade(used.uv, background) === 0 && <Hint>{f.far}</Hint>}
 
       <h4 className="mt-1 font-medium">{f.presets}</h4>
       {FLARE_PRESET_IDS.map((id) => (
@@ -104,14 +111,27 @@ export function FlareSection() {
           </mdui-button-icon>
         </div>
       ))}
+      <More id="post.flare.more">
+        <FlareElements elements={elements} element={element} index={index} full={full} select={select} />
+      </More>
+    </Group>
+  )
+}
+
+/** 光晕元素的列表与编辑器 */
+function FlareElements({ elements, element, index, full, select }: { elements: FlareElement[]; element: FlareElement | null; index: number; full: boolean; select: (id: string | null) => void }) {
+  const { addFlareElement, duplicateFlareElement, moveFlareElement, removeFlareElement } = useApp.getState()
+  return (
+    <>
       <mdui-button variant="tonal" disabled={elements.length === 0 || undefined} onClick={() => void saveCustom()} data-testid="flare-save">
         <mdui-icon-save--outlined slot="icon" />
         {f.save}
       </mdui-button>
-      <Hint>{f.customHint}</Hint>
 
       <div className="mt-1 flex items-center gap-1">
-        <h4 className="flex-1 font-medium">{f.elements}</h4>
+        <h4 className="font-medium">{f.elements}</h4>
+        <Help title={f.elements} text={[f.elementsHint(MAX_FLARE_ELEMENTS), f.positionHint]} />
+        <span className="flex-1" />
         <mdui-button-icon disabled={!element || full || undefined} onClick={() => element && select(duplicateFlareElement(element.id))} aria-label={f.duplicate} data-testid="flare-duplicate">
           <mdui-icon-content-copy--outlined />
         </mdui-button-icon>
@@ -165,9 +185,8 @@ export function FlareSection() {
           if (id) select(id)
         }}
       />
-      <Hint>{f.elementsHint(MAX_FLARE_ELEMENTS)}</Hint>
       {element && <ElementEditor key={element.id} element={element} />}
-    </Section>
+    </>
   )
 }
 
@@ -203,8 +222,10 @@ function ElementEditor({ element }: { element: FlareElement }) {
   const { beginGesture, endGesture } = useApp.getState()
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-white/5 p-2.5" data-testid="flare-editor" data-type={type}>
-      <span className="font-medium">{f.types[type]}</span>
-      <Hint>{f.typeHints[type]}</Hint>
+      <div className="flex items-center gap-1">
+        <span className="font-medium">{f.types[type]}</span>
+        <Help title={f.types[type]} text={f.typeHints[type]} />
+      </div>
       <SliderField label={f.position} value={element.position * 100} min={-100} max={300} format={(v) => (v / 100).toFixed(2)} onChange={onPosition} testId="flare-position" />
       <SliderField label={f.elementSize} value={element.size * 100} min={0} max={100} step={0.5} format={formatSize} onChange={onSize} testId="flare-size" />
       <SliderField label={f.elementIntensity} value={element.intensity * 100} min={0} max={100} step={0.5} format={formatPercent} onChange={onIntensity} testId="flare-intensity" />
@@ -225,7 +246,6 @@ function ElementEditor({ element }: { element: FlareElement }) {
           </mdui-button>
         </>
       )}
-      <Hint>{f.positionHint}</Hint>
     </div>
   )
 }

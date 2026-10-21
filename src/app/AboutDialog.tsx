@@ -5,7 +5,7 @@ import { useAppearance } from '@/state/appearance'
 import { useEngine } from '@/state/engine'
 import { glassMode } from '@/ui/glass/liquid'
 import { useDomEvent } from '@/ui/useDomEvent'
-import { Hint, ToggleRow } from './panels/FusionSections'
+import { Hint, ToggleRow } from './panels/Group'
 
 export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<Dialog>(null)

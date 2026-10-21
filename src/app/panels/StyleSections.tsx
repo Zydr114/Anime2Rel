@@ -22,7 +22,7 @@ import { SelectField } from '@/ui/SelectField'
 import { SliderField } from '@/ui/SliderField'
 import { notify } from '../notify'
 import { useGestureChange } from '../useGestureChange'
-import { Hint, Section } from './FusionSections'
+import { Group, Hint } from './Group'
 
 const formatSigned = (v: number) => (Math.round(v) > 0 ? `+${Math.round(v)}` : `${Math.round(v)}`)
 const formatPercent = (v: number) => `${Math.round(v)}%`
@@ -34,7 +34,6 @@ const marked = (label: string, changed: boolean) => (changed ? `${label} •` : 
 export function StyleSections() {
   return (
     <>
-      <Hint>{t.style.hint}</Hint>
       <WheelsSection />
       <SplitSection />
       <LutSection />
@@ -53,8 +52,9 @@ function WheelsSection() {
   const wheel = wheels[key]
   const onLuma = useGestureChange(useCallback((v: number) => useApp.getState().updateWheel(useGradeUi.getState().wheel, { luma: v / 100 }), []))
   const { beginGesture, endGesture } = useApp.getState()
+  const changed = WHEEL_KEYS.filter((k) => wheels[k].amount !== 0 || wheels[k].luma !== 0).map((k) => t.style.wheelKeys[k])
   return (
-    <Section title={t.style.wheels} testId="style-wheels">
+    <Group id="style.wheels" title={t.style.wheels} summary={changed.length ? changed.join('、') : t.adjust.unchanged} help={[t.style.hint, t.style.wheelHint]} defaultOpen testId="style-wheels">
       <Segmented
         value={key}
         options={WHEEL_KEYS}
@@ -72,8 +72,7 @@ function WheelsSection() {
       />
       <p className="text-center text-xs text-on-surface-variant tabular-nums">{tintText(wheel)}</p>
       <SliderField label={t.style.luma} value={wheel.luma * 100} min={-100} max={100} format={formatSigned} onChange={onLuma} testId="wheel-luma" />
-      <Hint>{t.style.wheelHint}</Hint>
-    </Section>
+    </Group>
   )
 }
 
@@ -83,8 +82,9 @@ function SplitSection() {
   const tint = split[key]
   const onBalance = useGestureChange(useCallback((v: number) => useApp.getState().updateSplit({ balance: v / 100 }), []))
   const { beginGesture, endGesture } = useApp.getState()
+  const changed = TONE_KEYS.filter((k) => split[k].amount !== 0).map((k) => t.style.tones[k])
   return (
-    <Section title={t.style.split} testId="style-split">
+    <Group id="style.split" title={t.style.split} summary={changed.length ? changed.join('、') : t.adjust.unchanged} help={t.style.wheelHint} testId="style-split">
       <Segmented value={key} options={TONE_KEYS} label={(k) => marked(t.style.tones[k], split[k].amount !== 0)} onChange={useGradeUi.getState().setTone} testId="split-tone" />
       <ColorWheel
         hue={tint.hue}
@@ -96,7 +96,7 @@ function SplitSection() {
       />
       <p className="text-center text-xs text-on-surface-variant tabular-nums">{tintText(tint)}</p>
       <SliderField label={t.style.balance} value={split.balance * 100} min={-100} max={100} format={formatSigned} onChange={onBalance} testId="split-balance" />
-    </Section>
+    </Group>
   )
 }
 
@@ -116,7 +116,7 @@ function LutSection() {
   const inputRef = useRef<HTMLInputElement>(null)
   const onIntensity = useGestureChange(useCallback((v: number) => useApp.getState().updateCreative({ lutIntensity: v / 100 }), []))
   return (
-    <Section title={t.style.lut} testId="style-lut">
+    <Group id="style.lut" title={t.style.lut} summary={lut ? lut.name : t.style.lutNone} help={t.style.lutHint} testId="style-lut">
       {lut && (
         <>
           <div className="flex items-center gap-2">
@@ -127,7 +127,7 @@ function LutSection() {
               <mdui-icon-close--outlined />
             </mdui-button-icon>
           </div>
-          {!getLut(lut.id) && <Hint>{t.style.lutMissing}</Hint>}
+          {!getLut(lut.id) && <Hint warn>{t.style.lutMissing}</Hint>}
           <SliderField label={t.style.lutIntensity} value={intensity * 100} min={0} max={100} format={formatPercent} onChange={onIntensity} testId="lut-intensity" />
         </>
       )}
@@ -147,8 +147,7 @@ function LutSection() {
         }}
         data-testid="lut-file"
       />
-      <Hint>{t.style.lutHint}</Hint>
-    </Section>
+    </Group>
   )
 }
 
@@ -160,7 +159,7 @@ const currentLayer = (id: string) => useApp.getState().doc.grade.creative.layers
 function BlendSection() {
   const layers = useApp((s) => s.doc.grade.creative.layers)
   return (
-    <Section title={t.style.blend} testId="style-blend">
+    <Group id="style.blend" title={t.style.blend} summary={layers.length ? t.style.blendCount(layers.length) : t.style.blendNone} help={t.style.blendHint} testId="style-blend">
       {/* 与图层面板的习惯一致：最上面的层排在最前 */}
       {[...layers].reverse().map((layer, i) => (
         <BlendLayerCard key={layer.id} layer={layer} index={layers.length - 1 - i} count={layers.length} />
@@ -169,8 +168,8 @@ function BlendSection() {
         <mdui-icon-add--outlined slot="icon" />
         {t.style.blendAdd}
       </mdui-button>
-      <Hint>{layers.length >= MAX_BLEND_LAYERS ? t.style.blendLimit(MAX_BLEND_LAYERS) : t.style.blendHint}</Hint>
-    </Section>
+      {layers.length >= MAX_BLEND_LAYERS && <Hint>{t.style.blendLimit(MAX_BLEND_LAYERS)}</Hint>}
+    </Group>
   )
 }
 

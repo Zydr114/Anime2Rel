@@ -10,11 +10,13 @@ import { SliderField } from '@/ui/SliderField'
 import { lightName } from '../lightName'
 import { useGestureChange } from '../useGestureChange'
 import { FlareSection } from './FlareSection'
-import { Hint, Section, ToggleRow } from './FusionSections'
+import { Empty, Group, Hint, More, ToggleRow } from './Group'
 
 const formatPercent = (v: number) => `${Math.round(v)}%`
 const formatSigned = (v: number) => (Math.round(v) > 0 ? `+${Math.round(v)}` : `${Math.round(v)}`)
 const AUTO = 'auto'
+/** 收起时的摘要：强度为 0 时显示“关闭” */
+const intensitySummary = (v: number) => (v > 0 ? `${t.effects.intensity} ${formatPercent(v * 100)}` : t.effects.off)
 
 type NumberField<K extends PostSection> = { [F in keyof PostDoc[K]]: PostDoc[K][F] extends number ? F : never }[keyof PostDoc[K]] & string
 
@@ -27,31 +29,35 @@ function PostSlider<K extends PostSection>({ section, field, label, min = 0, for
 
 export function EffectsPanel() {
   const hasBackground = useApp((s) => s.doc.background !== null)
-  if (!hasBackground) return <p className="px-1 text-sm text-on-surface-variant">{t.effects.noBackground}</p>
+  const post = useApp((s) => s.doc.post)
+  const e = t.effects
+  if (!hasBackground) return <Empty>{e.noBackground}</Empty>
+  const lens = [post.lens.aberration > 0 && `${e.aberration} ${formatPercent(post.lens.aberration * 100)}`, post.lens.vignette !== 0 && `${e.vignette} ${formatSigned(post.lens.vignette * 100)}`].filter(Boolean)
   return (
-    <div className="flex flex-col gap-4">
-      <Hint>{t.effects.hint}</Hint>
-      <Section title={t.effects.bloom} testId="post-bloom">
-        <PostSlider section="bloom" field="intensity" label={t.effects.intensity} />
-        <PostSlider section="bloom" field="threshold" label={t.effects.threshold} />
-        <PostSlider section="bloom" field="radius" label={t.effects.radius} />
-        <Hint>{t.effects.bloomHint}</Hint>
-      </Section>
+    <div className="flex flex-col gap-2">
+      <Group id="post.bloom" title={e.bloom} summary={intensitySummary(post.bloom.intensity)} help={[e.bloomHint, e.hint]} defaultOpen testId="post-bloom">
+        <PostSlider section="bloom" field="intensity" label={e.intensity} />
+        <PostSlider section="bloom" field="threshold" label={e.threshold} />
+        <PostSlider section="bloom" field="radius" label={e.radius} />
+      </Group>
       <HalationSection />
       <RaysSection />
       <FlareSection />
-      <Section title={t.effects.lens} testId="post-lens">
-        <PostSlider section="lens" field="aberration" label={t.effects.aberration} />
-        <PostSlider section="lens" field="vignette" label={t.effects.vignette} min={-100} format={formatSigned} />
-        <PostSlider section="lens" field="midpoint" label={t.effects.midpoint} />
-        <PostSlider section="lens" field="feather" label={t.effects.feather} />
-      </Section>
-      <Section title={t.effects.grain} testId="post-grain">
-        <PostSlider section="grain" field="amount" label={t.effects.grainAmount} />
-        <PostSlider section="grain" field="size" label={t.effects.grainSize} />
-        <PostSlider section="grain" field="color" label={t.effects.grainColor} />
-        <Hint>{t.effects.grainHint}</Hint>
-      </Section>
+      <Group id="post.lens" title={e.lens} summary={lens.length ? lens.join(' · ') : e.off} testId="post-lens">
+        <PostSlider section="lens" field="aberration" label={e.aberration} />
+        <PostSlider section="lens" field="vignette" label={e.vignette} min={-100} format={formatSigned} />
+        <More id="post.lens.more">
+          <PostSlider section="lens" field="midpoint" label={e.midpoint} />
+          <PostSlider section="lens" field="feather" label={e.feather} />
+        </More>
+      </Group>
+      <Group id="post.grain" title={e.grain} summary={intensitySummary(post.grain.amount)} help={e.grainHint} testId="post-grain">
+        <PostSlider section="grain" field="amount" label={e.grainAmount} />
+        <PostSlider section="grain" field="size" label={e.grainSize} />
+        <More id="post.grain.more">
+          <PostSlider section="grain" field="color" label={e.grainColor} />
+        </More>
+      </Group>
       <ToneMappingSection />
       <mdui-button variant="text" onClick={() => useApp.getState().resetPost()} data-testid="post-reset">
         <mdui-icon-restart-alt--outlined slot="icon" />
@@ -62,10 +68,11 @@ export function EffectsPanel() {
 }
 
 function HalationSection() {
-  const color = useApp((s) => s.doc.post.halation.color)
+  const halation = useApp((s) => s.doc.post.halation)
+  const color = halation.color
   const { beginGesture, endGesture } = useApp.getState()
   return (
-    <Section title={t.effects.halation} testId="post-halation">
+    <Group id="post.halation" title={t.effects.halation} summary={intensitySummary(halation.intensity)} help={t.effects.halationHint} testId="post-halation">
       <PostSlider section="halation" field="intensity" label={t.effects.intensity} />
       <PostSlider section="halation" field="threshold" label={t.effects.threshold} />
       <PostSlider section="halation" field="radius" label={t.effects.radius} />
@@ -80,8 +87,7 @@ function HalationSection() {
           testId="post-halation-color"
         />
       </div>
-      <Hint>{t.effects.halationHint}</Hint>
-    </Section>
+    </Group>
   )
 }
 
@@ -100,34 +106,35 @@ function RaysSection() {
     ...lighting.lights.map((l) => ({ value: l.id, label: lightName(lighting.lights, l) })),
   ]
   const selected = rays.light !== null && lighting.lights.some((l) => l.id === rays.light) ? rays.light : AUTO
+  const active = rays.intensity > 0 || rays.rim > 0
   return (
-    <Section title={t.effects.rays} testId="post-rays">
+    <Group id="post.rays" title={t.effects.rays} summary={intensitySummary(rays.intensity)} help={t.effects.raysHint} testId="post-rays">
+      {active && !used && <Hint warn>{t.effects.raysNoLight}</Hint>}
+      {rays.rim > 0 && fusionRim === 0 && <Hint warn>{t.effects.raysNoRim}</Hint>}
       <PostSlider section="rays" field="intensity" label={t.effects.intensity} />
       <PostSlider section="rays" field="rim" label={t.effects.raysRim} />
-      <PostSlider section="rays" field="threshold" label={t.effects.threshold} />
-      <PostSlider section="rays" field="length" label={t.effects.raysLength} />
-      <SelectField
-        label={t.effects.raysLight}
-        value={selected}
-        options={options}
-        onChange={(v) => useApp.getState().updatePost('rays', { light: v === AUTO ? null : v })}
-        testId="post-rays-light"
-      />
-      <ToggleRow label={t.effects.raysSkyOnly} checked={rays.skyOnly} onChange={(skyOnly) => useApp.getState().updatePost('rays', { skyOnly })} testId="post-rays-sky" />
-      <Hint>{t.effects.raysHint}</Hint>
-      {!used && <Hint>{t.effects.raysNoLight}</Hint>}
-      {rays.rim > 0 && fusionRim === 0 && <Hint>{t.effects.raysNoRim}</Hint>}
-      {rays.skyOnly && !hasDepth && <Hint>{t.effects.raysNoSky}</Hint>}
-    </Section>
+      <More id="post.rays.more">
+        <PostSlider section="rays" field="threshold" label={t.effects.threshold} />
+        <PostSlider section="rays" field="length" label={t.effects.raysLength} />
+        <SelectField
+          label={t.effects.raysLight}
+          value={selected}
+          options={options}
+          onChange={(v) => useApp.getState().updatePost('rays', { light: v === AUTO ? null : v })}
+          testId="post-rays-light"
+        />
+        <ToggleRow label={t.effects.raysSkyOnly} checked={rays.skyOnly} onChange={(skyOnly) => useApp.getState().updatePost('rays', { skyOnly })} testId="post-rays-sky" />
+        {rays.skyOnly && !hasDepth && <Hint>{t.effects.raysNoSky}</Hint>}
+      </More>
+    </Group>
   )
 }
 
 function ToneMappingSection() {
   const mode = useApp((s) => s.doc.post.toneMapping)
   return (
-    <Section title={t.effects.toneMapping} testId="post-tone">
+    <Group id="post.tone" title={t.effects.toneMapping} summary={t.effects.toneMappings[mode]} help={t.effects.toneMappingHint} testId="post-tone">
       <Segmented value={mode} options={TONE_MAPPINGS} label={(m) => t.effects.toneMappings[m]} onChange={useApp.getState().setToneMapping} testId="post-tone-mapping" />
-      <Hint>{t.effects.toneMappingHint}</Hint>
-    </Section>
+    </Group>
   )
 }

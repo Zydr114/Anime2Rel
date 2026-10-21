@@ -200,7 +200,8 @@ mdui-dialog::part(panel),
 mdui-menu,
 mdui-select::part(menu),
 mdui-tooltip::part(popup),
-mdui-snackbar {
+mdui-snackbar,
+.glass-popup {
   corner-shape: squircle;
   background: var(--glass-fill, var(--glass-tint));
   box-shadow: var(--glass-rim), var(--glass-shadow);

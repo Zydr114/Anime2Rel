@@ -8,7 +8,7 @@ import { usePresets } from '@/state/presets'
 import { useApp } from '@/state/store'
 import { cn } from '@/ui/lib/cn'
 import { askText, notify } from '../notify'
-import { Hint, Section } from './FusionSections'
+import { Group } from './Group'
 
 /** 文件名中不能使用的字符 */
 const UNSAFE_FILE_CHARS = /[\\/:*?"<>|]/g
@@ -61,10 +61,10 @@ export function PresetSections() {
   const post = useApp((s) => s.doc.post)
   const imported = usePresets((s) => s.imported)
   const inputRef = useRef<HTMLInputElement>(null)
+  const active = BUILTIN_PRESET_IDS.find((id) => matchesPreset(grade, post, BUILTIN_PRESETS[id]))
   return (
     <>
-      <Hint>{t.presets.hint}</Hint>
-      <Section title={t.presets.builtin} testId="presets-builtin">
+      <Group id="presets.builtin" title={t.presets.builtin} summary={active ? t.presets.names[active] : t.presets.none} help={t.presets.hint} defaultOpen testId="presets-builtin">
         {BUILTIN_PRESET_IDS.map((id) => (
           <PresetItem
             key={id}
@@ -75,16 +75,15 @@ export function PresetSections() {
             testId={`preset-${id}`}
           />
         ))}
-      </Section>
+      </Group>
       {imported.length > 0 && (
-        <Section title={t.presets.imported} testId="presets-imported">
+        <Group id="presets.imported" title={t.presets.imported} summary={t.presets.count(imported.length)} help={t.presets.importedHint} defaultOpen testId="presets-imported">
           {imported.map((p, i) => (
             <PresetItem key={p.name} name={p.name} active={matchesPreset(grade, post, p)} onClick={() => apply(p)} testId={`preset-imported-${i}`} />
           ))}
-          <Hint>{t.presets.importedHint}</Hint>
-        </Section>
+        </Group>
       )}
-      <Section title={t.presets.file} testId="presets-file">
+      <Group id="presets.file" title={t.presets.file} help={t.presets.fileHint} testId="presets-file">
         <div className="flex flex-wrap gap-2">
           <mdui-button variant="tonal" onClick={() => inputRef.current?.click()} data-testid="preset-import">
             <mdui-icon-upload--outlined slot="icon" />
@@ -107,8 +106,7 @@ export function PresetSections() {
           }}
           data-testid="preset-file"
         />
-        <Hint>{t.presets.fileHint}</Hint>
-      </Section>
+      </Group>
       <mdui-button variant="text" onClick={() => apply({ grade: DEFAULT_GRADE, post: DEFAULT_POST })} data-testid="preset-clear">
         <mdui-icon-restart-alt--outlined slot="icon" />
         {t.presets.clear}

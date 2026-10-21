@@ -12,7 +12,8 @@ import { SelectField } from '@/ui/SelectField'
 import { Segmented } from '@/ui/Segmented'
 import { SliderField } from '@/ui/SliderField'
 import { useGestureChange } from '../useGestureChange'
-import { DepthSection, Hint, Section, ToggleRow } from './FusionSections'
+import { DepthSection } from './FusionSections'
+import { Empty, Group, Help, More, ToggleRow } from './Group'
 
 const DEG = 180 / Math.PI
 
@@ -53,15 +54,14 @@ function FocusSlider<K extends FocusSection>(props: {
 export function FocusPanel() {
   const hasBackground = useApp((s) => s.doc.background !== null)
   const hasCharacter = useApp((s) => s.doc.character !== null)
-  if (!hasBackground) return <p className="px-1 text-sm text-on-surface-variant">{t.focus.noBackground}</p>
+  if (!hasBackground) return <Empty>{t.focus.noBackground}</Empty>
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-2">
       <DofSection />
       <TargetSection />
       {hasCharacter && (
         <DepthSection>
           <ThicknessSlider />
-          <Hint>{t.focus.thicknessHint}</Hint>
         </DepthSection>
       )}
       {hasCharacter && <OcclusionSection />}
@@ -74,25 +74,33 @@ export function FocusPanel() {
 }
 
 function DofSection() {
-  const enabled = useApp((s) => s.doc.focus.dof.enabled)
-  const blades = useApp((s) => s.doc.focus.dof.blades)
+  const dof = useApp((s) => s.doc.focus.dof)
   const options = BOKEH_BLADES.map(String)
+  const f = t.focus
   return (
-    <Section title={t.focus.dof} testId="focus-dof">
-      <ToggleRow label={t.focus.dofEnabled} checked={enabled} onChange={(v) => useApp.getState().updateFocus('dof', { enabled: v })} testId="focus-dof-enabled" />
-      <FocusSlider section="dof" field="aperture" label={t.focus.aperture} min={0} max={5} step={0.1} />
-      <FocusSlider section="dof" field="range" label={t.focus.range} min={0} max={20} step={0.5} />
-      <span>{t.focus.bokeh}</span>
-      <Segmented
-        value={String(blades)}
-        options={options}
-        label={(v) => t.focus.blades[Number(v)]}
-        onChange={(v) => useApp.getState().updateFocus('dof', { blades: Number(v) })}
-        testId="focus-dof-blades"
-      />
-      {blades > 0 && <FocusSlider section="dof" field="rotation" label={t.focus.rotation} min={0} max={180} scale={DEG} format={formatDegrees} />}
-      <Hint>{t.focus.dofHint}</Hint>
-    </Section>
+    <Group
+      id="focus.dof"
+      title={f.dof}
+      summary={dof.enabled ? f.dofSummary(formatRelative(dof.aperture * 100), t.focus.blades[dof.blades]) : f.off}
+      help={f.dofHint}
+      toggle={{ checked: dof.enabled, onChange: (v) => useApp.getState().updateFocus('dof', { enabled: v }), testId: 'focus-dof-enabled' }}
+      defaultOpen
+      testId="focus-dof"
+    >
+      <FocusSlider section="dof" field="aperture" label={f.aperture} min={0} max={5} step={0.1} />
+      <FocusSlider section="dof" field="range" label={f.range} min={0} max={20} step={0.5} />
+      <More id="focus.dof.more">
+        <span>{f.bokeh}</span>
+        <Segmented
+          value={String(dof.blades)}
+          options={options}
+          label={(v) => f.blades[Number(v)]}
+          onChange={(v) => useApp.getState().updateFocus('dof', { blades: Number(v) })}
+          testId="focus-dof-blades"
+        />
+        {dof.blades > 0 && <FocusSlider section="dof" field="rotation" label={f.rotation} min={0} max={180} scale={DEG} format={formatDegrees} />}
+      </More>
+    </Group>
   )
 }
 
@@ -106,7 +114,7 @@ function TargetSection() {
   const label = !target ? t.focus.targetAuto : target.kind === 'character' ? t.focus.targetCharacter : t.focus.targetBackground
   const depth = focusDepth(focusInputs(doc))
   return (
-    <Section title={t.focus.target} testId="focus-target">
+    <Group id="focus.target" title={t.focus.target} summary={`${label} · ${formatPercent(depth * 100)}`} help={t.focus.targetHint} defaultOpen testId="focus-target">
       <div className="flex items-baseline justify-between">
         <span data-testid="focus-target-kind" data-kind={target?.kind ?? 'auto'}>
           {label}
@@ -127,8 +135,7 @@ function TargetSection() {
         onChange={(v) => useDepth.getState().setView(v ? 'focus' : 'composite')}
         testId="focus-show-view"
       />
-      <Hint>{t.focus.targetHint}</Hint>
-    </Section>
+    </Group>
   )
 }
 
@@ -144,25 +151,27 @@ function OcclusionSection() {
   const showMask = useFusion((s) => s.showMask)
   const update = useCallback((u: Partial<OcclusionStyle>) => useApp.getState().updateFocus('occlusion', u), [])
   const depthTested = [occlusion, ...occlusion.regions].some((s) => DEPTH_MODES.includes(s.mode))
+  const f = t.focus
+  const regions = occlusion.regions.length
   return (
-    <Section title={t.focus.occlusion} testId="focus-occlusion">
-      <ToggleRow
-        label={t.focus.occlusionEnabled}
-        checked={occlusion.enabled}
-        onChange={(v) => useApp.getState().updateFocus('occlusion', { enabled: v })}
-        testId="focus-occlusion-enabled"
-      />
-      <StyleControls style={occlusion} label={occlusion.regions.length ? t.focus.outsideMode : t.focus.occlusionMode} update={update} testPrefix="focus-occlusion-" />
+    <Group
+      id="focus.occlusion"
+      title={f.occlusion}
+      summary={occlusion.enabled ? (regions ? f.occlusionSummary(f.modes[occlusion.mode], regions) : f.modes[occlusion.mode]) : f.off}
+      help={[f.occlusionHint, f.regionHint]}
+      toggle={{ checked: occlusion.enabled, onChange: (v) => useApp.getState().updateFocus('occlusion', { enabled: v }), testId: 'focus-occlusion-enabled' }}
+      testId="focus-occlusion"
+    >
+      <StyleControls style={occlusion} label={regions ? f.outsideMode : f.occlusionMode} update={update} testPrefix="focus-occlusion-" />
       {depthTested && (
-        <>
-          <FocusSlider section="occlusion" field="tolerance" label={t.focus.tolerance} min={0} max={30} step={0.5} />
-          <FocusSlider section="occlusion" field="softness" label={t.focus.softness} min={0} max={20} step={0.5} />
-        </>
+        <More id="focus.occlusion.more">
+          <FocusSlider section="occlusion" field="tolerance" label={f.tolerance} min={0} max={30} step={0.5} />
+          <FocusSlider section="occlusion" field="softness" label={f.softness} min={0} max={20} step={0.5} />
+        </More>
       )}
       <RegionList />
-      <ToggleRow label={t.focus.showMask} checked={showMask} onChange={useFusion.getState().setShowMask} testId="focus-show-mask" />
-      <Hint>{t.focus.occlusionHint}</Hint>
-    </Section>
+      <ToggleRow label={f.showMask} checked={showMask} onChange={useFusion.getState().setShowMask} testId="focus-show-mask" />
+    </Group>
   )
 }
 
@@ -185,14 +194,18 @@ function StyleControls({ style, label, update, testPrefix }: { style: OcclusionS
   )
   return (
     <>
-      <SelectField
-        label={label}
-        value={mode}
-        options={OCCLUSION_MODES.map((v) => ({ value: v, label: t.focus.modes[v] }))}
-        onChange={(v) => update({ mode: v })}
-        testId={`${testPrefix}mode`}
-      />
-      <Hint>{t.focus.modeHints[mode]}</Hint>
+      <div className="flex items-center gap-1">
+        <div className="min-w-0 flex-1">
+          <SelectField
+            label={label}
+            value={mode}
+            options={OCCLUSION_MODES.map((v) => ({ value: v, label: t.focus.modes[v] }))}
+            onChange={(v) => update({ mode: v })}
+            testId={`${testPrefix}mode`}
+          />
+        </div>
+        <Help title={t.focus.modes[mode]} text={mode === 'water' ? [t.focus.modeHints.water, t.focus.reflectionHint] : t.focus.modeHints[mode]} />
+      </div>
       {MEDIUM_MODES.includes(mode) && MEDIUM_FIELDS.map(slider)}
       {mode === 'water' && WATER_FIELDS.map(slider)}
       {mode === 'water' && style.reflection > 0 && (
@@ -202,7 +215,6 @@ function StyleControls({ style, label, update, testPrefix }: { style: OcclusionS
             <span className="flex-1 text-on-surface-variant">{t.focus.waterColor}</span>
             <ColorSwatch value={style.waterColor} label={t.focus.waterColor} onBegin={beginGesture} onChange={(waterColor) => update({ waterColor })} onEnd={endGesture} testId={`${testPrefix}waterColor`} />
           </div>
-          <Hint>{t.focus.reflectionHint}</Hint>
         </>
       )}
     </>
@@ -243,7 +255,7 @@ function RegionList() {
         <button
           key={r.id}
           type="button"
-          className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ${r.id === active ? 'bg-white/15' : 'hover:bg-white/5'}`}
+          className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left ${r.id === active ? 'bg-white/15' : 'hover:bg-white/5'}`}
           onClick={() => setActive(r.id === active ? null : r.id)}
           data-testid={`region-${i}`}
           data-active={r.id === active}
@@ -276,7 +288,6 @@ function RegionList() {
           </div>
         </div>
       )}
-      <Hint>{t.focus.regionHint}</Hint>
     </div>
   )
 }

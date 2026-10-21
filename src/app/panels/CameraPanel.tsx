@@ -11,7 +11,7 @@ import { SliderField } from '@/ui/SliderField'
 import { NumberField } from '@/ui/NumberField'
 import { notify } from '../notify'
 import { useGestureChange } from '../useGestureChange'
-import { Hint, Section, ToggleRow } from './FusionSections'
+import { Empty, Group, Hint, More, ToggleRow } from './Group'
 
 const DEG = 180 / Math.PI
 const RAD = Math.PI / 180
@@ -26,16 +26,22 @@ const formatHeight = (s: number) => `${toHeight(s)} m`
 export function CameraPanel() {
   const background = useApp((s) => s.doc.background)
   const method = useApp((s) => s.doc.camera.method)
-  if (!background) return <p className="px-1 text-sm text-on-surface-variant">{t.camera.noBackground}</p>
+  if (!background) return <Empty>{t.camera.noBackground}</Empty>
+  const c = t.camera
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-2">
       <ConfirmSection />
-      <Section title={t.camera.method}>
-        <Hint>{t.camera.intro}</Hint>
-        <Segmented value={method} options={CALIBRATION_METHODS} label={(v) => t.camera.methods[v]} onChange={setMethod} testId="camera-method" />
-        <Hint>{method === 'horizon' ? t.camera.horizonHint : t.camera.linesHint}</Hint>
-      </Section>
-      {method === 'horizon' ? <HorizonSection /> : <LinesSection />}
+      <Group
+        id="camera.calibration"
+        title={c.method}
+        summary={c.methods[method]}
+        help={method === 'horizon' ? [c.intro, c.horizonHint, c.fovHint, c.pitchHint, c.yawHint] : [c.linesHint, c.axisHint]}
+        defaultOpen
+        testId="camera-calibration"
+      >
+        <Segmented value={method} options={CALIBRATION_METHODS} label={(v) => c.methods[v]} onChange={setMethod} testId="camera-method" />
+        {method === 'horizon' ? <HorizonFields /> : <LinesFields />}
+      </Group>
       <ResultSection />
       <ScaleSection />
       <GuideSection />
@@ -107,35 +113,31 @@ function useCameraSlider(key: 'fovDeg' | 'pitch' | 'roll' | 'yaw', k = 1) {
   return useGestureChange(useCallback((v: number) => useApp.getState().updateCamera({ [key]: v * k } as Partial<CameraDoc>), [key, k]))
 }
 
-function HorizonSection() {
+function HorizonFields() {
   const camera = useApp((s) => s.doc.camera)
   const onFov = useCameraSlider('fovDeg')
   const onPitch = useCameraSlider('pitch', RAD)
   const onRoll = useCameraSlider('roll', RAD)
   const onYaw = useCameraSlider('yaw', RAD)
   return (
-    <Section title={t.camera.methods.horizon} testId="camera-horizon">
+    <div className="flex flex-col gap-3" data-testid="camera-horizon">
       <SliderField label={t.camera.fov} value={camera.fovDeg} min={FOV_RANGE[0]} max={FOV_RANGE[1]} step={0.5} format={formatDegrees} onChange={onFov} testId="camera-fov" />
-      <Hint>{t.camera.fovHint}</Hint>
       <SliderField label={t.camera.pitch} value={camera.pitch * DEG} min={-PITCH_LIMIT * DEG} max={PITCH_LIMIT * DEG} step={0.1} format={formatDegrees} onChange={onPitch} testId="camera-pitch" />
-      <Hint>{t.camera.pitchHint}</Hint>
       <SliderField label={t.camera.roll} value={camera.roll * DEG} min={-ROLL_LIMIT * DEG} max={ROLL_LIMIT * DEG} step={0.1} format={formatDegrees} onChange={onRoll} testId="camera-roll" />
       <SliderField label={t.camera.yaw} value={camera.yaw * DEG} min={-180} max={180} step={0.5} format={formatDegrees} onChange={onYaw} testId="camera-yaw" />
-      <Hint>{t.camera.yawHint}</Hint>
-    </Section>
+    </div>
   )
 }
 
-function LinesSection() {
+function LinesFields() {
   const camera = useApp((s) => s.doc.camera)
   const background = useApp((s) => s.doc.background)
   const axis = camera.lines?.secondAxis ?? 'horizontal'
   const solved = camera.lines && background ? solveLines(camera.lines, background) : null
   return (
-    <Section title={t.camera.methods.lines} testId="camera-lines">
+    <div className="flex flex-col gap-3" data-testid="camera-lines">
       <span>{t.camera.axis}</span>
       <Segmented value={axis} options={LINE_AXES} label={(v) => t.camera.axes[v]} onChange={resetLines} testId="camera-axis" />
-      <Hint>{t.camera.axisHint}</Hint>
       {solved && !solved.ok && (
         <span className="text-xs leading-5 text-error" data-testid="camera-solve-error">
           {t.camera.solveErrors[solved.error]}
@@ -146,7 +148,7 @@ function LinesSection() {
         <mdui-icon-restart-alt--outlined slot="icon" />
         {t.camera.resetLines}
       </mdui-button>
-    </Section>
+    </div>
   )
 }
 
@@ -156,18 +158,17 @@ function GuideSection() {
   const { kind, scale, dim, setKind, setScale, setDim, resetOrigin } = useCameraGuide()
   const g = t.camera.guide
   return (
-    <Section title={g.title} testId="camera-guide-section">
+    <Group id="camera.guide" title={g.title} summary={g.kinds[kind]} help={g.hint} testId="camera-guide-section">
       <SelectField label={g.kind} value={kind} options={GUIDE_OPTIONS} onChange={setKind} testId="camera-guide-kind" />
       {kind !== 'none' && (
         <SliderField label={g.scale} value={scale} min={GUIDE_SCALE_RANGE[0]} max={GUIDE_SCALE_RANGE[1]} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={setScale} testId="camera-guide-scale" />
       )}
-      <Hint>{g.hint}</Hint>
       <ToggleRow label={g.dim} checked={dim} onChange={setDim} testId="camera-dim-toggle" />
       <mdui-button variant="outlined" onClick={resetOrigin} data-testid="camera-guide-reset">
         <mdui-icon-restart-alt--outlined slot="icon" />
         {g.resetOrigin}
       </mdui-button>
-    </Section>
+    </Group>
   )
 }
 
@@ -188,7 +189,7 @@ function ResultSection() {
     [r.height, `${formatMeters(camera.height)}（${r.sources[camera.heightSource]}）`],
   ]
   return (
-    <Section title={r.title} testId="camera-solution">
+    <Group id="camera.result" title={r.title} summary={r.summary(fov(background.width), formatDegrees(camera.pitch * DEG))} testId="camera-solution">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
         {rows.map(([k, v]) => (
           <div key={k} className="contents">
@@ -197,7 +198,7 @@ function ResultSection() {
           </div>
         ))}
       </dl>
-    </Section>
+    </Group>
   )
 }
 
@@ -231,9 +232,7 @@ function ScaleSection() {
   )
   const sc = t.camera.scale
   return (
-    <Section title={sc.title} testId="camera-scale">
-      <Hint>{sc.why}</Hint>
-      <Hint>{sc.use}</Hint>
+    <Group id="camera.scale" title={sc.title} summary={sc.short[camera.heightSource]} help={[sc.why, sc.use, sc.rodHint]} testId="camera-scale">
       <p className={camera.heightSource === 'default' ? 'font-medium text-champagne' : 'font-medium'} data-testid="camera-scale-status">
         {sc.sources[camera.heightSource]}
       </p>
@@ -247,9 +246,10 @@ function ScaleSection() {
       <mdui-button variant="tonal" onClick={applyRod} data-testid="camera-rod-apply">
         {sc.apply}
       </mdui-button>
-      <Hint>{sc.rodHint}</Hint>
-      <SliderField label={sc.height} value={fromHeight(camera.height)} min={0} max={100} step={0.1} format={formatHeight} onChange={onHeight} testId="camera-height" />
-      <Hint>{sc.heightHint}</Hint>
-    </Section>
+      <More id="camera.scale.more">
+        <SliderField label={sc.height} value={fromHeight(camera.height)} min={0} max={100} step={0.1} format={formatHeight} onChange={onHeight} testId="camera-height" />
+        <Hint>{sc.heightHint}</Hint>
+      </More>
+    </Group>
   )
 }

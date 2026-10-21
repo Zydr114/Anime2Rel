@@ -11,6 +11,7 @@ import { SelectField } from '@/ui/SelectField'
 import { SliderField } from '@/ui/SliderField'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { notify } from '../notify'
+import { Group } from './Group'
 
 const DEVICE_LABEL = { webgpu: 'WebGPU', wasm: 'WASM' } as const
 
@@ -30,9 +31,8 @@ const formatPercent = (v: number) => `${Math.round(v)}%`
 
 export function DepthPanel() {
   return (
-    <div className="flex flex-col gap-4">
-      <ModelSection />
-      <JobsSection />
+    <div className="flex flex-col gap-2">
+      <EstimateSection />
       <ScaleSection />
       <ViewSection />
       <SettingsSection />
@@ -40,11 +40,36 @@ export function DepthPanel() {
   )
 }
 
-function ModelSection() {
+/** 模型与估计的状态摘要 */
+function estimateSummary(model: ReturnType<typeof useDepth.getState>['model'], jobs: (JobStatus | undefined)[]): string {
+  if (model.state === 'loading') return t.depth.phase[model.phase]
+  if (model.state === 'error') return t.depth.failed
+  if (jobs.some((j) => j?.state === 'error')) return t.depth.job.failed
+  if (jobs.some((j) => j?.state === 'running' || j?.state === 'queued')) return t.depth.job.running
+  return model.state === 'ready' ? attemptLabel(model.info) : t.depth.idle
+}
+
+function EstimateSection() {
+  const model = useDepth((s) => s.model)
+  const jobs = useDepth((s) => s.jobs)
+  const background = useApp((s) => s.doc.background?.id)
+  const character = useApp((s) => s.doc.character?.id)
+  const summary = estimateSummary(
+    model,
+    [background, character].map((id) => (id ? jobs[id] : undefined)),
+  )
+  return (
+    <Group id="depth.estimate" title={t.depth.estimate} summary={summary} defaultOpen testId="depth-estimate">
+      <ModelStatus />
+      <JobsStatus />
+    </Group>
+  )
+}
+
+function ModelStatus() {
   const model = useDepth((s) => s.model)
   return (
-    <section className="flex flex-col gap-2 rounded-2xl bg-white/5 p-3 text-sm" data-testid="depth-model">
-      <h3 className="font-medium">{t.depth.model}</h3>
+    <div className="flex flex-col gap-2" data-testid="depth-model">
       {model.state === 'idle' && <div className="text-on-surface-variant">{t.depth.idle}</div>}
       {model.state === 'loading' && (
         <>
@@ -85,7 +110,7 @@ function ModelSection() {
           </mdui-button>
         </>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -113,7 +138,7 @@ function jobText(job: JobStatus | undefined): string {
   return t.depth.timings(formatMs(job.timings.inference), formatMs(job.timings.prepare + job.timings.post))
 }
 
-function JobsSection() {
+function JobsStatus() {
   const background = useApp((s) => s.doc.background)
   const character = useApp((s) => s.doc.character)
   const jobs = useDepth((s) => s.jobs)
@@ -123,8 +148,7 @@ function JobsSection() {
   ].filter((r) => r.asset)
 
   return (
-    <section className="flex flex-col gap-2 rounded-2xl bg-white/5 p-3 text-sm">
-      <h3 className="font-medium">{t.depth.jobs}</h3>
+    <div className="flex flex-col gap-2">
       {rows.map((r) => {
         const job = jobs[r.asset!.id]
         return (
@@ -138,7 +162,7 @@ function JobsSection() {
         <mdui-icon-refresh--outlined slot="icon" />
         {t.depth.reestimate}
       </mdui-button>
-    </section>
+    </div>
   )
 }
 
@@ -151,14 +175,12 @@ function ScaleSection() {
   const scale = depthScaleFor(camera, background, getDepthResult(background.id))
   const ok = scale.state === 'ground'
   return (
-    <section className="flex flex-col gap-2 rounded-2xl bg-white/5 p-3 text-sm" data-testid="depth-scale" data-state={scale.state}>
-      <h3 className="font-medium">{t.depth.scale.title}</h3>
+    <Group id="depth.scale" title={t.depth.scale.title} summary={ok ? t.depth.scale.groundShort : t.depth.scale.approx} help={t.depth.scale.hint} testId="depth-scale" state={scale.state}>
       <div className="flex items-center gap-2">
         {ok ? <mdui-icon-check-circle--outlined className="size-5 shrink-0 text-primary" /> : <mdui-icon-info--outlined className="size-5 shrink-0 text-on-surface-variant" />}
         <span>{ok ? t.depth.scale.ground(scale.inliers, scale.samples) : `${t.depth.scale.approx}：${t.depth.scale.reasons[scale.state as Exclude<typeof scale.state, 'ground'>]}`}</span>
       </div>
-      <p className="text-xs leading-5 text-on-surface-variant">{t.depth.scale.hint}</p>
-    </section>
+    </Group>
   )
 }
 
@@ -182,8 +204,7 @@ function ViewSection() {
   const onOverlay = useCallback((v: number) => setOverlay(v / 100), [setOverlay])
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3 text-sm">
-      <h3 className="font-medium">{t.depth.view}</h3>
+    <Group id="depth.view" title={t.depth.view} summary={t.depth.views[view]} help={t.depth.edgeAlignHint} testId="depth-view-section">
       <mdui-segmented-button-group ref={groupRef} selects="single" value={view} full-width data-testid="depth-view">
         {DEBUG_VIEWS.map((v) => (
           <mdui-segmented-button key={v} value={v}>
@@ -196,8 +217,7 @@ function ViewSection() {
         <span>{t.depth.edgeAlign}</span>
         <mdui-switch ref={switchRef} checked={edgeAlign} data-testid="depth-edge-align" />
       </div>
-      <p className="text-xs leading-5 text-on-surface-variant">{t.depth.edgeAlignHint}</p>
-    </section>
+    </Group>
   )
 }
 
@@ -229,8 +249,7 @@ function SettingsSection() {
   }
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3 text-sm">
-      <h3 className="font-medium">{t.depth.settings}</h3>
+    <Group id="depth.settings" title={t.depth.settings} summary={t.depth.sources[settings.source]} help={t.depth.settingsHint} testId="depth-settings">
       <SelectField
         label={t.depth.source}
         value={settings.source}
@@ -252,7 +271,6 @@ function SettingsSection() {
         onChange={(precision) => change({ precision })}
         testId="depth-precision"
       />
-      <p className="text-xs leading-5 text-on-surface-variant">{t.depth.settingsHint}</p>
       <div className="flex items-center justify-between">
         <span className="text-on-surface-variant" data-testid="depth-cache">
           {cache === null ? '' : t.depth.cache(formatBytes(cache))}
@@ -262,6 +280,6 @@ function SettingsSection() {
           {t.depth.clearCache}
         </mdui-button>
       </div>
-    </section>
+    </Group>
   )
 }

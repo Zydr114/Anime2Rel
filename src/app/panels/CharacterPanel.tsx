@@ -19,7 +19,8 @@ import { SelectField } from '@/ui/SelectField'
 import { useDomEvent } from '@/ui/useDomEvent'
 import { notify } from '../notify'
 import { ThicknessSlider } from './FocusPanel'
-import { FusionSections, Hint, Section, ToggleRow } from './FusionSections'
+import { FusionSections } from './FusionSections'
+import { Empty, Group, Hint, More, ToggleRow } from './Group'
 
 const RAD = Math.PI / 180
 
@@ -38,28 +39,35 @@ export function CharacterPanel() {
   const onScale = useGestureChange(useCallback((v: number) => setCharTransform({ scale: Math.max(0.005, v / 100) }), [setCharTransform]))
   const onRotation = useGestureChange(useCallback((v: number) => setCharTransform({ rotation: v * RAD }), [setCharTransform]))
 
-  if (!character) return <p className="px-1 text-sm text-on-surface-variant">{t.character.noCharacter}</p>
+  if (!character) return <Empty>{t.character.noCharacter}</Empty>
 
   return (
-    <div className="flex flex-col gap-4">
-      <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3">
-        <h3 className="text-sm font-medium">{t.character.transform}</h3>
-        <div className="grid grid-cols-2 gap-2">
-          <NumberField label={t.character.x} value={Math.round(tr.x)} onCommit={(x) => setCharTransform({ x })} testId="char-x" />
-          <NumberField label={t.character.y} value={Math.round(tr.y)} onCommit={(y) => setCharTransform({ y })} testId="char-y" />
-        </div>
+    <div className="flex flex-col gap-2">
+      <Group
+        id="character.transform"
+        title={t.character.transform}
+        summary={t.character.summary(formatPercent(tr.scale * 100), formatDegrees(tr.rotation / RAD))}
+        help={t.character.gizmoHint}
+        defaultOpen
+        testId="char-transform"
+      >
         <SliderField label={t.character.scale} value={tr.scale * 100} min={1} max={300} step={0.5} format={formatPercent} onChange={onScale} testId="char-scale" />
         <SliderField label={t.character.rotation} value={tr.rotation / RAD} min={-180} max={180} step={0.5} format={formatDegrees} onChange={onRotation} testId="char-rotation" />
         <div className="flex items-center justify-between">
-          <span className="text-sm">{t.character.flip}</span>
+          <span>{t.character.flip}</span>
           <FlipSwitch checked={tr.flipX} onChange={(flipX) => setCharTransform({ flipX })} />
         </div>
+        <More id="character.transform.more">
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField label={t.character.x} value={Math.round(tr.x)} onCommit={(x) => setCharTransform({ x })} testId="char-x" />
+            <NumberField label={t.character.y} value={Math.round(tr.y)} onCommit={(y) => setCharTransform({ y })} testId="char-y" />
+          </div>
+        </More>
         <mdui-button variant="outlined" onClick={resetCharTransform}>
           <mdui-icon-restart-alt--outlined slot="icon" />
           {t.character.reset}
         </mdui-button>
-        <p className="text-xs leading-5 text-on-surface-variant">{t.character.gizmoHint}</p>
-      </section>
+      </Group>
       <CameraSection />
       <WarpSection />
       <DepthEditSection />
@@ -92,29 +100,20 @@ function CameraSection() {
   const showGuide = useFusion((s) => s.showGuide) && kind !== 'none'
   const c = t.character.camera
   const meters = characterMeters(doc, info?.bbox)
+  const height = meters === null ? c.heightUnknown : c.height(`${meters.toFixed(2)} m`)
   return (
-    <Section title={c.title} testId="char-camera">
+    <Group id="character.camera" title={c.title} summary={height} help={[c.perspectiveMoveHint, c.guideHint, c.heightHint, c.applyHint]} testId="char-camera">
+      {/* 立绘的不透明区域在后台算出之前，读数按整张图估算 */}
+      <span className="font-medium tabular-nums" data-testid="char-height" data-state={info ? 'ready' : 'pending'}>
+        {height}
+      </span>
       <ToggleRow label={c.perspectiveMove} checked={perspectiveMove} onChange={useFusion.getState().setPerspectiveMove} testId="char-perspective-move" />
-      <Hint>{c.perspectiveMoveHint}</Hint>
       <ToggleRow label={c.showGuide} checked={showGuide} onChange={setShowGuide} testId="char-show-guide" />
-      {showGuide && (
-        <>
-          <SelectField label={t.camera.guide.kind} value={kind} options={GUIDE_OPTIONS} onChange={useCameraGuide.getState().setKind} testId="char-guide-kind" />
-          <Hint>{c.guideHint}</Hint>
-        </>
-      )}
-      <div className="flex flex-col gap-1">
-        {/* 立绘的不透明区域在后台算出之前，读数按整张图估算 */}
-        <span className="font-medium tabular-nums" data-testid="char-height" data-state={info ? 'ready' : 'pending'}>
-          {meters === null ? c.heightUnknown : c.height(`${meters.toFixed(2)} m`)}
-        </span>
-        <Hint>{c.heightHint}</Hint>
-      </div>
+      {showGuide && <SelectField label={t.camera.guide.kind} value={kind} options={GUIDE_OPTIONS} onChange={useCameraGuide.getState().setKind} testId="char-guide-kind" />}
       <mdui-button variant="outlined" onClick={applyCameraPerspective} data-testid="char-camera-perspective">
         {c.apply}
       </mdui-button>
-      <Hint>{c.applyHint}</Hint>
-    </Section>
+    </Group>
   )
 }
 
@@ -122,10 +121,10 @@ function WarpSection() {
   const warp = useApp((s) => s.doc.charWarp)
   const tool = useFusion((s) => s.tool)
   const w = t.character.warp
+  const changed = [hasPerspective(warp) && w.tools.perspective, hasGridWarp(warp) && w.tools.mesh].filter(Boolean).join('、')
   return (
-    <section className="flex flex-col gap-3 rounded-2xl bg-white/5 p-3" data-testid="warp-section">
-      <h3 className="text-sm font-medium">{w.title}</h3>
-      <span className="text-sm">{w.tool}</span>
+    <Group id="character.warp" title={w.title} summary={changed || w.none} help={[w.hints.perspective, w.hints.mesh, w.limit]} testId="warp-section">
+      <span>{w.tool}</span>
       {/* 使用深度画笔时不选中任何一项 */}
       <Segmented value={tool} options={WARP_TOOLS} label={(v) => w.tools[v as WarpTool]} onChange={useFusion.getState().setTool} testId="warp-tool" />
       {tool === 'mesh' && (
@@ -148,9 +147,7 @@ function WarpSection() {
           {w.resetGrid}
         </mdui-button>
       </div>
-      <p className="text-xs leading-5 text-on-surface-variant">{w.hints[tool]}</p>
-      <p className="text-xs leading-5 text-on-surface-variant">{w.limit}</p>
-    </section>
+    </Group>
   )
 }
 
@@ -167,21 +164,17 @@ function DepthEditSection() {
   const view3d = useView3d((s) => s.open)
   const d = t.depthEdit
   return (
-    <Section title={d.title} testId="char-depth-edit">
+    <Group id="character.depthEdit" title={d.title} summary={d.strokes(strokes)} help={[d.thicknessHint, d.brushHint, d.modesHint, d.overlayHint]} testId="char-depth-edit">
       <ToggleRow label={t.light.view3d} checked={view3d} onChange={useView3d.getState().setOpen} testId="char-view3d" />
-      <Hint>{d.view3dHint}</Hint>
       <ThicknessSlider />
-      <Hint>{d.thicknessHint}</Hint>
       <ToggleRow label={d.brush} checked={active} onChange={(on) => useFusion.getState().setTool(on ? 'depth' : 'transform')} testId="char-depth-brush" />
-      <Hint>{d.brushHint}</Hint>
       {active && (
         <>
+          {!ready && <Hint warn>{d.notReady}</Hint>}
           <Segmented value={brush.mode} options={DEPTH_BRUSH_MODES} label={(v) => d.modes[v]} onChange={brush.setMode} testId="char-depth-mode" />
-          <Hint>{d.modeHints[brush.mode]}</Hint>
           <SliderField label={d.size} value={brush.size} min={4} max={300} format={formatPx} onChange={brush.setSize} testId="char-depth-size" />
           <SliderField label={d.strength} value={brush.strength * 100} min={1} max={100} format={formatPercent} onChange={(v) => brush.setStrength(v / 100)} testId="char-depth-strength" />
           <SliderField label={d.hardness} value={brush.hardness * 100} min={0} max={95} format={formatPercent} onChange={(v) => brush.setHardness(v / 100)} testId="char-depth-hardness" />
-          <Hint>{ready ? d.overlayHint : d.notReady}</Hint>
         </>
       )}
       <div className="flex items-center justify-between">
@@ -192,7 +185,7 @@ function DepthEditSection() {
           {d.clear}
         </mdui-button>
       </div>
-    </Section>
+    </Group>
   )
 }
 

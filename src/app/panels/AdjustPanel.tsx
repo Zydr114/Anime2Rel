@@ -7,7 +7,7 @@ import { CurveEditor } from '@/ui/CurveEditor'
 import { Segmented } from '@/ui/Segmented'
 import { SliderField } from '@/ui/SliderField'
 import { useGestureChange } from '../useGestureChange'
-import { Hint, Section } from './FusionSections'
+import { Empty, Group, Help, Hint, More } from './Group'
 import { PresetSections } from './PresetSections'
 import { StyleSections } from './StyleSections'
 
@@ -25,6 +25,41 @@ const currentAdjust = () => {
   return { level, adjust: useApp.getState().doc.grade.levels[level] }
 }
 
+interface FieldSpec {
+  field: ScalarField
+  label: string
+  scale?: number
+  format?: (v: number) => string
+}
+
+/** 收起时的摘要：列出有修改的前两项 */
+function useAdjustSummary(fields: readonly FieldSpec[]): string {
+  const level = useGradeUi((s) => s.level)
+  const adjust = useApp((s) => s.doc.grade.levels[level])
+  const changed = fields.filter((f) => adjust[f.field] !== 0).map((f) => `${f.label} ${(f.format ?? formatSigned)(adjust[f.field] * (f.scale ?? 100))}`)
+  if (!changed.length) return t.adjust.unchanged
+  return changed.slice(0, 2).join(' · ') + (changed.length > 2 ? ' …' : '')
+}
+
+const LIGHT_FIELDS: readonly FieldSpec[] = [
+  { field: 'exposure', label: t.adjust.exposure, scale: 1, format: formatEv },
+  { field: 'contrast', label: t.adjust.contrast },
+  { field: 'highlights', label: t.adjust.highlights },
+  { field: 'shadows', label: t.adjust.shadows },
+  { field: 'whites', label: t.adjust.whites },
+  { field: 'blacks', label: t.adjust.blacks },
+]
+const COLOR_FIELDS: readonly FieldSpec[] = [
+  { field: 'temperature', label: t.adjust.temperature },
+  { field: 'tint', label: t.adjust.tint },
+  { field: 'vibrance', label: t.adjust.vibrance },
+  { field: 'saturation', label: t.adjust.saturation },
+]
+const DETAIL_FIELDS: readonly FieldSpec[] = [
+  { field: 'clarity', label: t.adjust.clarity },
+  { field: 'sharpen', label: t.adjust.sharpen },
+]
+
 /** 当前级别的基础调整滑块：显示值 = 参数 × scale，拖动期间合并为一次撤销记录。 */
 function AdjustSlider({ field, label, min = -100, max = 100, step = 1, scale = 100, format = formatSigned }: { field: ScalarField; label: string; min?: number; max?: number; step?: number; scale?: number; format?: (v: number) => string }) {
   const level = useGradeUi((s) => s.level)
@@ -36,9 +71,9 @@ function AdjustSlider({ field, label, min = -100, max = 100, step = 1, scale = 1
 export function AdjustPanel() {
   const hasBackground = useApp((s) => s.doc.background !== null)
   const tab = useGradeUi((s) => s.tab)
-  if (!hasBackground) return <p className="px-1 text-sm text-on-surface-variant">{t.adjust.noBackground}</p>
+  if (!hasBackground) return <Empty>{t.adjust.noBackground}</Empty>
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-2">
       <Segmented value={tab} options={GRADE_TABS} label={(v) => t.adjust.tabs[v]} onChange={useGradeUi.getState().setTab} testId="grade-tab" />
       {tab === 'basic' ? <BasicSections /> : tab === 'style' ? <StyleSections /> : <PresetSections />}
     </div>
@@ -46,29 +81,34 @@ export function AdjustPanel() {
 }
 
 function BasicSections() {
+  const light = useAdjustSummary(LIGHT_FIELDS)
+  const color = useAdjustSummary(COLOR_FIELDS)
+  const detail = useAdjustSummary(DETAIL_FIELDS)
   return (
     <>
       <LevelSection />
-      <Section title={t.adjust.light} testId="adjust-light">
+      <Group id="adjust.light" title={t.adjust.light} summary={light} defaultOpen testId="adjust-light">
         <AdjustSlider field="exposure" label={t.adjust.exposure} min={-5} max={5} step={0.05} scale={1} format={formatEv} />
         <AdjustSlider field="contrast" label={t.adjust.contrast} />
         <AdjustSlider field="highlights" label={t.adjust.highlights} />
         <AdjustSlider field="shadows" label={t.adjust.shadows} />
-        <AdjustSlider field="whites" label={t.adjust.whites} />
-        <AdjustSlider field="blacks" label={t.adjust.blacks} />
-      </Section>
-      <Section title={t.adjust.color} testId="adjust-color">
+        <More id="adjust.light.more">
+          <AdjustSlider field="whites" label={t.adjust.whites} />
+          <AdjustSlider field="blacks" label={t.adjust.blacks} />
+        </More>
+      </Group>
+      <Group id="adjust.color" title={t.adjust.color} summary={color} defaultOpen testId="adjust-color">
         <AdjustSlider field="temperature" label={t.adjust.temperature} />
         <AdjustSlider field="tint" label={t.adjust.tint} />
         <AdjustSlider field="vibrance" label={t.adjust.vibrance} />
         <AdjustSlider field="saturation" label={t.adjust.saturation} />
-      </Section>
+      </Group>
       <HslSection />
       <CurveSection />
-      <Section title={t.adjust.detail} testId="adjust-detail">
+      <Group id="adjust.detail" title={t.adjust.detail} summary={detail} testId="adjust-detail">
         <AdjustSlider field="clarity" label={t.adjust.clarity} />
         <AdjustSlider field="sharpen" label={t.adjust.sharpen} min={0} />
-      </Section>
+      </Group>
       <ResetButton />
     </>
   )
@@ -79,8 +119,13 @@ function LevelSection() {
   const hasCharacter = useApp((s) => s.doc.character !== null)
   return (
     <div className="flex flex-col gap-2">
-      <Segmented value={level} options={GRADE_LEVELS} label={(l) => t.adjust.levels[l]} onChange={useGradeUi.getState().setLevel} testId="adjust-level" />
-      <Hint>{level === 'character' && !hasCharacter ? t.adjust.noCharacter : t.adjust.levelHints[level]}</Hint>
+      <div className="flex items-center gap-1">
+        <div className="min-w-0 flex-1">
+          <Segmented value={level} options={GRADE_LEVELS} label={(l) => t.adjust.levels[l]} onChange={useGradeUi.getState().setLevel} testId="adjust-level" />
+        </div>
+        <Help title={t.adjust.levels[level]} text={t.adjust.levelHints[level]} />
+      </div>
+      {level === 'character' && !hasCharacter && <Hint warn>{t.adjust.noCharacter}</Hint>}
     </div>
   )
 }
@@ -99,8 +144,9 @@ function HslSection() {
   const onHue = useGestureChange(useCallback((v: number) => setHsl('hue', v / 100), []))
   const onSaturation = useGestureChange(useCallback((v: number) => setHsl('saturation', v / 100), []))
   const onLuminance = useGestureChange(useCallback((v: number) => setHsl('luminance', v / 100), []))
+  const changed = HSL_BANDS.filter((_, i) => hsl.hue[i] !== 0 || hsl.saturation[i] !== 0 || hsl.luminance[i] !== 0).map((b) => t.adjust.bands[b])
   return (
-    <Section title={t.adjust.hsl} testId="adjust-hsl">
+    <Group id="adjust.hsl" title={t.adjust.hsl} summary={changed.length ? changed.join('、') : t.adjust.unchanged} testId="adjust-hsl">
       <div className="flex justify-between">
         {HSL_BANDS.map((b, i) => {
           const changed = hsl.hue[i] !== 0 || hsl.saturation[i] !== 0 || hsl.luminance[i] !== 0
@@ -123,7 +169,7 @@ function HslSection() {
       <SliderField label={`${t.adjust.bands[HSL_BANDS[band]]} · ${t.adjust.hslHue}`} value={hsl.hue[band] * 100} min={-100} max={100} format={formatSigned} onChange={onHue} testId="adjust-hsl-hue" />
       <SliderField label={t.adjust.hslSaturation} value={hsl.saturation[band] * 100} min={-100} max={100} format={formatSigned} onChange={onSaturation} testId="adjust-hsl-saturation" />
       <SliderField label={t.adjust.hslLuminance} value={hsl.luminance[band] * 100} min={-100} max={100} format={formatSigned} onChange={onLuminance} testId="adjust-hsl-luminance" />
-    </Section>
+    </Group>
   )
 }
 
@@ -136,8 +182,9 @@ function CurveSection() {
     useApp.getState().updateAdjust(level, { curves: { ...adjust.curves, [useGradeUi.getState().channel]: points } })
   }
   const others = CURVE_CHANNELS.filter((c) => c !== channel && !isIdentityCurve(curves[c])).map((c) => ({ points: curves[c], color: CHANNEL_COLORS[c] }))
+  const changed = CURVE_CHANNELS.filter((c) => !isIdentityCurve(curves[c])).map((c) => t.adjust.channels[c])
   return (
-    <Section title={t.adjust.curves} testId="adjust-curves">
+    <Group id="adjust.curves" title={t.adjust.curves} summary={changed.length ? changed.join('、') : t.adjust.unchanged} help={t.adjust.curveHint} testId="adjust-curves">
       <Segmented value={channel} options={CURVE_CHANNELS} label={(c) => t.adjust.channels[c]} onChange={useGradeUi.getState().setChannel} testId="curve-channel" />
       <CurveEditor
         points={curves[channel]}
@@ -148,13 +195,12 @@ function CurveSection() {
         onEnd={useApp.getState().endGesture}
         testId="curve-editor"
       />
-      <Hint>{t.adjust.curveHint}</Hint>
       {!isIdentityCurve(curves[channel]) && (
         <mdui-button variant="text" onClick={() => setCurve([[0, 0], [1, 1]])} data-testid="curve-reset">
           {t.adjust.curveReset}
         </mdui-button>
       )}
-    </Section>
+    </Group>
   )
 }
 
