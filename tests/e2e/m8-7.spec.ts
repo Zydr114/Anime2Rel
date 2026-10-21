@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { pagePixels } from './canvas'
 import { figure } from './figure'
 import { makeImage } from './png'
 
@@ -82,4 +83,34 @@ test('seven steps with collapsible groups, a toolbar 3D toggle, operation hints,
   await expect(group(page, 'depth.estimate')).toHaveAttribute('data-open', 'true')
   await page.getByTestId('step-place').click()
   await expect(hints).toHaveCount(0)
+})
+
+test('light theme: follows the system by default, can be chosen in settings and is remembered', async ({ page }) => {
+  const root = page.locator('html')
+  // 测试配置固定为深色，这里改为系统浅色
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto('/')
+  await expect(root).toHaveAttribute('data-theme', 'light')
+  await expect(root).toHaveClass(/mdui-theme-light/)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(root).toHaveAttribute('data-theme', 'dark')
+
+  await choose(page, 'drop-background', 'bg.png', makeImage(W, H, (x, y) => [60 + (x / W) * 60, 80 + (y / H) * 40, 110, 255]))
+  await page.getByTestId('start').click()
+  // 画布周围：深色 #1a1a1a
+  const surround = { x: 600, y: 30 }
+  await expect.poll(async () => (await pagePixels(page, [surround]))[0]).toEqual([26, 26, 26])
+
+  // 手动选择浅色，不再跟随系统；画布周围变为浅灰
+  await page.getByTestId('settings-button').click()
+  await page.locator('[data-testid="settings-theme"] mdui-segmented-button[value="light"]').click()
+  await expect(root).toHaveAttribute('data-theme', 'light')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('settings')).not.toHaveAttribute('open')
+  await expect.poll(async () => (await pagePixels(page, [surround]))[0]).toEqual([214, 214, 214])
+
+  // 选择记在浏览器中，重新打开时在界面渲染之前就是浅色
+  await page.reload()
+  await expect(root).toHaveAttribute('data-theme', 'light')
+  expect(await page.evaluate(() => localStorage.getItem('a2r.ui.theme'))).toBe('light')
 })
