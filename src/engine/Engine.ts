@@ -100,6 +100,20 @@ export interface ExportOptions {
   signal?: AbortSignal
 }
 
+/** 预设缩略图的长边上限（像素） */
+export const THUMBNAIL_EDGE = 240
+
+/** 一张缩略图使用的调色和后期参数 */
+export interface ThumbnailParams {
+  grade: GradeParams | null
+  post: PostParams | null
+}
+
+/** 一组缩略图：尺寸相同，每张为紧密排列、首行在上的 RGBA8（sRGB） */
+export interface Thumbnails extends Size {
+  pixels: Uint8Array[]
+}
+
 function makePlaceholder(): THREE.DataTexture {
   const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1)
   t.colorSpace = THREE.SRGBColorSpace
@@ -179,6 +193,9 @@ export interface FusionDisplay {
   /** 显示镜头失真（镜头、导出步骤中）；其他步骤的画布控件需要与未失真的画面对位 */
   distortion: boolean
 }
+
+/** 导出和缩略图的显示方式：处理后的合成结果，不带调试视图、灰球、对比和遮罩预览 */
+const FINAL_DISPLAY: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: true }
 
 interface Effects {
   dof: boolean
@@ -1137,9 +1154,7 @@ export class Engine {
     const size = this.exportSize()
     const bg = this.doc?.background
     if (!size || !bg || !this.docSize) throw new Error('没有可导出的文档')
-    // 导出始终是处理后的合成结果，不带调试视图、灰球、对比和遮罩预览
-    const display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: true }
-    const effects = this.effects(display)
+    const effects = this.effects(FINAL_DISPLAY)
     const skip: SkipLayers = {
       backgroundDof: !effects.dof,
       characterDof: !effects.dof,
@@ -1154,7 +1169,7 @@ export class Engine {
     const downscaled = size.width !== this.docSize.width || size.height !== this.docSize.height
     if (this.warpDirty) this.applyWarp()
     this.exporting = true
-    this.syncDisplay(display)
+    this.syncDisplay(FINAL_DISPLAY)
     try {
       if (!this.exportTile && !downscaled && size.width * size.height <= WHOLE_PIXELS) await this.exportWhole(size, effects, skip, options)
       else await this.exportTiles(size, effects, skip, downscaled ? bg : null, options)
@@ -1171,6 +1186,61 @@ export class Engine {
       // 代理渲染覆盖了预览的中间图层
       this.backgroundDirty = true
       this.syncDisplay()
+    }
+  }
+
+  /**
+   * 预设缩略图（docs/Plan.md §3.7 M8.8a）：在长边不超过 maxEdge 的尺寸上，按每组调色和后期参数完整渲染一次当前画面。
+   * 导出期间、没有背景或引擎已释放时返回 null。
+   */
+  async renderThumbnails(items: readonly ThumbnailParams[], maxEdge = THUMBNAIL_EDGE): Promise<Thumbnails | null> {
+    if (!this.docSize || this.exporting || this.disposed) return null
+    const size = fitWithin(this.docSize, maxEdge)
+    const targets = layerTargets()
+    sizeLayers(targets, size.width, size.height)
+    const linear = linearTarget(size.width, size.height)
+    const out = byteTarget(size.width, size.height)
+    try {
+      const pixels: Uint8Array[] = []
+      for (const item of items) {
+        if (!this.docSize || this.exporting || this.disposed) return null
+        pixels.push(await this.renderThumbnail(item, targets, linear, out))
+      }
+      return { ...size, pixels }
+    } finally {
+      for (const rt of Object.values(targets)) rt.dispose()
+      linear.dispose()
+      out.dispose()
+    }
+  }
+
+  /**
+   * 一张缩略图：换上参数、渲染并发起读回都在这段同步代码中，随后立即恢复当前参数。
+   * 读回期间文档的变化照常生效；缩略图使用自己的图层，预览的结果不受影响，不需要重新渲染。
+   */
+  private renderThumbnail({ grade, post }: ThumbnailParams, targets: LayerTargets, linear: THREE.RenderTarget, out: THREE.RenderTarget): Promise<Uint8Array> {
+    if (this.warpDirty) this.applyWarp()
+    const current = { grade: this.grade, post: this.postParams, docDirty: this.docDirty }
+    const bindLut = (params: GradeParams | null) => {
+      const lut = params?.creative.lut
+      setFinishLut(this.finish, (lut && getLut(lut.id)) ?? null)
+    }
+    this.grade = grade
+    this.postParams = post
+    bindLut(grade)
+    this.syncDisplay(FINAL_DISPLAY)
+    try {
+      this.bindLayers(targets)
+      this.renderDocument(targets, linear, this.effects(FINAL_DISPLAY), 'full')
+      return this.readEncoded(linear, out)
+    } finally {
+      this.grade = current.grade
+      this.postParams = current.post
+      bindLut(current.grade)
+      this.bindLayers(this.layers)
+      this.encode.source.value = this.placeholder
+      this.syncDisplay()
+      this.docDirty = current.docDirty
     }
   }
 

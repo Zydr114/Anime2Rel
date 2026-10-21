@@ -249,6 +249,11 @@ export function parsePreset(text: string, fallbackName: string): Preset {
   return { name: conformName(o.name, fallbackName), grade: conformGrade(o.grade, lutResolver(o.luts)), post: conformPost(o.post) }
 }
 
+/** 套用预设后的后期参数：光束和光晕沿用当前所选的光源 */
+export function presetPost(preset: PostDoc, current: PostDoc): PostDoc {
+  return { ...preset, rays: { ...preset.rays, light: current.rays.light }, flare: { ...preset.flare, light: current.flare.light } }
+}
+
 /** 参数是否与预设一致（不比较混色层、光晕元素的 id 和光束、光晕的光源） */
 export function matchesPreset(grade: GradeDoc, post: PostDoc, preset: Pick<Preset, 'grade' | 'post'>): boolean {
   const key = (g: GradeDoc, p: PostDoc) => JSON.stringify([{ ...g, creative: { ...g.creative, layers: withoutIds(g.creative.layers) } }, postForPreset(p)])

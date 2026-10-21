@@ -23,7 +23,7 @@ import {
 } from '@/grade/model'
 import { MAX_FLARE_ELEMENTS, newFlareElement, newFlareId, sameFlareElements, type FlareDoc, type FlareElement, type FlareElementType } from '@/grade/flare'
 import { DEFAULT_POST, type PostDoc, type PostSection, type ToneMapping } from '@/grade/post'
-import { matchesPreset, type Preset } from '@/grade/preset'
+import { matchesPreset, presetPost, type Preset } from '@/grade/preset'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
 /** 步骤（docs/Plan.md §3.7 M8.7）：素材、场景（相机与深度）、摆放、融合、调色、镜头（景深与后期）、导出 */
@@ -565,11 +565,7 @@ export const useApp = create<AppState>()((set, get) => ({
     get().setDoc((d) =>
       matchesPreset(d.grade, d.post, preset)
         ? d
-        : {
-            ...d,
-            grade: preset.grade,
-            post: { ...preset.post, rays: { ...preset.post.rays, light: d.post.rays.light }, flare: { ...preset.post.flare, light: d.post.flare.light } },
-          },
+        : { ...d, grade: preset.grade, post: presetPost(preset.post, d.post) },
     )
   },
 
