@@ -4,7 +4,7 @@
  * 参数的打包方式见 src/grade/mask.ts 的 maskParams。
  */
 import * as THREE from 'three/webgpu'
-import { clamp, dot, float, Fn, If, length, Loop, max, mix, saturate, screenUV, select, smoothstep, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, clamp, dot, float, Fn, If, length, Loop, max, mix, saturate, screenUV, select, smoothstep, step, texture, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl'
 import { CONTRAST_STRENGTH } from '@/grade/color'
 import { MASK_FEATHER } from '@/grade/creative'
 import { MASK_VEC4S, MAX_MASKS, type MaskParams } from '@/grade/mask'
@@ -15,7 +15,15 @@ import { fromOklab, material, srgbDecode, srgbEncode, toOklab, type FloatNode, t
 
 type TextureNode = THREE.TextureNode
 
+/** 没有画笔蒙版时的占位纹理（全为 0）；两张各用一个，three.js 按纹理 uuid 合并 uniform */
+function brushPlaceholder(): THREE.DataTexture {
+  const t = new THREE.DataTexture(new Uint8Array(4), 1, 1)
+  t.needsUpdate = true
+  return t
+}
+
 export function createMaskUniforms() {
+  const placeholders = [brushPlaceholder(), brushPlaceholder()] as const
   return {
     /** 参与计算的项数；0 时这个 pass 不渲染 */
     count: uniform(0, 'int'),
@@ -25,6 +33,9 @@ export function createMaskUniforms() {
       Array.from({ length: MAX_MASKS * MASK_VEC4S }, () => new THREE.Vector4()),
       'vec4',
     ),
+    /** 画笔蒙版（src/grade/maskBrush.ts），按输出图像的 UV 采样 */
+    brush: [texture(placeholders[0]), texture(placeholders[1])] as const,
+    placeholders,
   }
 }
 
@@ -33,8 +44,9 @@ export type MaskUniforms = ReturnType<typeof createMaskUniforms>
 export interface MaskInputs {
   /** 全局调整的结果（与渲染目标同尺寸） */
   image: TextureNode
-  /** 文档像素坐标 */
+  /** 文档像素坐标与输出图像的 UV */
   p: Vec2Node
+  uv: Vec2Node
   /** 立绘层调整后的立绘、立绘景深、遮挡层、立绘深度（与渲染目标同尺寸） */
   characterAdjusted: TextureNode
   characterDof: TextureNode
@@ -73,6 +85,8 @@ export function createMaskPass(u: MaskUniforms, inputs: MaskInputs) {
     const depth = mix(inputs.backgroundDepth, sampleLevel(inputs.characterDepth, screenUV).r, visible).toVar()
     const sky = inputs.sky.mul(inputs.hasBackgroundDepth).mul(float(1).sub(visible)).toVar()
     const shown = float(0).toVar()
+    const brushA = sampleLevel(u.brush[0], inputs.uv).toVar()
+    const brushB = sampleLevel(u.brush[1], inputs.uv).toVar()
 
     Loop(u.count, ({ i }) => {
       const base = i.mul(MASK_VEC4S)
@@ -103,7 +117,11 @@ export function createMaskPass(u: MaskUniforms, inputs: MaskInputs) {
             s.assign(float(1).sub(ramp(t, 1)))
           })
           .Else(() => {
-            s.assign(0)
+            // 画笔：第 i 项在第 i >> 2 张的第 i & 3 个通道
+            const index = float(i)
+            const is = (j: number) => float(1).sub(step(0.5, abs(index.sub(j))))
+            const pick = (offset: number) => vec4(is(offset), is(offset + 1), is(offset + 2), is(offset + 3))
+            s.assign(dot(brushA, pick(0)).add(dot(brushB, pick(4))))
           })
         If(shape.greaterThan(0.5).and(head.y.greaterThan(0.5)), () => {
           s.assign(float(1).sub(s))

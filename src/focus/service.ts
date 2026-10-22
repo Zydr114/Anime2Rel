@@ -6,7 +6,7 @@ import { characterInfo } from '@/state/fusion'
 import type { DocState } from '@/state/store'
 import type { BrushStroke, OcclusionRegion } from './model'
 import { focusParams, type FocusInputs, type FocusParams } from './params'
-import { guideStats, maskSize, packMasks, regionCoverage, SMOOTH_RADIUS, type GuideStats, type RegionMask } from './regions'
+import { guideStats, maskSize, packMasks, regionCoverage, SMOOTH_RADIUS, type Guide, type GuideStats, type RegionMask } from './regions'
 
 export function focusInputs(doc: DocState): FocusInputs {
   return {
@@ -28,6 +28,12 @@ const coverageCache = new WeakMap<readonly BrushStroke[], { key: string; mask: F
 let statsCache: { key: string; stats: GuideStats } | null = null
 let maskCache: { regions: readonly OcclusionRegion[]; key: string; mask: RegionMask } | null = null
 
+/** 背景缩小图在 SMOOTH_RADIUS 下的统计量（边缘吸附用），按背景缓存一份，遮挡区域与局部调整的画笔蒙版共用 */
+export function snapStats(backgroundId: string, guide: Guide): GuideStats {
+  if (statsCache?.key !== backgroundId) statsCache = { key: backgroundId, stats: guideStats(guide, SMOOTH_RADIUS) }
+  return statsCache.stats
+}
+
 /** 当前的遮挡区域遮罩；没有画过任何区域时为 null */
 export function currentRegionMask(doc: DocState): RegionMask | null {
   const bg = doc.background
@@ -37,11 +43,7 @@ export function currentRegionMask(doc: DocState): RegionMask | null {
   const key = `${bg.id}|${snap && !!guide}`
   if (maskCache?.regions === regions && maskCache.key === key) return maskCache.mask
   const size = maskSize(bg, guide)
-  let stats: GuideStats | null = null
-  if (snap && guide) {
-    if (statsCache?.key !== bg.id) statsCache = { key: bg.id, stats: guideStats(guide, SMOOTH_RADIUS) }
-    stats = statsCache.stats
-  }
+  const stats = snap && guide ? snapStats(bg.id, guide) : null
   const masks = regions.map((region) => {
     const cached = coverageCache.get(region.strokes)
     if (cached?.key === key) return cached.mask

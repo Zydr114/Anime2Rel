@@ -63,6 +63,7 @@ import { distortionReach } from '@/grade/distortion'
 import { GRADE_LEVELS, type GradeLevel } from '@/grade/model'
 import { getLut } from '@/grade/luts'
 import type { MaskParams } from '@/grade/mask'
+import type { BrushMasks } from '@/grade/maskBrush'
 import type { GradeParams } from '@/grade/params'
 import type { PostParams } from '@/grade/post'
 import type { MatteMap, NormalMap } from '@/fusion/protocol'
@@ -374,6 +375,7 @@ export class Engine {
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
   private grade: GradeParams | null = null
   private masks: MaskParams | null = null
+  private brushMasks: { masks: BrushMasks; textures: [THREE.DataTexture, THREE.DataTexture] } | null = null
   private postParams: PostParams | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   /** 立绘深度修正的增量（RGBA16F，r 为增量）；没有修正时为 null */
@@ -545,6 +547,7 @@ export class Engine {
         createMaskPass(this.maskUniforms, {
           image: nodes.graded,
           p: placement.p,
+          uv: this.tile.uv,
           characterAdjusted: nodes.characterAdjusted,
           characterDof: nodes.characterDof,
           occlusion: nodes.occlusion,
@@ -771,6 +774,25 @@ export class Engine {
     if (params === this.masks) return
     this.masks = params
     this.syncDisplay()
+  }
+
+  /** 局部调整的画笔蒙版；同一个对象不会重复上传，null 为没有画笔蒙版 */
+  setBrushMasks(masks: BrushMasks | null): void {
+    if ((this.brushMasks?.masks ?? null) === masks) return
+    this.disposeBrushMasks()
+    const u = this.maskUniforms
+    if (masks) {
+      const textures = masks.data.map((d) => dataTexture(d, masks.width, masks.height, THREE.UnsignedByteType)) as [THREE.DataTexture, THREE.DataTexture]
+      this.brushMasks = { masks, textures }
+    }
+    u.brush.forEach((node, i) => (node.value = this.brushMasks?.textures[i] ?? u.placeholders[i]))
+    this.docDirty = true
+    this.schedule()
+  }
+
+  private disposeBrushMasks(): void {
+    for (const t of this.brushMasks?.textures ?? []) t.dispose()
+    this.brushMasks = null
   }
 
   /** 后期效果的参数；null 为没有后期 */
@@ -1430,6 +1452,8 @@ export class Engine {
     this.charNormal?.rim.dispose()
     this.disposeMatte()
     this.regions?.texture.dispose()
+    this.disposeBrushMasks()
+    for (const t of this.maskUniforms.placeholders) t.dispose()
     for (const u of Object.values(this.adjust)) u.curveMap.dispose()
     disposeFinish(this.finish)
     disposePostPasses(this.postPasses)

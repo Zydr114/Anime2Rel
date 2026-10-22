@@ -252,9 +252,12 @@ export function packMasks(masks: readonly Float32Array[], size: Size): RegionMas
   return { ...size, data, masks: [...masks] }
 }
 
-/** 区域的覆盖度：栅格化笔画，有引导图（SMOOTH_RADIUS 下的统计量）时吸附边缘 */
-export function regionCoverage(region: OcclusionRegion, doc: Size, size: Size, stats: GuideStats | null): Float32Array {
-  if (region.strokes.length === 0) return new Float32Array(size.width * size.height)
-  const raw = rasterizeStrokes(region.strokes, doc, size)
-  return stats ? snapToEdges(stats, raw, snapRadius(region.strokes, doc, size)) : raw
+/** 一组笔画的覆盖度：栅格化笔画，有引导图（SMOOTH_RADIUS 下的统计量）时吸附边缘。局部调整的画笔蒙版也使用它 */
+export function strokeCoverage(strokes: readonly BrushStroke[], doc: Size, size: Size, stats: GuideStats | null): Float32Array {
+  if (strokes.length === 0) return new Float32Array(size.width * size.height)
+  const raw = rasterizeStrokes(strokes, doc, size)
+  return stats ? snapToEdges(stats, raw, snapRadius(strokes, doc, size)) : raw
 }
+
+/** 区域的覆盖度 */
+export const regionCoverage = (region: OcclusionRegion, doc: Size, size: Size, stats: GuideStats | null): Float32Array => strokeCoverage(region.strokes, doc, size, stats)
