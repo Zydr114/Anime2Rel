@@ -145,8 +145,9 @@ export function createMaskPass(u: MaskUniforms, inputs: MaskInputs) {
             k.assign(sky)
           })
           .ElseIf(kind.lessThan(4.5), () => {
+            // 与天空相同，没有背景深度时为空
             const near = ramp(depth.sub(range.z.sub(range.w.mul(0.5))), range.w)
-            k.assign(select(range.y.greaterThan(0.5), near, float(1).sub(near)))
+            k.assign(select(range.y.greaterThan(0.5), near, float(1).sub(near)).mul(inputs.hasBackgroundDepth))
           })
           .Else(() => {
             // 亮度：与混色层的亮度蒙版相同
