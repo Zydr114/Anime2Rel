@@ -26,6 +26,7 @@ import { DepthBrush } from './DepthBrush'
 import { FocusGizmo } from './FocusGizmo'
 import { GroundGizmo } from './GroundGizmo'
 import { LightGizmo } from './LightGizmo'
+import { MaskGizmo } from './MaskGizmo'
 import { RegionBrush } from './RegionBrush'
 import { TransformGizmo } from './TransformGizmo'
 import { View3D } from './View3D'
@@ -305,6 +306,7 @@ export function Viewport() {
         <LightGizmo passThrough={spaceHeld || panning} />
         <FocusGizmo passThrough={spaceHeld || panning} />
         <RegionBrush passThrough={spaceHeld || panning} />
+        <MaskGizmo passThrough={spaceHeld || panning} />
         <GroundGizmo passThrough={spaceHeld || panning} />
         <WarpGizmo passThrough={spaceHeld || panning} />
         <DepthBrush passThrough={spaceHeld || panning} />
