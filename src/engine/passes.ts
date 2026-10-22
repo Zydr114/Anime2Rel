@@ -229,13 +229,15 @@ export interface LayerTextures {
  * 水体另外在水下部分做折射偏移、在水线处加高光，水线以下盖上立绘的倒影（水下的立绘也在水面之下）。
  * 调试视图和灰球在 createDisplayPass 中叠加，这里的纹理数要留在 WebGPU / WebGL2 每阶段 16 个的下限以内。
  */
-export function createCompositePass(input: { placement: Placement; background: TextureNode; layers: LayerTextures; dof: DofUniforms; shadow: ShadowUniforms }) {
-  const { placement, background, layers, dof } = input
+export function createCompositePass(input: { placement: Placement; layers: LayerTextures; dof: DofUniforms; shadow: ShadowUniforms; contact: FloatNode }) {
+  const { placement, layers, dof } = input
 
-  // 阴影随地面一起离焦：按背景的弥散圆选用 mip
-  const shadowLod = log2(max(abs(sampleLevel(layers.prep, screenUV).a), 1))
-  const shadow = mix(vec3(1), sampleLevel(layers.shadow, screenUV, shadowLod).rgb, input.shadow.enabled)
-  const bg = mix(sampleLevel(layers.backgroundDof, screenUV).rgb, background.rgb, dof.bypass).mul(shadow)
+  // 阴影随地面一起离焦：按背景的弥散圆选用 mip；有雾时按接地点处的透过率减淡
+  const prep = sampleLevel(layers.prep, screenUV)
+  const shadowLod = log2(max(abs(prep.a), 1))
+  const shadow = mix(vec3(1), sampleLevel(layers.shadow, screenUV, shadowLod).rgb, input.shadow.enabled.mul(input.contact))
+  // 没有景深时直接用预处理后（已加雾）的背景
+  const bg = mix(sampleLevel(layers.backgroundDof, screenUV).rgb, prep.rgb, dof.bypass).mul(shadow)
   const charDepth = sampleLevel(layers.characterDepth, screenUV)
   const occ = sampleLevel(layers.occlusion, screenUV).mul(dof.occlusion)
 
@@ -272,7 +274,6 @@ export function createCompositePass(input: { placement: Placement; background: T
   const covered = occ.rgb.add(ch.rgb.add(behindCh).mul(float(1).sub(occ.a)))
 
   // 介质的表面细节：背景的高频部分，叠加在透出的立绘上；背景离焦时细节随之减弱
-  const prep = sampleLevel(layers.prep, screenUV)
   const highPass = prep.rgb.sub(sampleLevel(layers.prep, screenUV, 2.5).rgb)
   const sharp = saturate(float(1).sub(abs(prep.a).div(4)))
   const detail = highPass.mul(detailAmount.mul(float(1).sub(occ.a)).mul(ch.a).mul(sharp))

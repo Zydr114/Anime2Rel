@@ -251,9 +251,10 @@ export function createBackgroundAdjustPass(u: AdjustUniforms, lt: LocalTone, bac
   return material(vec4(adjustColor(u, lt, background.rgb), 1))
 }
 
-/** 立绘层：融合后的立绘（预乘 alpha）→ 调整后的立绘 */
-export function createCharacterAdjustPass(u: AdjustUniforms, lt: LocalTone, character: Vec4Node) {
-  return material(vec4(adjustColor(u, lt, unpremultiply(character)).mul(character.a), character.a))
+/** 立绘层：融合后的立绘（预乘 alpha）→ 调整后的立绘；after 在调整之后处理预乘的颜色（加雾） */
+export function createCharacterAdjustPass(u: AdjustUniforms, lt: LocalTone, character: Vec4Node, after?: (color: Vec3Node, alpha: FloatNode) => Vec3Node) {
+  const color = adjustColor(u, lt, unpremultiply(character)).mul(character.a)
+  return material(vec4(after ? after(color, character.a) : color, character.a))
 }
 
 /** 全局：合成结果 → 调整后的结果 */

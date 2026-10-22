@@ -1,8 +1,10 @@
 import * as THREE from 'three/webgpu'
 import { texture } from 'three/tsl'
+import { applyAtmosphereParams, applyFog, createAtmosphereUniforms } from './atmosphere'
 import { detectCapabilities, type GpuCapabilities } from './capabilities'
 import {
   applyFocusParams,
+  characterDepthNode,
   createBackgroundDofPass,
   createCharacterDepthPass,
   createCharacterDofPass,
@@ -52,6 +54,7 @@ import { applyShadowParams, createShadowPass, createShadowUniforms } from './sha
 import { planTiles, tilePlan, WHOLE_PIXELS, type Rect } from './tiling'
 import { createWarpPass, WARP_LAYERS, type WarpLayer } from './warp'
 import { srgbToLinear } from '@/algo/color'
+import type { AtmosphereParams } from '@/atmosphere/service'
 import { fitWithin, type Size, type ViewTransform } from '@/algo/geometry'
 import { rowStride, unpackRows, WEBGPU_ROW_ALIGNMENT } from '@/algo/readback'
 import type { DepthResult } from '@/depth/protocol'
@@ -208,6 +211,8 @@ interface Effects {
   /** 水体遮挡中有倒影 */
   reflection: boolean
   shadow: boolean
+  /** 雾：分层加在背景预处理和立绘层调整中 */
+  fog: boolean
   /** 三级调整与全局调色 */
   grade: boolean
   /** 各级是否有局部调整 */
@@ -375,6 +380,7 @@ export class Engine {
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
   private grade: GradeParams | null = null
   private masks: MaskParams | null = null
+  private atmosphereParams: AtmosphereParams | null = null
   private brushMasks: { masks: BrushMasks; textures: [THREE.DataTexture, THREE.DataTexture] } | null = null
   private postParams: PostParams | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
@@ -405,6 +411,7 @@ export class Engine {
   private readonly dof = createDofUniforms()
   private readonly emptyRegions = this.dof.regions.value
   private readonly shadow = createShadowUniforms()
+  private readonly atmosphere = createAtmosphereUniforms(this.placement.uniforms.docSize)
   private readonly adjust = Object.fromEntries(GRADE_LEVELS.map((level) => [level, createAdjustUniforms()])) as Record<GradeLevel, AdjustUniforms>
   private readonly local = createLocalUniforms()
   private readonly maskUniforms = createMaskUniforms()
@@ -501,6 +508,9 @@ export class Engine {
       globalCoef: layer('globalCoef'),
     })
     const dof = this.dof
+    const atmosphere = this.atmosphere
+    // 立绘的雾按立绘自身的深度（含深度起伏和修正）计算，倒影 pass 中随镜像的坐标一起变化
+    const characterFogDepth = characterDepthNode(dof, this.depthNodes.character.depth, this.depthNodes.uniforms.hasCharDepth)
     const lt = (level: GradeLevel): LocalTone => ({ ...this.local, uv: this.tile.uv, tone: nodes.tone, coef: nodes[COEF[level]] })
     this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder)
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
@@ -521,11 +531,21 @@ export class Engine {
       charPrep: quad(this.charPrep.material),
       // 背景层调整只改背景本身：立绘的融合和深度仍按原图计算
       backgroundAdjust: quad(createBackgroundAdjustPass(this.adjust.background, lt('background'), this.backgroundNode)),
-      prep: quad(createPrepPass(dof, nodes.background, this.depthNodes.background.depth)),
+      prep: quad(
+        createPrepPass(
+          dof,
+          applyFog(atmosphere, { color: nodes.background.rgb, p: placement.p, depth: this.depthNodes.background.depth, sky: this.depthNodes.background.sky }),
+          this.depthNodes.background.depth,
+        ),
+      ),
       tiles: quad(createTilePass(dof, nodes.prep)),
       backgroundDof: quad(createBackgroundDofPass(dof, nodes.prep, nodes.tiles)),
       character: quad(this.character.material),
-      characterAdjust: quad(createCharacterAdjustPass(this.adjust.character, lt('character'), nodes.character)),
+      characterAdjust: quad(
+        createCharacterAdjustPass(this.adjust.character, lt('character'), nodes.character, (color, alpha) =>
+          applyFog(atmosphere, { color, alpha, p: placement.p, depth: characterFogDepth }),
+        ),
+      ),
       characterDepth: quad(
         createCharacterDepthPass(dof, {
           p: placement.p,
@@ -540,7 +560,7 @@ export class Engine {
       characterDof: quad(createCharacterDofPass(dof, nodes.characterAdjusted, nodes.characterDepth)),
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
       shadow: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background)),
-      composite: quad(createCompositePass({ placement, background: nodes.background, layers: nodes, dof, shadow: this.shadow })),
+      composite: quad(createCompositePass({ placement, layers: nodes, dof, shadow: this.shadow, contact: atmosphere.contact })),
       globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt('global'), nodes.composited)),
       // 有局部调整时，全局调整的结果先写入 graded（预览中它在终处理时才用到）
       localAdjust: quad(
@@ -759,6 +779,15 @@ export class Engine {
     this.syncDisplay()
   }
 
+  /** 雾与尘埃；null 为没有背景深度 */
+  setAtmosphere(params: AtmosphereParams | null): void {
+    const prev = this.atmosphereParams
+    // 雾加在背景预处理中：雾的参数或者有雾时的场景信息变化，背景需要重算；拖动立绘时只有接地点处的透过率变化
+    if (params?.fog !== prev?.fog || (params?.fog && params.view !== prev?.view)) this.backgroundDirty = true
+    this.atmosphereParams = params
+    this.syncDisplay()
+  }
+
   /** 三级调整的参数；null 为不调整 */
   setGrade(params: GradeParams | null): void {
     // 背景层调整变化时，背景预处理和背景景深需要重算
@@ -825,6 +854,7 @@ export class Engine {
       occlusion,
       reflection: occlusion && !!this.focus?.occlusion.styles.some((s) => s.mode === water && s.reflection > 0),
       shadow: !raw && !!this.shadowParams,
+      fog: !raw && !!this.atmosphereParams?.fog,
       grade,
       local: Object.fromEntries(GRADE_LEVELS.map((level) => [level, grade && !!this.grade?.levels[level].local])) as Record<GradeLevel, boolean>,
       masks: graded && (!!masks?.active || maskOverlay),
@@ -858,6 +888,7 @@ export class Engine {
     this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
     this.debugView.uniforms.relief.value = display.relief ? 1 : 0
     this.shadow.enabled.value = effects.shadow ? 1 : 0
+    applyAtmosphereParams(this.atmosphere, this.atmosphereParams, effects.fog)
     for (const level of GRADE_LEVELS) {
       const params = this.grade?.levels[level]
       if (params) applyAdjustParams(this.adjust[level], params, effects.grade)

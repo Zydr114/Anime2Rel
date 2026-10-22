@@ -99,6 +99,11 @@ export function reliefDepthNode(u: DofUniforms, relief: FloatNode): FloatNode {
   return float(1).div(max(z, MIN_PSEUDO_DEPTH)).sub(DEPTH_SHIFT)
 }
 
+/** 立绘某处的归一化逆深度：有立绘深度时按深度起伏，否则为立绘平面 */
+export function characterDepthNode(u: DofUniforms, relief: FloatNode, hasRelief: FloatNode): FloatNode {
+  return mix(float(1).div(u.planeZ).sub(DEPTH_SHIFT), reliefDepthNode(u, relief), hasRelief)
+}
+
 /** 遮挡方式的编号，与 OCCLUSION_MODES 的顺序一致 */
 export const MODE = { opaque: 0, darken: 1, multiply: 2, medium: 3, water: 4, none: 5 } as const
 
@@ -244,8 +249,8 @@ function tileRadius(u: DofUniforms, tiles: TextureNode): FloatNode {
 }
 
 /** 背景预处理：rgb = 背景颜色，a = 弥散圆半径 */
-export function createPrepPass(u: DofUniforms, background: Vec4Node, depth: FloatNode) {
-  return material(vec4(background.rgb, cocPx(u, depth)))
+export function createPrepPass(u: DofUniforms, background: Vec3Node, depth: FloatNode) {
+  return material(vec4(background, cocPx(u, depth)))
 }
 
 /** 每个 16×16 像素块内弥散圆半径绝对值的最大值 */
@@ -294,8 +299,7 @@ export function createCharacterDepthPass(
   u: DofUniforms,
   input: { p: Vec2Node; uv: Vec2Node; alpha: FloatNode; inside: FloatNode; relief: FloatNode; hasRelief: FloatNode; background: FloatNode },
 ) {
-  const plane = float(1).div(u.planeZ).sub(DEPTH_SHIFT)
-  const depth = select(input.alpha.greaterThan(0.004), mix(plane, reliefDepthNode(u, input.relief), input.hasRelief), plane)
+  const depth = select(input.alpha.greaterThan(0.004), characterDepthNode(u, input.relief, input.hasRelief), float(1).div(u.planeZ).sub(DEPTH_SHIFT))
   const delta = input.background.sub(depth)
   const behind = smoothstep(u.tolerance.sub(u.softness.mul(0.5)), u.tolerance.add(u.softness.mul(0.5)), delta)
   const inMedium = max(delta.sub(u.tolerance), 0)
