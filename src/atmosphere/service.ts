@@ -68,6 +68,24 @@ let dustCache: { inputs: unknown[]; dust: DustParams } | null = null
 
 const same = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((v, i) => v === b[i])
 
+/** 按深度结果缓存的自动雾色；背景图片未就绪时不缓存，先用中性灰 */
+function cachedAutoColor(backgroundId: string, depth: DepthResult): Vec3 {
+  let auto = colorCache.get(depth)
+  if (auto?.id !== backgroundId) {
+    const color = autoFogColor(backgroundId, depth)
+    auto = { id: backgroundId, color: color ?? NEUTRAL }
+    if (color) colorCache.set(depth, auto)
+  }
+  return auto.color
+}
+
+/** 当前背景的自动雾色（线性）；没有背景深度时为 null */
+export function currentAutoFogColor(doc: DocState): Vec3 | null {
+  const bg = doc.background
+  const depth = getDepthResult(bg?.id)
+  return bg && depth ? cachedAutoColor(bg.id, depth) : null
+}
+
 /** 没有背景或背景深度时为 null：雾和尘埃都按深度计算 */
 export function currentAtmosphereParams(doc: DocState): AtmosphereParams | null {
   const bg = doc.background
@@ -81,14 +99,9 @@ export function currentAtmosphereParams(doc: DocState): AtmosphereParams | null 
   const view = viewCache.view
   let fog: FogParams | null = null
   if (fogActive(fogDoc)) {
-    let auto = colorCache.get(depth)
-    if (auto?.id !== bg.id) {
-      const color = autoFogColor(bg.id, depth)
-      auto = { id: bg.id, color: color ?? NEUTRAL }
-      if (color) colorCache.set(depth, auto)
-    }
-    const fogInputs = [fogDoc, auto.color]
-    if (!fogCache || !same(fogCache.inputs, fogInputs)) fogCache = { inputs: fogInputs, fog: fogParams(fogDoc, auto.color) }
+    const auto = cachedAutoColor(bg.id, depth)
+    const fogInputs = [fogDoc, auto]
+    if (!fogCache || !same(fogCache.inputs, fogInputs)) fogCache = { inputs: fogInputs, fog: fogParams(fogDoc, auto) }
     fog = fogCache.fog
   }
   let contact = 1
