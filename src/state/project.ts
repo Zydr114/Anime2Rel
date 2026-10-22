@@ -7,6 +7,7 @@
 import type { LayerTransform, Point } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
 import type { Estimator } from '@/analysis/protocol'
+import { DEFAULT_DUST, DEFAULT_FOG, DUST_FAR_RANGE, DUST_NEAR_RANGE, DUST_SEED_RANGE, FOG_START_RANGE, NOISE_SIZE_RANGE, type AtmosphereDoc } from '@/atmosphere/model'
 import { CALIBRATION_METHODS, DEFAULT_CAMERA, FOV_RANGE, HEIGHT_RANGE, HEIGHT_SOURCES, LINE_AXES, PITCH_LIMIT, ROLL_LIMIT, type CameraDoc, type CameraLines, type Segment } from '@/camera/model'
 import {
   BOKEH_BLADES,
@@ -90,6 +91,7 @@ export function projectManifest(doc: DocState, step: StepId, assets: { backgroun
       lighting: { ...lighting, analyzed: analyzedFor === doc.background.id },
       fusion: doc.fusion,
       focus: doc.focus,
+      atmosphere: doc.atmosphere,
       grade: gradeForFile(doc.grade),
       masks: doc.masks,
       post: doc.post,
@@ -319,6 +321,17 @@ function conformFocus(v: unknown, hasCharacter: boolean): FocusDoc {
   }
 }
 
+function conformAtmosphere(v: unknown): AtmosphereDoc {
+  const o = record(v)
+  const { color, ...fog } = DEFAULT_FOG
+  const dust = fields(o.dust, DEFAULT_DUST, { near: DUST_NEAR_RANGE, far: DUST_FAR_RANGE, seed: DUST_SEED_RANGE })
+  return {
+    // 雾色缺少或无效时为自动
+    fog: { ...fields(o.fog, fog, { start: FOG_START_RANGE, noiseSize: NOISE_SIZE_RANGE }), color: hex(record(o.fog).color, '') || color },
+    dust: { ...dust, seed: Math.round(dust.seed) },
+  }
+}
+
 function conformMask(v: unknown): LocalMask {
   const o = record(v)
   const { color, ...adjust } = NEUTRAL_MASK_ADJUST
@@ -355,6 +368,7 @@ export function conformProject(manifest: Json, slots: { background: AssetRef; ch
     lighting,
     fusion: conformFusion(o.fusion, !!character),
     focus: conformFocus(o.focus, !!character),
+    atmosphere: conformAtmosphere(o.atmosphere),
     grade: conformGrade(o.grade, lutResolver(manifest.luts)),
     masks: (Array.isArray(o.masks) ? o.masks.slice(0, MAX_MASKS) : []).map(conformMask),
     post: conformPost(o.post, (id) => (typeof id === 'string' ? (lightIds.get(id) ?? null) : null)),

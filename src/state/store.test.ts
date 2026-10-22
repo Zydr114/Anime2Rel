@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { initialDoc, useApp } from './store'
 import type { AssetRef } from './assets'
 import type { LightCandidate } from '@/analysis/protocol'
+import { DEFAULT_ATMOSPHERE } from '@/atmosphere/model'
 import { MAX_REGIONS } from '@/focus/model'
 import { DEFAULT_FUSION } from '@/fusion/model'
 import { MAX_MASKS } from '@/grade/mask'
@@ -251,5 +252,23 @@ describe('masks', () => {
     expect(useApp.getState().doc.masks[0].ellipse).toMatchObject({ x: 1000, y: 800, rx: 400, ry: 400 })
     useApp.getState().removeMask(id)
     expect(useApp.getState().doc.masks).toHaveLength(MAX_MASKS - 1)
+  })
+})
+
+describe('atmosphere', () => {
+  it('keeps fog and dust out of presets, resets them with the lens step and skips no-op updates', () => {
+    useApp.getState().setBackground(asset('bg', 1000, 800))
+    useApp.getState().updateAtmosphere('fog', { density: 0.4, color: '#8899aa' })
+    useApp.getState().updateAtmosphere('dust', { amount: 0.5 })
+    const past = useApp.getState().past.length
+    useApp.getState().updateAtmosphere('fog', { density: 0.4 })
+    expect(useApp.getState().past).toHaveLength(past)
+    useApp.getState().applyPreset(BUILTIN_PRESETS['teal-orange'])
+    useApp.getState().resetPost()
+    expect(useApp.getState().doc.atmosphere.fog).toMatchObject({ density: 0.4, color: '#8899aa' })
+    useApp.getState().resetLens()
+    expect(useApp.getState().doc.atmosphere).toEqual(DEFAULT_ATMOSPHERE)
+    useApp.getState().undo()
+    expect(useApp.getState().doc.atmosphere.dust.amount).toBe(0.5)
   })
 })

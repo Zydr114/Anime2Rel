@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { AssetRef } from './assets'
 import { DEFAULT_CAMERA, type CameraDoc } from '@/camera/model'
+import { DEFAULT_ATMOSPHERE, type AtmosphereDoc, type AtmosphereSection } from '@/atmosphere/model'
 import { defaultLayerTransform, fitView, NO_INSETS, type Insets, type LayerTransform, type Size, type ViewTransform } from '@/algo/geometry'
 import { DEFAULT_FOCUS, DEFAULT_STYLE, MAX_REGIONS, newRegionId, type BrushStroke, type FocusDoc, type FocusSection, type OcclusionRegion, type OcclusionStyle } from '@/focus/model'
 import { DEFAULT_FUSION, type FusionDoc, type FusionSection } from '@/fusion/model'
@@ -43,6 +44,8 @@ export interface DocState {
   lighting: LightingDoc
   fusion: FusionDoc
   focus: FocusDoc
+  /** 雾与尘埃（M8.8c） */
+  atmosphere: AtmosphereDoc
   grade: GradeDoc
   /** 局部调整（M8.8b），按列表顺序作用 */
   masks: LocalMask[]
@@ -63,6 +66,7 @@ export const initialDoc: DocState = {
   lighting: DEFAULT_LIGHTING,
   fusion: DEFAULT_FUSION,
   focus: DEFAULT_FOCUS,
+  atmosphere: DEFAULT_ATMOSPHERE,
   grade: DEFAULT_GRADE,
   masks: [],
   post: DEFAULT_POST,
@@ -134,6 +138,7 @@ interface AppState {
   resetOcclusion: () => void
   /** 恢复默认的景深与后期参数（镜头步骤），保留焦点 */
   resetLens: () => void
+  updateAtmosphere: <K extends AtmosphereSection>(section: K, update: Partial<AtmosphereDoc[K]>) => void
   /** 添加遮挡区域，返回其 id；达到上限时返回 null */
   addRegion: () => string | null
   updateRegion: (id: string, update: Partial<OcclusionStyle>) => void
@@ -435,7 +440,16 @@ export const useApp = create<AppState>()((set, get) => ({
   },
 
   resetLens: () => {
-    get().setDoc((d) => ({ ...d, focus: { ...d.focus, dof: DEFAULT_FOCUS.dof }, post: DEFAULT_POST }))
+    get().setDoc((d) => ({ ...d, focus: { ...d.focus, dof: DEFAULT_FOCUS.dof }, atmosphere: DEFAULT_ATMOSPHERE, post: DEFAULT_POST }))
+  },
+
+  updateAtmosphere: (section, update) => {
+    get().setDoc((d) => {
+      const current = d.atmosphere[section]
+      // 开关、颜色选择在撤销后被程序赋值时也会触发 change，值没有变化时不产生撤销记录
+      if ((Object.keys(update) as (keyof typeof update)[]).every((k) => current[k] === update[k])) return d
+      return { ...d, atmosphere: { ...d.atmosphere, [section]: { ...current, ...update } } }
+    })
   },
 
   addRegion: () => {

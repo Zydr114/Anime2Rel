@@ -32,6 +32,7 @@ function sampleDoc(): DocState {
       target: { kind: 'background', x: 100, y: 80 },
       occlusion: { ...DEFAULT_FOCUS.occlusion, enabled: true, mode: 'water', reflection: 0.6, waterColor: '#9fc4d0', regions: [{ ...DEFAULT_STYLE, mode: 'medium', id: 'region-x', strokes: [{ erase: false, radius: 12, points: [10, 20, 30, 40] }] }] },
     },
+    atmosphere: { fog: { ...initialDoc.atmosphere.fog, density: 0.4, falloff: 0.3, color: '#c0d0e0', sky: true }, dust: { ...initialDoc.atmosphere.dust, amount: 0.6, near: 1, far: 20, seed: 42 } },
     grade: { ...initialDoc.grade, creative: { ...initialDoc.grade.creative, layers: [{ ...newBlendLayer(), opacity: 0.3 }] } },
     masks: [
       { ...newMask(background), invert: true, ellipse: { x: 400, y: 300, rx: 200, ry: 100, rotation: 0.5, feather: 0.3 }, adjust: { ...newMask(background).adjust, exposure: -1.5, color: '#3366cc', mode: 'overlay', opacity: 0.4 } },
@@ -112,12 +113,15 @@ describe('project', () => {
     manifest.doc.fusion.relight = { style: 'evil', strength: 99, rim: 'x' }
     manifest.doc.focus.dof = { blades: 7, aperture: -1 }
     manifest.doc.lighting.lights = [{ type: 'laser' }, { type: 'directional', direction: [0, 0, 0], intensity: Infinity }]
+    manifest.doc.atmosphere = { fog: { density: 5, start: -3, color: 'blue', noiseSize: 0 }, dust: { amount: 'lots', far: 1e9, seed: 3.6 } }
     manifest.doc.masks = Array.from({ length: 12 }, () => ({ shape: 'star', range: { kind: 'evil', softness: 3 }, adjust: { exposure: 99, mode: 'evil', color: 'red' } })) as never
     const doc = conformProject(readManifest(JSON.stringify(manifest)), { background: asset('bg', 1000, 800), character: null })
     expect(doc.fusion.relight).toMatchObject({ style: 'realistic', strength: 1, rim: initialDoc.fusion.relight.rim })
     expect(doc.focus.dof).toMatchObject({ blades: 0, aperture: 0 })
     expect(doc.lighting.lights).toHaveLength(1)
     expect(doc.lighting.lights[0].direction).toEqual([0, 0, 1])
+    expect(doc.atmosphere.fog).toMatchObject({ density: 1, start: 0, color: null, noiseSize: 0.5 })
+    expect(doc.atmosphere.dust).toMatchObject({ amount: 0, far: 100, seed: 4 })
     expect(doc.masks).toHaveLength(8)
     expect(doc.masks[0]).toMatchObject({ shape: 'ellipse', range: { kind: 'all', softness: 0.5 }, adjust: { exposure: 5, mode: 'soft-light', color: '#ff9d4d' } })
     // 没有立绘时，立绘上的接地点没有意义
