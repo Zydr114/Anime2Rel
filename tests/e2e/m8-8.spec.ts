@@ -7,12 +7,13 @@ import { figure } from './figure'
 import { swiftshader } from './gpu'
 import { encodePng } from './png'
 
-// M8.8a 镜头与滤镜（docs/Plan.md §3.7 M8.8）。场景与 m5.spec.ts 相同：太阳在右上方的画面内，立绘为蓝色裙子的简笔人物。
+// M8.8a 镜头与滤镜、M8.8b 局部调整蒙版（docs/Plan.md §3.7 M8.8）。场景与 m5.spec.ts 相同：太阳在右上方的画面内，立绘为蓝色裙子的简笔人物。
 const W = 640
 const H = 480
 const DRESS: DocPoint = [320 / W, 293 / H]
 const SUN: DocPoint = [461 / W, 58 / H]
 const GROUND: DocPoint = [60 / W, 440 / H]
+const SKY: DocPoint = [120 / W, 110 / H]
 
 const sunny = (() => {
   const s = renderScene(W, H, {
@@ -278,4 +279,140 @@ test('preset thumbnails render the current picture with each preset and match th
     expect(Math.max(...a.map((v, i) => Math.abs(v - b[i])))).toBeLessThan(4)
     await page.getByTestId('step-adjust').click()
   }
+})
+
+/** 拖动画布控件的控点 dx、dy 个屏幕像素 */
+async function drag(page: Page, testId: string, dx: number, dy: number) {
+  const box = (await page.getByTestId(testId).boundingBox())!
+  const [x, y] = [box.x + box.width / 2, box.y + box.height / 2]
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + dx, y + dy, { steps: 8 })
+  await page.mouse.up()
+}
+
+/** 用局部调整的画笔在画布上沿文档坐标的折线涂一笔 */
+async function paintMask(page: Page, points: [number, number][]) {
+  const box = (await page.getByTestId('mask-canvas').boundingBox())!
+  const at = ([x, y]: [number, number]) => [box.x + (x / W) * box.width, box.y + (y / H) * box.height] as const
+  await page.mouse.move(...at(points[0]))
+  await page.mouse.down()
+  for (const p of points.slice(1)) await page.mouse.move(...at(p), { steps: 8 })
+  await page.mouse.up()
+}
+
+async function setSelect(page: Page, testId: string, value: string) {
+  const select = page.getByTestId(testId)
+  await select.click()
+  await select.locator(`mdui-menu-item[value="${value}"]`).click()
+  await expect(select).toHaveJSProperty('value', value)
+}
+
+/** 打开调色步骤的“局部”页，添加一项局部调整 */
+async function addMask(page: Page) {
+  await page.getByTestId('step-adjust').click()
+  await segment(page, 'grade-tab', 'local')
+  await page.getByTestId('mask-add').click()
+}
+
+const gain = (after: number[], before: number[]) => luma(after) - luma(before)
+
+test('an elliptical local adjustment brightens the middle, follows its canvas handles, shows its mask and is undoable', async ({ page }, info) => {
+  await open(page, info.project.metadata.renderer)
+  await page.getByTestId('step-adjust').click()
+  const base = await docPixels(page, [DRESS, GROUND])
+
+  // 默认的椭圆在画面中央：裙子提亮，角落的地面不变
+  await addMask(page)
+  await expect(page.getByTestId('mask-gizmo')).toHaveAttribute('data-shape', 'ellipse')
+  await setSlider(page, 'mask-exposure', 1.5)
+  await expect.poll(async () => gain((await docPixels(page, [DRESS]))[0], base[0])).toBeGreaterThan(30)
+  expect(maxDiff((await docPixels(page, [GROUND]))[0], base[1])).toBeLessThan(3)
+  const bright = (await docPixels(page, [DRESS]))[0]
+
+  // 显示蒙版：作用处叠上红色
+  await page.getByTestId('mask-show').click()
+  await expect.poll(async () => {
+    const [p] = await docPixels(page, [DRESS])
+    return p[0] - p[2] - (bright[0] - bright[2])
+  }).toBeGreaterThan(40)
+  await page.getByTestId('mask-show').click()
+  await expect.poll(async () => maxDiff((await docPixels(page, [DRESS]))[0], bright)).toBeLessThan(3)
+
+  // 把椭圆拖到右边，裙子不再提亮；撤销一次回到原处
+  await drag(page, 'mask-center', 260, 0)
+  await expect.poll(async () => maxDiff((await docPixels(page, [DRESS]))[0], base[0])).toBeLessThan(3)
+  await page.getByTestId('undo').click()
+  await expect.poll(async () => maxDiff((await docPixels(page, [DRESS]))[0], bright)).toBeLessThan(3)
+
+  // 停用后不起作用
+  await page.getByTestId('mask-0-enabled').click()
+  await expect.poll(async () => maxDiff((await docPixels(page, [DRESS]))[0], base[0])).toBeLessThan(3)
+})
+
+test('ranges, a linear gradient and a brush limit local adjustments, and the export and a tiled export match the preview', async ({ page }, info) => {
+  const query = rendererQuery(info.project.metadata.renderer)
+  await open(page, info.project.metadata.renderer)
+  await page.getByTestId('step-adjust').click()
+  const points = [DRESS, GROUND, SKY]
+  const base = await docPixels(page, points)
+  const gains = async () => (await docPixels(page, points)).map((p, i) => gain(p, base[i]))
+
+  // 全画面 + 只在立绘：裙子提亮，背景不变；只在背景则相反
+  await addMask(page)
+  await segment(page, 'mask-shape', 'full')
+  await setSlider(page, 'mask-exposure', 1.5)
+  await setSelect(page, 'mask-range', 'character')
+  await expect.poll(async () => (await gains())[0]).toBeGreaterThan(30)
+  const [, g0, s0] = await gains()
+  expect(Math.abs(g0)).toBeLessThan(3)
+  expect(Math.abs(s0)).toBeLessThan(3)
+  await setSelect(page, 'mask-range', 'background')
+  await expect.poll(async () => Math.abs((await gains())[0])).toBeLessThan(3)
+  const [, ground] = await gains()
+  expect(ground).toBeGreaterThan(20)
+  // 按深度只调远处：天空提亮，近处的地面不变
+  await setSelect(page, 'mask-range', 'depth')
+  await expect.poll(async () => (await gains())[2]).toBeGreaterThan(20)
+  expect(Math.abs((await gains())[1])).toBeLessThan(3)
+  const sky = (await gains())[2]
+
+  // 线性渐变：默认从底边到画面中部，压暗底部的地面，不影响上方
+  await page.getByTestId('mask-add').click()
+  await segment(page, 'mask-shape', 'linear')
+  await expect(page.getByTestId('mask-gizmo')).toHaveAttribute('data-shape', 'linear')
+  await setSlider(page, 'mask-exposure', -2)
+  await expect.poll(async () => (await gains())[1]).toBeLessThan(-20)
+  const [, darkened, sky2] = await gains()
+  expect(Math.abs(sky2 - sky)).toBeLessThan(3)
+
+  // 画笔：涂过的天空叠上默认的橙色
+  await page.getByTestId('mask-add').click()
+  await segment(page, 'mask-shape', 'brush')
+  await setSelect(page, 'mask-mode', 'normal')
+  await setSlider(page, 'mask-opacity', 100)
+  await paintMask(page, [
+    [100, 110],
+    [140, 110],
+  ])
+  await expect(page.getByTestId('mask-overlay')).toBeVisible()
+  // 离开“局部”页后画布上不再叠加画笔的着色，取到的是渲染结果：涂过处完全换成叠色，其他地方不变
+  await segment(page, 'grade-tab', 'basic')
+  await expect(page.getByTestId('mask-overlay')).toHaveCount(0)
+  await expect.poll(async () => maxDiff((await docPixels(page, [SKY]))[0], [255, 157, 77])).toBeLessThan(4)
+  expect(Math.abs((await gains())[1] - darkened)).toBeLessThan(3)
+
+  // 导出与预览一致
+  await page.waitForTimeout(1000)
+  const preview = await docPixels(page, points)
+  const whole = await exportPixels(page)
+  points.forEach(([u, v], i) => expect(maxDiff(pixel(whole, Math.round(u * W), Math.round(v * H)), preview[i])).toBeLessThan(8))
+
+  // 同一个工程按 128 像素分块导出，没有接缝
+  await page.waitForTimeout(1500)
+  await page.goto(`/?${query}exportTile=128`)
+  await page.getByTestId('resume-project').click()
+  await settle(page)
+  const tiled = await exportPixels(page)
+  expect(maxImageDiff(whole, tiled)).toBeLessThanOrEqual(4)
 })
