@@ -16,6 +16,7 @@ import {
 } from './dof'
 import { applyFinishParams, createFinishPass, createFinishUniforms, disposeFinish, setFinishLut } from './finish'
 import { applyFusionParams } from './fusion'
+import { applyMaskParams, createMaskPass, createMaskUniforms } from './masks'
 import { createTileMapping } from './nodes'
 import {
   applyAdjustParams,
@@ -61,6 +62,7 @@ import type { FusionParams } from '@/fusion/params'
 import { distortionReach } from '@/grade/distortion'
 import { GRADE_LEVELS, type GradeLevel } from '@/grade/model'
 import { getLut } from '@/grade/luts'
+import type { MaskParams } from '@/grade/mask'
 import type { GradeParams } from '@/grade/params'
 import type { PostParams } from '@/grade/post'
 import type { MatteMap, NormalMap } from '@/fusion/protocol'
@@ -192,10 +194,12 @@ export interface FusionDisplay {
   relief: boolean
   /** 显示镜头失真（镜头、导出步骤中）；其他步骤的画布控件需要与未失真的画面对位 */
   distortion: boolean
+  /** 预览中用红色叠加显示这一项局部调整的蒙版（序号），−1 为不显示 */
+  maskOverlay: number
 }
 
 /** 导出和缩略图的显示方式：处理后的合成结果，不带调试视图、灰球、对比和遮罩预览 */
-const FINAL_DISPLAY: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: true }
+const FINAL_DISPLAY: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: true, maskOverlay: -1 }
 
 interface Effects {
   dof: boolean
@@ -207,6 +211,9 @@ interface Effects {
   grade: boolean
   /** 各级是否有局部调整 */
   local: Record<GradeLevel, boolean>
+  /** 局部调整 pass：有起作用的局部调整，或者预览中显示其中一项的蒙版 */
+  masks: boolean
+  maskOverlay: boolean
   /** 后期效果，以及其中需要单独 pass 的 Bloom/Halation、光学扩散、柔焦、光束和其中的轮廓光束、光晕的可见度 */
   post: boolean
   bloom: boolean
@@ -361,11 +368,12 @@ export class Engine {
   private matte: { map: MatteMap; foreground: THREE.DataTexture; background: THREE.DataTexture } | null = null
   private matteApplied = false
   private readonly mattePlaceholders = [makePlaceholder(), makePlaceholder()] as const
-  private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: false }
+  private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: false, maskOverlay: -1 }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
   private grade: GradeParams | null = null
+  private masks: MaskParams | null = null
   private postParams: PostParams | null = null
   private readonly depth: Record<DepthLayer, { result: DepthResult; textures: DepthTextures } | null> = { background: null, character: null }
   /** 立绘深度修正的增量（RGBA16F，r 为增量）；没有修正时为 null */
@@ -397,6 +405,7 @@ export class Engine {
   private readonly shadow = createShadowUniforms()
   private readonly adjust = Object.fromEntries(GRADE_LEVELS.map((level) => [level, createAdjustUniforms()])) as Record<GradeLevel, AdjustUniforms>
   private readonly local = createLocalUniforms()
+  private readonly maskUniforms = createMaskUniforms()
   private readonly finish = createFinishUniforms()
   private readonly post = createPostUniforms()
   private readonly postPasses
@@ -420,6 +429,7 @@ export class Engine {
     | 'shadow'
     | 'composite'
     | 'globalAdjust'
+    | 'localAdjust'
     | 'finish'
     | 'display'
     | 'present'
@@ -530,6 +540,21 @@ export class Engine {
       shadow: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background)),
       composite: quad(createCompositePass({ placement, background: nodes.background, layers: nodes, dof, shadow: this.shadow })),
       globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt('global'), nodes.composited)),
+      // 有局部调整时，全局调整的结果先写入 graded（预览中它在终处理时才用到）
+      localAdjust: quad(
+        createMaskPass(this.maskUniforms, {
+          image: nodes.graded,
+          p: placement.p,
+          characterAdjusted: nodes.characterAdjusted,
+          characterDof: nodes.characterDof,
+          occlusion: nodes.occlusion,
+          characterDepth: nodes.characterDepth,
+          dof,
+          backgroundDepth: this.depthNodes.background.depth,
+          sky: this.depthNodes.background.sky,
+          hasBackgroundDepth: this.depthNodes.uniforms.hasBgDepth,
+        }),
+      ),
       finish: quad(createFinishPass(this.finish, this.post, finishInputs)),
       display: quad(this.debugView.material),
       present: quad(this.present.material),
@@ -741,6 +766,13 @@ export class Engine {
     this.syncDisplay()
   }
 
+  /** 局部调整的参数；null 为没有局部调整 */
+  setMasks(params: MaskParams | null): void {
+    if (params === this.masks) return
+    this.masks = params
+    this.syncDisplay()
+  }
+
   /** 后期效果的参数；null 为没有后期 */
   setPost(params: PostParams | null): void {
     this.postParams = params
@@ -764,6 +796,8 @@ export class Engine {
     const gradeActive = grade && (this.grade!.creative.active || GRADE_LEVELS.some((level) => this.grade!.levels[level].active))
     const occlusion = !raw && !!this.focus?.occlusion.enabled
     const water = OCCLUSION_MODES.indexOf('water')
+    const masks = this.masks
+    const maskOverlay = graded && !!masks && display.maskOverlay >= 0 && display.maskOverlay < masks.count
     return {
       dof: !raw && !!this.focus?.dof,
       occlusion,
@@ -771,6 +805,8 @@ export class Engine {
       shadow: !raw && !!this.shadowParams,
       grade,
       local: Object.fromEntries(GRADE_LEVELS.map((level) => [level, grade && !!this.grade?.levels[level].local])) as Record<GradeLevel, boolean>,
+      masks: graded && (!!masks?.active || maskOverlay),
+      maskOverlay,
       post,
       bloom: post && (p!.bloom > 0 || p!.halation > 0),
       diffusion: post && p!.diffusion > 0,
@@ -780,7 +816,7 @@ export class Engine {
       rays: post && (p!.rays > 0 || p!.raysRim > 0) && !!p!.raysLight,
       rim: post && p!.raysRim > 0 && !!p!.raysLight,
       flare: post && p!.flare > 0 && p!.flareCount > 0 && !!p!.flareLight,
-      dither: gradeActive || post,
+      dither: gradeActive || !!(graded && masks?.active) || post,
     }
   }
 
@@ -806,6 +842,8 @@ export class Engine {
       else this.adjust[level].enabled.value = 0
     }
     applyFinishParams(this.finish, this.grade?.creative ?? null, effects.grade)
+    applyMaskParams(this.maskUniforms, this.masks, effects.masks, effects.maskOverlay ? display.maskOverlay : -1)
+    this.debugView.uniforms.mask.value = effects.maskOverlay ? 1 : 0
     applyPostParams(this.post, this.postParams, effects.post, effects.distortion)
     this.encode.dither.value = effects.dither ? 1 : 0
     this.syncPresent()
@@ -1080,7 +1118,10 @@ export class Engine {
     if (effects.shadow) pass(this.quads.shadow, targets.shadow)
     pass(this.quads.composite, targets.composited)
     tone('global')
-    pass(this.quads.globalAdjust, targets.adjusted)
+    if (effects.masks) {
+      pass(this.quads.globalAdjust, targets.graded)
+      pass(this.quads.localAdjust, targets.adjusted)
+    } else pass(this.quads.globalAdjust, targets.adjusted)
     if (!tiled) renderPost(r, this.postPasses, effects)
     if (mode === 'proxy') return
     if (mode !== 'preview') return pass(this.quads.finish, out)
@@ -1160,7 +1201,7 @@ export class Engine {
       characterDof: !effects.dof,
       occlusion: !effects.occlusion,
       shadow: !effects.shadow,
-      graded: true,
+      graded: !effects.masks,
       tone: !GRADE_LEVELS.some((level) => effects.local[level]),
       backgroundCoef: !effects.local.background,
       characterCoef: !effects.local.character,

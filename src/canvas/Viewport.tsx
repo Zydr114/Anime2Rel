@@ -5,6 +5,7 @@ import { importFiles } from '@/app/importer'
 import { isGradeStep, showsDistortion } from '@/app/steps'
 import { currentFocusParams, currentRegionMask } from '@/focus/service'
 import { currentFusionParams, currentMatte, currentNormals, currentShadowParams } from '@/fusion/service'
+import { maskParams } from '@/grade/mask'
 import { gradeParams } from '@/grade/params'
 import { postParams } from '@/grade/post'
 import { t } from '@/i18n'
@@ -100,6 +101,7 @@ export function Viewport() {
           e.setFocus(currentFocusParams(doc))
           e.setShadow(currentShadowParams(doc))
           e.setGrade(gradeParams(doc.grade))
+          e.setMasks(maskParams(doc.masks))
           e.setPost(postParams(doc.post, doc.lighting, doc.background, doc.camera.fovDeg, doc.focus.dof))
           // 调色、镜头步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果；场景步骤中只看背景原图，调试视图除外
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
@@ -113,6 +115,7 @@ export function Viewport() {
             original: step === 'scene' && view === 'composite',
             relief,
             distortion: showsDistortion(step, f.compare, view),
+            maskOverlay: -1,
           })
         }
         // 3D 视图在摆放和融合步骤中显示；灰球和选中的光源只在融合步骤中显示

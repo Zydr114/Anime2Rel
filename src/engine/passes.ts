@@ -92,6 +92,8 @@ const SKY_TINT = vec3(0.05, 0.35, 1.0)
 const NEAR_TINT = vec3(0.05, 0.3, 1.0)
 const FAR_TINT = vec3(1.0, 0.4, 0.03)
 const MASK_TINT = vec3(1.0, 0.05, 0.05)
+/** 局部调整蒙版预览的不透明度 */
+const MASK_ALPHA = 0.5
 /** 景深视图中着色饱和时的弥散圆半径（相对图像长边） */
 const FOCUS_VIEW_SCALE = 0.004
 
@@ -215,7 +217,9 @@ export interface LayerTextures {
   shadow: TextureNode
   /** 合成结果 */
   composited: TextureNode
-  /** 全局调整后的结果（预览时再叠加调试视图和灰球） */
+  /** 全局调整与局部调整后的结果；局部调整 pass 在 alpha 中写入预览的蒙版 */
+  adjusted: TextureNode
+  /** 终处理的结果（预览时再叠加调试视图和灰球） */
   graded: TextureNode
 }
 
@@ -318,7 +322,8 @@ const RELIEF_ALPHA = 0.65
  */
 export function createDisplayPass(input: { placement: Placement; depth: DepthNodes; background: TextureNode; colormap: THREE.Texture; layers: LayerTextures; dof: DofUniforms }) {
   const { placement, depth, background, layers, dof } = input
-  const u = { view: uniform(0), overlay: uniform(1), relief: uniform(0) }
+  /** mask：叠加显示局部调整的蒙版（局部调整 pass 写在全局调整结果的 alpha 中） */
+  const u = { view: uniform(0), overlay: uniform(1), relief: uniform(0), mask: uniform(0) }
   const rgb = sampleLevel(layers.graded, screenUV).rgb
   const charDepth = sampleLevel(layers.characterDepth, screenUV)
   const alpha = charDepth.a
@@ -339,7 +344,8 @@ export function createDisplayPass(input: { placement: Placement; depth: DepthNod
   const debug = select(u.view.equal(4), focusView, chDebug.mul(alpha).add(bgDebug.mul(float(1).sub(alpha))))
   const debugOut = mix(rgb, debug, u.overlay.mul(step(0.5, u.view)))
   // 深度画笔：立绘上半透明地叠加自身深度的伪彩色
-  const out = mix(debugOut, cmap(saturate(depth.character.depth)), u.relief.mul(depth.uniforms.hasCharDepth).mul(alpha).mul(RELIEF_ALPHA))
+  const relief = mix(debugOut, cmap(saturate(depth.character.depth)), u.relief.mul(depth.uniforms.hasCharDepth).mul(alpha).mul(RELIEF_ALPHA))
+  const out = mix(relief, MASK_TINT, sampleLevel(layers.adjusted, screenUV).a.mul(u.mask).mul(MASK_ALPHA))
   const ball = ballOverlay(out, placement.p)
 
   return { uniforms: u, ball: ball.uniforms, material: material(vec4(ball.color, 1)) }

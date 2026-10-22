@@ -95,7 +95,8 @@ export function creativeParams(c: CreativeGrade): CreativeParams {
   return params
 }
 
-const hexToEncoded = (hex: string): Vec3 => {
+/** sRGB 十六进制颜色 → 编码值 */
+export const hexToEncoded = (hex: string): Vec3 => {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
   const v = m ? parseInt(m[1], 16) : 0
   return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255]

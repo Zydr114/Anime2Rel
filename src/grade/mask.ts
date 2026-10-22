@@ -2,9 +2,12 @@
  * 局部调整蒙版（可撤销，docs/Plan.md §3.7 M8.8b）。坐标、半径都是文档像素。
  * 每个局部调整由形状、限定范围和一组调整组成，按列表顺序作用在全局基础调整之后；不随调色预设保存。
  */
+import { mat3Mul, type Mat3 } from '@/algo/cat'
 import type { Size } from '@/algo/geometry'
 import type { BrushStroke } from '@/focus/model'
-import type { BlendMode } from './model'
+import { whiteBalanceMatrix } from './color'
+import { hexToEncoded } from './creative'
+import { BLEND_MODES, type BlendMode } from './model'
 
 export type MaskShape = 'full' | 'ellipse' | 'linear' | 'brush'
 export const MASK_SHAPES: readonly MaskShape[] = ['full', 'ellipse', 'linear', 'brush']
@@ -129,4 +132,53 @@ export function rescaleMask(m: LocalMask, kx: number, ky: number): LocalMask {
     linear: { x0: l.x0 * kx, y0: l.y0 * ky, x1: l.x1 * kx, y1: l.y1 * ky },
     strokes: m.strokes.map((s) => ({ ...s, radius: s.radius * k, points: s.points.map((v, i) => v * (i % 2 ? ky : kx)) })),
   }
+}
+
+/**
+ * 每个局部调整打包成的 vec4 个数（src/engine/masks.ts），依次为：
+ * (形状序号, 反相, 羽化, 是否作用)、椭圆 (中心 x, y, 半径 rx, ry)、(cos 旋转, sin 旋转, 0, 0)、线性渐变 (x0, y0, x1, y1)、
+ * 范围 (种类序号, 近处, 分界, 过渡)、(亮度下限, 上限, 对比度, 饱和度)、白平衡矩阵乘以曝光增益的三行 (xyz) 与 w = (混合模式序号, 叠色不透明度, 0)、叠色 (编码值)
+ */
+export const MASK_VEC4S = 10
+
+/** 局部调整的着色器参数 */
+export interface MaskParams {
+  /** 有会改变画面的局部调整 */
+  active: boolean
+  /** 打包的项数（文档中的全部局部调整，包括不起作用的，以便预览其中任意一项的蒙版） */
+  count: number
+  data: Float32Array
+}
+
+const paramsCache = new WeakMap<readonly LocalMask[], MaskParams>()
+
+/** 同一个列表返回同一个结果 */
+export function maskParams(masks: readonly LocalMask[]): MaskParams {
+  const cached = paramsCache.get(masks)
+  if (cached) return cached
+  const list = masks.slice(0, MAX_MASKS)
+  const data = new Float32Array(MAX_MASKS * MASK_VEC4S * 4)
+  list.forEach((m, i) => {
+    const { ellipse: e, linear: l, range: r, adjust: a } = m
+    const gain = 2 ** a.exposure
+    const wb: Mat3 = mat3Mul([gain, 0, 0, 0, gain, 0, 0, 0, gain], whiteBalanceMatrix(a.temperature, a.tint))
+    data.set(
+      [
+        ...[MASK_SHAPES.indexOf(m.shape), m.invert ? 1 : 0, e.feather, maskActive(m) ? 1 : 0],
+        ...[e.x, e.y, e.rx, e.ry],
+        ...[Math.cos(e.rotation), Math.sin(e.rotation), 0, 0],
+        ...[l.x0, l.y0, l.x1, l.y1],
+        ...[MASK_RANGES.indexOf(r.kind), r.near ? 1 : 0, r.depth, r.softness],
+        ...[r.low, r.high, a.contrast, a.saturation],
+        ...[wb[0], wb[1], wb[2], BLEND_MODES.indexOf(a.mode)],
+        ...[wb[3], wb[4], wb[5], a.opacity],
+        ...[wb[6], wb[7], wb[8], 0],
+        ...[...hexToEncoded(a.color), 0],
+      ],
+      i * MASK_VEC4S * 4,
+    )
+  })
+  const params = { active: list.some(maskActive), count: list.length, data }
+  paramsCache.set(masks, params)
+  return params
 }

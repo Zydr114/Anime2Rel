@@ -174,7 +174,7 @@ function localShift(u: AdjustUniforms, lt: LocalTone, c: Vec3Node): FloatNode {
 }
 
 /** 单通道对比度，与 applyContrast 一致 */
-function contrast1(c: FloatNode, k: FloatNode): FloatNode {
+export function contrast1(c: FloatNode, k: FloatNode): FloatNode {
   const y = log2(max(c, 1e-6).div(MID_GRAY))
   const end = select(y.greaterThanEqual(0), float(WHITE_STOPS), float(BLACK_STOPS))
   const t = y.div(end)
