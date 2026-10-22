@@ -416,3 +416,109 @@ test('ranges, a linear gradient and a brush limit local adjustments, and the exp
   const tiled = await exportPixels(page)
   expect(maxImageDiff(whole, tiled)).toBeLessThanOrEqual(4)
 })
+
+/** 线性亮度 */
+const linearLuma = (p: number[]) => 0.2126 * linear(p[0]) + 0.7152 * linear(p[1]) + 0.0722 * linear(p[2])
+
+test('fog thickens with distance, covers the character like the ground at its feet and spares the sky', async ({ page }, info) => {
+  await open(page, info.project.metadata.renderer)
+  // 立绘两腿之间的地面与立绘的接地点同深度；左边一列从近到远
+  const FEET: DocPoint = [320 / W, 440 / H]
+  const NEAR: DocPoint = [60 / W, 462 / H]
+  const MIDDLE: DocPoint = [60 / W, 300 / H]
+  const HORIZON: DocPoint = [60 / W, 250 / H]
+  const points = [DRESS, FEET, NEAR, MIDDLE, HORIZON, SKY]
+  const before = await docPixels(page, points)
+  // 不计光源散射时，结果 = 原色 × T + 雾色 × (1 − T)，按线性亮度算出雾的比例 1 − T
+  await setSlider(page, 'atmosphere-fog-light', 0)
+  await page.getByTestId('atmosphere-fog-auto-color').click()
+  const fogColor = (await page.getByTestId('atmosphere-fog-color').evaluate((el) => getComputedStyle(el).backgroundColor)).match(/\d+/g)!.map(Number)
+  await setSlider(page, 'atmosphere-fog-density', 60)
+  await expect.poll(async () => maxDiff((await docPixels(page, [NEAR]))[0], before[2])).toBeGreaterThan(30)
+  const after = await docPixels(page, points)
+  const fogged = after.map((p, i) => (linearLuma(p) - linearLuma(before[i])) / (linearLuma(fogColor) - linearLuma(before[i])))
+  console.log(`fog: dress ${fogged[0].toFixed(3)}, feet ${fogged[1].toFixed(3)}, near ${fogged[2].toFixed(3)}, middle ${fogged[3].toFixed(3)}, horizon ${fogged[4].toFixed(3)}`)
+  expect(fogged[2]).toBeGreaterThan(0.2)
+  expect(fogged[3]).toBeGreaterThan(fogged[2] + 0.2)
+  expect(fogged[4]).toBeGreaterThan(0.9)
+  expect(Math.abs(fogged[0] - fogged[1])).toBeLessThan(0.1)
+  expect(maxDiff(after[5], before[5])).toBeLessThan(3)
+
+  // 起始距离比人物远：人物和近处地面不加雾，远处仍有雾
+  await setSlider(page, 'atmosphere-fog-start', 10)
+  await expect.poll(async () => maxDiff((await docPixels(page, [NEAR]))[0], before[2])).toBeLessThan(3)
+  const started = await docPixels(page, points)
+  expect(maxDiff(started[0], before[0])).toBeLessThan(3)
+  expect(maxDiff(started[4], before[4])).toBeGreaterThan(40)
+})
+
+test('backlit dust shows toward the sun and is hidden before fusion, and a tiled export with fog and dust matches the whole-image render', async ({ page }, info) => {
+  const query = rendererQuery(info.project.metadata.renderer)
+  await open(page, info.project.metadata.renderer)
+  const before = await exportPixels(page)
+  await page.getByTestId('step-lens').click()
+  await setSlider(page, 'atmosphere-dust-amount', 60)
+  await setSlider(page, 'atmosphere-dust-brightness', 80)
+  await setSlider(page, 'atmosphere-dust-near', 0.2)
+  const dusty = await exportPixels(page)
+  // 只有光源照亮尘埃（HG 相函数偏向前方）：太阳所在的右上方比左下方明显
+  const gain = (img: ExportedImage, x0: number, y0: number) => {
+    let sum = 0
+    for (let y = y0; y < y0 + H / 2; y++)
+      for (let x = x0; x < x0 + W / 2; x++) {
+        const i = (y * W + x) * 4
+        sum += linearLuma(img.data.slice(i, i + 3)) - linearLuma(before.data.slice(i, i + 3))
+      }
+    return sum / ((W / 2) * (H / 2))
+  }
+  const [toward, away] = [gain(dusty, W / 2, 0), gain(dusty, 0, H / 2)]
+  console.log(`dust: toward the sun ${toward.toFixed(4)}, away ${away.toFixed(4)}`)
+  expect(toward).toBeGreaterThan(0.005)
+  // 太阳附近的颗粒在 8 位输出中被截断，比例按 1.5 倍检查
+  expect(toward).toBeGreaterThan(away * 1.5)
+
+  // 右上方天空中尘埃最亮的地方（5×5 像素平均，容许取样位置差一两个像素）
+  const dustAt = (x: number, y: number) => {
+    let sum = 0
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) sum += luma(pixel(dusty, x + dx, y + dy)) - luma(pixel(before, x + dx, y + dy))
+    return sum / 25
+  }
+  let speck = { x: 0, y: 0, gain: 0 }
+  for (let y = 4; y < 0.4 * H; y++)
+    for (let x = W / 2 + 40; x < W - 4; x++) {
+      const g = dustAt(x, y)
+      if (g > speck.gain) speck = { x, y, gain: g }
+    }
+  expect(speck.gain).toBeGreaterThan(10)
+  // 摆放步骤中也有尘埃；前后对比显示直接贴上去的效果，没有尘埃
+  const at: DocPoint = [(speck.x + 0.5) / W, (speck.y + 0.5) / H]
+  const plain = pixel(before, speck.x, speck.y)
+  await page.getByTestId('step-place').click()
+  await expect.poll(async () => luma((await docPixels(page, [at]))[0])).toBeGreaterThan(luma(plain) + 5)
+  // 前后对比（直接贴上去的效果没有景深，与导出不同）：有没有尘埃时画面相同
+  await page.getByTestId('compare').click()
+  await page.waitForTimeout(1000)
+  const [raw] = await docPixels(page, [at])
+  await page.getByTestId('step-lens').click()
+  await setSlider(page, 'atmosphere-dust-amount', 0)
+  await page.getByTestId('step-place').click()
+  await page.waitForTimeout(1000)
+  expect(maxDiff((await docPixels(page, [at]))[0], raw)).toBeLessThan(3)
+  await page.getByTestId('compare').click()
+
+  await page.getByTestId('step-lens').click()
+  await setSlider(page, 'atmosphere-dust-amount', 60)
+  await setSlider(page, 'atmosphere-fog-density', 40)
+  await setSlider(page, 'atmosphere-fog-falloff', 30)
+  await page.getByTestId('atmosphere-fog-sky').click()
+  await setSlider(page, 'atmosphere-fog-noise', 80)
+  await page.waitForTimeout(1500)
+  const whole = await exportPixels(page)
+  await page.waitForTimeout(1500)
+  await page.goto(`/?${query}exportTile=128`)
+  await page.getByTestId('resume-project').click()
+  await settle(page)
+  const tiled = await exportPixels(page)
+  expect(maxImageDiff(whole, tiled)).toBeLessThanOrEqual(4)
+})
