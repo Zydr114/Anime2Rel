@@ -6,6 +6,7 @@ import type { CalibrationMethod, HeightSource, LineAxis } from '@/camera/model'
 import type { OcclusionMode } from '@/focus/model'
 import type { RelightStyle } from '@/fusion/model'
 import type { FlareElementType, FlarePresetId } from '@/grade/flare'
+import type { MaskRangeKind, MaskShape } from '@/grade/mask'
 import type { BlendKind, BlendMode, CurveChannel, GradeLevel, HslBand, ToneKey, WheelKey } from '@/grade/model'
 import type { ToneMapping } from '@/grade/post'
 import type { ImageFormat } from '@/io/encode'
@@ -594,7 +595,7 @@ export const zhCN = {
     tooLarge: (format: string, w: number, h: number) => `${w} × ${h} 超出了 ${format} 或浏览器画布的尺寸上限，请改用 PNG 导出。`,
   },
   adjust: {
-    tabs: { basic: '基础调整', style: '色彩风格', presets: '预设' } as Record<GradeTab, string>,
+    tabs: { basic: '基础调整', local: '局部', style: '色彩风格', presets: '预设' } as Record<GradeTab, string>,
     noBackground: '请先在“素材”步骤中导入背景照片。',
     noCharacter: '还没有立绘，请先在“素材”步骤中添加。',
     levels: { global: '全局', background: '背景', character: '立绘' } as Record<GradeLevel, string>,
@@ -629,6 +630,56 @@ export const zhCN = {
     clarity: '清晰度',
     sharpen: '锐化',
     reset: (level: string) => `重置${level}调整`,
+  },
+  local: {
+    hint: '局部调整按列表顺序叠加在全局基础调整之后、色彩风格之前。每一项用形状和范围限定作用的区域，适合局部提亮、渐变压暗、只调天空或远处。',
+    list: '局部调整',
+    count: (n: number) => `${n} 项`,
+    none: '无',
+    add: '添加局部调整',
+    limit: (n: number) => `最多 ${n} 个局部调整。`,
+    name: (n: number) => `局部 ${n}`,
+    disabled: '已停用',
+    enable: '启用',
+    disable: '停用',
+    remove: '删除这一项',
+    shape: '形状',
+    shapes: { full: '全画面', ellipse: '椭圆', linear: '线性渐变', brush: '画笔' } as Record<MaskShape, string>,
+    shapeHints: {
+      full: '不限形状，只按下面的范围选取。',
+      ellipse: '在画布上拖动中心移动，拖动轴端的点改变半径，拖动外侧的点旋转；虚线内圈以内完全作用。',
+      linear: '实线处完全作用，到虚线处过渡为不作用。拖动线上的点移动这条线，拖动中间的点整体移动。',
+      brush: '在画布上涂抹要调整的区域，橡皮擦除。',
+    } as Record<MaskShape, string>,
+    feather: '羽化',
+    invert: '反相',
+    snap: '吸附背景边缘',
+    brushEmpty: '还没有画过，画笔形状暂不生效。',
+    range: '范围',
+    ranges: { all: '全部', character: '只在立绘', background: '只在背景', sky: '只在天空', depth: '按深度', luminance: '按亮度' } as Record<MaskRangeKind, string>,
+    rangeHints: {
+      all: '形状内的全部画面。',
+      character: '合成后可见的立绘，被遮挡的部分不算。',
+      background: '立绘以外的画面。',
+      sky: '背景深度估计中的天空，被立绘挡住的部分不算。',
+      depth: '按合成后的深度选取近处或远处，与深度调试视图的明暗一致。',
+      luminance: '按这一项之前的画面亮度选取，与混色层的亮度蒙版相同。',
+    } as Record<MaskRangeKind, string>,
+    sides: { near: '近处', far: '远处' } as Record<'near' | 'far', string>,
+    depth: '分界',
+    softness: '过渡',
+    low: '亮度下限',
+    high: '亮度上限',
+    noDepth: '背景深度还没有估计，这个范围暂时为空。',
+    noCharacter: '还没有立绘，这个范围暂时为空。',
+    adjust: '调整',
+    overlay: '叠色',
+    color: '颜色',
+    mode: '混合模式',
+    opacity: '不透明度',
+    showMask: '显示蒙版',
+    showMaskHint: '在预览中用红色叠加显示选中项的作用范围（形状与范围相乘之后）。',
+    resetAdjust: '重置调整',
   },
   style: {
     hint: '色彩风格作用于整个画面，在全局基础调整之后进行。',

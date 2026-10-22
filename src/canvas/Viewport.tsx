@@ -14,6 +14,7 @@ import { computeBallPreview } from '@/lighting/preview'
 import { resolveTheme, useAppearance } from '@/state/appearance'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useEngine } from '@/state/engine'
+import { useGradeUi } from '@/state/grade'
 import { isExporting, useExport } from '@/state/export'
 import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis, useLighting } from '@/state/lighting'
@@ -110,6 +111,8 @@ export function Viewport() {
           // 二维摆放步骤中使用深度画笔时，立绘叠加深度伪彩色
           const relief = step === 'place' && f.tool === 'depth' && !useView3d.getState().open
           const view = useDepth.getState().view
+          const ui = useGradeUi.getState()
+          const maskOverlay = step === 'adjust' && ui.tab === 'local' && ui.showMask ? doc.masks.findIndex((m) => m.id === ui.mask) : -1
           e.setDisplay({
             compare,
             showNormals: f.showNormals,
@@ -117,7 +120,7 @@ export function Viewport() {
             original: step === 'scene' && view === 'composite',
             relief,
             distortion: showsDistortion(step, f.compare, view),
-            maskOverlay: -1,
+            maskOverlay,
           })
         }
         // 3D 视图在摆放和融合步骤中显示；灰球和选中的光源只在融合步骤中显示
@@ -178,6 +181,10 @@ export function Viewport() {
           if (next.analyses !== prev.analyses || next.showBall !== prev.showBall || next.selected !== prev.selected) sync3d()
           if (next.analyses !== prev.analyses) syncFusion()
         })
+        const offGrade = useGradeUi.subscribe((next, prev) => {
+          if (isExporting()) return
+          if (next.tab !== prev.tab || next.mask !== prev.mask || next.showMask !== prev.showMask) syncFusion()
+        })
         const offFusion = useFusion.subscribe((next, prev) => {
           if (isExporting()) return
           if (next.character !== prev.character || next.warped !== prev.warped) {
@@ -194,6 +201,7 @@ export function Viewport() {
           offDepth()
           offLighting()
           offFusion()
+          offGrade()
         }
         useEngine.getState().setEngine(e)
       })
