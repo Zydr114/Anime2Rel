@@ -211,8 +211,9 @@ interface Effects {
   /** 水体遮挡中有倒影 */
   reflection: boolean
   shadow: boolean
-  /** 雾：分层加在背景预处理和立绘层调整中 */
+  /** 雾：分层加在背景预处理和立绘层调整中；尘埃：加在合成 pass 中 */
   fog: boolean
+  dust: boolean
   /** 三级调整与全局调色 */
   grade: boolean
   /** 各级是否有局部调整 */
@@ -530,7 +531,7 @@ export class Engine {
     this.quads = {
       charPrep: quad(this.charPrep.material),
       // 背景层调整只改背景本身：立绘的融合和深度仍按原图计算
-      backgroundAdjust: quad(createBackgroundAdjustPass(this.adjust.background, lt('background'), this.backgroundNode)),
+      backgroundAdjust: quad(createBackgroundAdjustPass(this.adjust.background, lt('background'), this.backgroundNode, this.depthNodes.background.depth)),
       prep: quad(
         createPrepPass(
           dof,
@@ -560,7 +561,7 @@ export class Engine {
       characterDof: quad(createCharacterDofPass(dof, nodes.characterAdjusted, nodes.characterDepth)),
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
       shadow: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background)),
-      composite: quad(createCompositePass({ placement, layers: nodes, dof, shadow: this.shadow, contact: atmosphere.contact })),
+      composite: quad(createCompositePass({ placement, layers: nodes, dof, shadow: this.shadow, atmosphere })),
       globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt('global'), nodes.composited)),
       // 有局部调整时，全局调整的结果先写入 graded（预览中它在终处理时才用到）
       localAdjust: quad(
@@ -855,6 +856,7 @@ export class Engine {
       reflection: occlusion && !!this.focus?.occlusion.styles.some((s) => s.mode === water && s.reflection > 0),
       shadow: !raw && !!this.shadowParams,
       fog: !raw && !!this.atmosphereParams?.fog,
+      dust: !raw && !!this.atmosphereParams?.dust,
       grade,
       local: Object.fromEntries(GRADE_LEVELS.map((level) => [level, grade && !!this.grade?.levels[level].local])) as Record<GradeLevel, boolean>,
       masks: graded && (!!masks?.active || maskOverlay),
@@ -888,7 +890,7 @@ export class Engine {
     this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
     this.debugView.uniforms.relief.value = display.relief ? 1 : 0
     this.shadow.enabled.value = effects.shadow ? 1 : 0
-    applyAtmosphereParams(this.atmosphere, this.atmosphereParams, effects.fog)
+    applyAtmosphereParams(this.atmosphere, this.atmosphereParams, effects, this.focus)
     for (const level of GRADE_LEVELS) {
       const params = this.grade?.levels[level]
       if (params) applyAdjustParams(this.adjust[level], params, effects.grade)

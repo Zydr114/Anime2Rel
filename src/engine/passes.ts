@@ -7,6 +7,7 @@ import { srgbToLinear } from '@/algo/color'
 import { SURROUND } from './backdrop'
 import { createFusionNode } from './fusion'
 import type { ShadowUniforms } from './shadow'
+import { dustLight, type AtmosphereUniforms } from './atmosphere'
 import { evalSh, material, sampleAt, srgbDecode, srgbEncode, type FloatNode, type TileMapping, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
 
 /**
@@ -201,7 +202,7 @@ export function createCharacterPass(placement: Placement, character: TextureNode
 
 /** 合成使用的各图层纹理（均与渲染目标同尺寸） */
 export interface LayerTextures {
-  /** 背景层调整后的背景 */
+  /** 背景层调整后的背景；alpha 为背景的归一化逆深度 */
   background: TextureNode
   prep: TextureNode
   backgroundDof: TextureNode
@@ -224,18 +225,18 @@ export interface LayerTextures {
 }
 
 /**
- * 最终合成：模糊背景（乘以站立阴影） → 模糊立绘 → 遮挡层（按区域和遮挡方式混合）→ 水面倒影 → 遮罩预览。
+ * 最终合成：模糊背景（乘以站立阴影） → 模糊立绘 → 遮挡层（按区域和遮挡方式混合）→ 水面倒影 → 尘埃 → 遮罩预览。
  * 透明介质与水体按遮挡强度（介质的不透明度）普通覆盖，再在透出的立绘上叠加背景的高频细节；
  * 水体另外在水下部分做折射偏移、在水线处加高光，水线以下盖上立绘的倒影（水下的立绘也在水面之下）。
  * 调试视图和灰球在 createDisplayPass 中叠加，这里的纹理数要留在 WebGPU / WebGL2 每阶段 16 个的下限以内。
  */
-export function createCompositePass(input: { placement: Placement; layers: LayerTextures; dof: DofUniforms; shadow: ShadowUniforms; contact: FloatNode }) {
+export function createCompositePass(input: { placement: Placement; layers: LayerTextures; dof: DofUniforms; shadow: ShadowUniforms; atmosphere: AtmosphereUniforms }) {
   const { placement, layers, dof } = input
 
   // 阴影随地面一起离焦：按背景的弥散圆选用 mip；有雾时按接地点处的透过率减淡
   const prep = sampleLevel(layers.prep, screenUV)
   const shadowLod = log2(max(abs(prep.a), 1))
-  const shadow = mix(vec3(1), sampleLevel(layers.shadow, screenUV, shadowLod).rgb, input.shadow.enabled.mul(input.contact))
+  const shadow = mix(vec3(1), sampleLevel(layers.shadow, screenUV, shadowLod).rgb, input.shadow.enabled.mul(input.atmosphere.contact))
   // 没有景深时直接用预处理后（已加雾）的背景
   const bg = mix(sampleLevel(layers.backgroundDof, screenUV).rgb, prep.rgb, dof.bypass).mul(shadow)
   const charDepth = sampleLevel(layers.characterDepth, screenUV)
@@ -310,7 +311,10 @@ export function createCompositePass(input: { placement: Placement; layers: Layer
   const R = saturate(reflectionWeight.mul(reflectance(dof, p, docSize)).mul(surface))
   const reflected = occluded.mul(float(1).sub(R.mul(mirrored.a))).add(mirrored.rgb.mul(waterColor).mul(R))
 
-  const rgb = mix(reflected, MASK_TINT, charDepth.g.mul(charDepth.a).mul(dof.showMask).mul(0.6))
+  // 尘埃：被比它近的景物挡住，立绘可见处按立绘深度、其余按背景深度（背景层的 alpha）
+  const sceneDepth = mix(sampleLevel(layers.background, screenUV).a, charDepth.r, charDepth.a.mul(float(1).sub(charDepth.g)))
+  const dust = dustLight(input.atmosphere, dof, { p, surface: sceneDepth })
+  const rgb = mix(reflected.add(dust), MASK_TINT, charDepth.g.mul(charDepth.a).mul(dof.showMask).mul(0.6))
   return material(vec4(rgb, 1))
 }
 

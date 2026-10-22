@@ -246,9 +246,9 @@ export function adjustColor(u: AdjustUniforms, lt: LocalTone, input: Vec3Node): 
 /** 立绘层的输入是预乘 alpha 的融合结果 */
 export const unpremultiply = (c: Vec4Node): Vec3Node => c.rgb.div(max(c.a, 1e-4))
 
-/** 背景层：原图 → 调整后的线性背景 */
-export function createBackgroundAdjustPass(u: AdjustUniforms, lt: LocalTone, background: THREE.TextureNode) {
-  return material(vec4(adjustColor(u, lt, background.rgb), 1))
+/** 背景层：原图 → 调整后的线性背景；alpha 存背景的归一化逆深度（合成 pass 中尘埃的遮挡用） */
+export function createBackgroundAdjustPass(u: AdjustUniforms, lt: LocalTone, background: THREE.TextureNode, depth: FloatNode) {
+  return material(vec4(adjustColor(u, lt, background.rgb), depth))
 }
 
 /** 立绘层：融合后的立绘（预乘 alpha）→ 调整后的立绘；after 在调整之后处理预乘的颜色（加雾） */

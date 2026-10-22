@@ -11,8 +11,8 @@ import { assetPixels } from '@/lighting/sampling'
 import { getDepthResult } from '@/state/depth'
 import { characterInfo } from '@/state/fusion'
 import type { DocState } from '@/state/store'
-import { fogActive } from './model'
-import { atmosphereView, fogParams, fogTransmittance, type AtmosphereView, type FogParams } from './params'
+import { dustActive, fogActive } from './model'
+import { atmosphereView, dustParams, fogParams, fogTransmittance, type AtmosphereView, type DustParams, type FogParams } from './params'
 
 export interface AtmosphereParams {
   view: AtmosphereView
@@ -20,6 +20,8 @@ export interface AtmosphereParams {
   fog: FogParams | null
   /** 接地点处雾的透过率：站立阴影按它减淡 */
   contact: number
+  /** 尘埃关闭时为 null */
+  dust: DustParams | null
 }
 
 /** 天空至少占采样点的这个比例时，雾色取天空的平均颜色；否则取最远这个比例的景物 */
@@ -62,6 +64,7 @@ export function autoFogColor(backgroundId: string, depth: DepthResult): Vec3 | n
 const colorCache = new WeakMap<DepthResult, { id: string; color: Vec3 }>()
 let viewCache: { inputs: unknown[]; view: AtmosphereView } | null = null
 let fogCache: { inputs: unknown[]; fog: FogParams } | null = null
+let dustCache: { inputs: unknown[]; dust: DustParams } | null = null
 
 const same = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((v, i) => v === b[i])
 
@@ -70,7 +73,7 @@ export function currentAtmosphereParams(doc: DocState): AtmosphereParams | null 
   const bg = doc.background
   const depth = getDepthResult(bg?.id)
   if (!bg || !depth) return null
-  const { fog: fogDoc } = doc.atmosphere
+  const { fog: fogDoc, dust: dustDoc } = doc.atmosphere
   const viewInputs = [doc.camera, bg, depth, doc.lighting.lights]
   if (!viewCache || !same(viewCache.inputs, viewInputs)) {
     viewCache = { inputs: viewInputs, view: atmosphereView(doc.camera, bg, depthScaleFor(doc.camera, bg, depth), doc.lighting.lights) }
@@ -93,5 +96,12 @@ export function currentAtmosphereParams(doc: DocState): AtmosphereParams | null 
     const bbox = characterInfo(doc)?.bbox
     contact = fogTransmittance(fog, view, characterGround(doc, bg, bbox), characterDepth(doc, depth, bbox), bg)
   }
-  return { view, fog, contact }
+  let dust: DustParams | null = null
+  if (dustActive(dustDoc)) {
+    const { blades, rotation } = doc.focus.dof
+    const dustInputs = [dustDoc, blades, rotation]
+    if (!dustCache || !same(dustCache.inputs, dustInputs)) dustCache = { inputs: dustInputs, dust: dustParams(dustDoc, doc.focus.dof) }
+    dust = dustCache.dust
+  }
+  return { view, fog, contact, dust }
 }

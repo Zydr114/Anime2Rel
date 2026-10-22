@@ -50,7 +50,7 @@ export const DUST_FAR_RANGE: readonly [number, number] = [1, 100]
 export const DUST_SEED_RANGE: readonly [number, number] = [0, 999]
 
 export const DEFAULT_FOG: FogParams = { density: 0, start: 0, falloff: 0, color: null, light: 0.5, noise: 0, noiseSize: 5, sky: false }
-export const DEFAULT_DUST: DustParams = { amount: 0, size: 0.3, brightness: 0.5, near: 0.5, far: 8, seed: 1 }
+export const DEFAULT_DUST: DustParams = { amount: 0, size: 0.3, brightness: 0.5, near: 0.3, far: 8, seed: 1 }
 export const DEFAULT_ATMOSPHERE: AtmosphereDoc = { fog: DEFAULT_FOG, dust: DEFAULT_DUST }
 
 export const fogActive = (fog: FogParams) => fog.density > 0
