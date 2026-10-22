@@ -4,6 +4,8 @@ import type { AssetRef } from './assets'
 import type { LightCandidate } from '@/analysis/protocol'
 import { MAX_REGIONS } from '@/focus/model'
 import { DEFAULT_FUSION } from '@/fusion/model'
+import { MAX_MASKS } from '@/grade/mask'
+import { BUILTIN_PRESETS } from '@/grade/preset'
 import { lightsFromCandidates, MAX_LIGHTS, newDirectionalLight } from '@/lighting/model'
 
 const asset = (id: string, width = 1000, height = 800): AssetRef => ({
@@ -225,5 +227,29 @@ describe('focus', () => {
     expect(useApp.getState().doc.focus.occlusion.regions).toHaveLength(MAX_REGIONS)
     useApp.getState().setBackground(asset('bg2', 2000, 1600))
     expect(useApp.getState().doc.focus.occlusion.regions[0].strokes[0]).toEqual({ erase: false, radius: 20, points: [200, 160, 400, 160] })
+  })
+})
+
+describe('masks', () => {
+  it('caps local adjustments, merges part updates, survives presets and scales with the background', () => {
+    expect(useApp.getState().addMask()).toBeNull()
+    useApp.getState().setBackground(asset('bg', 1000, 800))
+    const ids = Array.from({ length: MAX_MASKS + 1 }, () => useApp.getState().addMask())
+    expect(ids.filter(Boolean)).toHaveLength(MAX_MASKS)
+    expect(ids[MAX_MASKS]).toBeNull()
+    const id = ids[0]!
+    expect(useApp.getState().doc.masks[0].ellipse).toMatchObject({ x: 500, y: 400, rx: 200, ry: 200 })
+    useApp.getState().updateMaskPart(id, 'adjust', { exposure: 1 })
+    useApp.getState().updateMaskPart(id, 'ellipse', { rx: 300 })
+    useApp.getState().undo()
+    expect(useApp.getState().doc.masks[0].ellipse.rx).toBe(200)
+    expect(useApp.getState().doc.masks[0].adjust).toMatchObject({ exposure: 1, mode: 'soft-light' })
+    useApp.getState().applyPreset(BUILTIN_PRESETS['teal-orange'])
+    useApp.getState().resetPost()
+    expect(useApp.getState().doc.masks[0].adjust.exposure).toBe(1)
+    useApp.getState().setBackground(asset('bg2', 2000, 1600))
+    expect(useApp.getState().doc.masks[0].ellipse).toMatchObject({ x: 1000, y: 800, rx: 400, ry: 400 })
+    useApp.getState().removeMask(id)
+    expect(useApp.getState().doc.masks).toHaveLength(MAX_MASKS - 1)
   })
 })

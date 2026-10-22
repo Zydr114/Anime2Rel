@@ -24,6 +24,8 @@ import {
 import { DEFAULT_FUSION, RELIGHT_STYLES, type FusionDoc } from '@/fusion/model'
 import { DEPTH_BRUSH_MODES, EMPTY_DEPTH_EDIT, type DepthEditDoc, type DepthStroke } from '@/fusion/depthEdit'
 import { conformWarp, IDENTITY_WARP } from '@/fusion/warp'
+import { DEFAULT_RANGE, MASK_RANGES, MASK_SHAPES, MAX_MASKS, newMaskId, NEUTRAL_MASK_ADJUST, type LocalMask } from '@/grade/mask'
+import { BLEND_MODES } from '@/grade/model'
 import { conformGrade, conformPost, embedLuts, gradeForFile, lutResolver } from '@/grade/preset'
 import { bool, fields, hex, num, oneOf, record, text, type Json } from '@/io/conform'
 import { DEFAULT_INTENSITY, DEFAULT_LIGHTING, MAX_LIGHT_DEPTH, MAX_LIGHTS, newLightId, type Light, type LightingDoc } from '@/lighting/model'
@@ -89,6 +91,7 @@ export function projectManifest(doc: DocState, step: StepId, assets: { backgroun
       fusion: doc.fusion,
       focus: doc.focus,
       grade: gradeForFile(doc.grade),
+      masks: doc.masks,
       post: doc.post,
     },
     luts: embedLuts(doc.grade),
@@ -264,6 +267,8 @@ function conformStroke(v: unknown): BrushStroke | null {
   return { erase: bool(o.erase, false), radius: num(o.radius, 20, 0.5, 1e4), points: points.map((p) => num(p, 0, ...COORD)) }
 }
 
+const conformStrokes = (v: unknown): BrushStroke[] => (Array.isArray(v) ? v.slice(0, MAX_STROKES) : []).map(conformStroke).filter((s): s is BrushStroke => s !== null)
+
 function conformDepthStroke(v: unknown): DepthStroke | null {
   const o = record(v)
   const points = Array.isArray(o.points) ? o.points : []
@@ -283,8 +288,7 @@ function conformDepthEdit(v: unknown): DepthEditDoc {
 
 function conformRegion(v: unknown): OcclusionRegion {
   const o = record(v)
-  const strokes = (Array.isArray(o.strokes) ? o.strokes.slice(0, MAX_STROKES) : []).map(conformStroke).filter((s): s is BrushStroke => s !== null)
-  return { ...conformStyle(o), id: newRegionId(), strokes }
+  return { ...conformStyle(o), id: newRegionId(), strokes: conformStrokes(o.strokes) }
 }
 
 function conformTarget(v: unknown, hasCharacter: boolean): FocusTarget | null {
@@ -315,6 +319,23 @@ function conformFocus(v: unknown, hasCharacter: boolean): FocusDoc {
   }
 }
 
+function conformMask(v: unknown): LocalMask {
+  const o = record(v)
+  const { color, ...adjust } = NEUTRAL_MASK_ADJUST
+  return {
+    ...fields(o, { enabled: true, invert: false, snap: true, shape: 'ellipse' as LocalMask['shape'] }, {}, { shape: MASK_SHAPES }),
+    id: newMaskId(),
+    ellipse: fields(o.ellipse, { x: 0, y: 0, rx: 100, ry: 100, rotation: 0, feather: 0.5 }, { x: COORD, y: COORD, rx: [1, 1e6], ry: [1, 1e6], rotation: [-Math.PI, Math.PI] }),
+    linear: fields(o.linear, { x0: 0, y0: 0, x1: 0, y1: 100 }, { x0: COORD, y0: COORD, x1: COORD, y1: COORD }),
+    strokes: conformStrokes(o.strokes),
+    range: fields(o.range, DEFAULT_RANGE, { softness: [0, 0.5] }, { kind: MASK_RANGES }),
+    adjust: {
+      ...fields(o.adjust, adjust, { exposure: [-5, 5], contrast: [-1, 1], temperature: [-1, 1], tint: [-1, 1], saturation: [-1, 1] }, { mode: BLEND_MODES }),
+      color: hex(record(o.adjust).color, color),
+    },
+  }
+}
+
 /**
  * 清单 → 文档。slots 给出重新登记后的背景与立绘；位图尺寸与保存时不同（例如换了 GPU 纹理上限不同的设备）时按比例换算坐标。
  * 内嵌的 LUT 会被登记；LUT 数据无效时抛出 PresetError。
@@ -335,6 +356,7 @@ export function conformProject(manifest: Json, slots: { background: AssetRef; ch
     fusion: conformFusion(o.fusion, !!character),
     focus: conformFocus(o.focus, !!character),
     grade: conformGrade(o.grade, lutResolver(manifest.luts)),
+    masks: (Array.isArray(o.masks) ? o.masks.slice(0, MAX_MASKS) : []).map(conformMask),
     post: conformPost(o.post, (id) => (typeof id === 'string' ? (lightIds.get(id) ?? null) : null)),
   }
   // 立绘位图尺寸变化时保持它在文档中的大小

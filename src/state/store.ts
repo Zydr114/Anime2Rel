@@ -22,6 +22,7 @@ import {
   type WheelKey,
 } from '@/grade/model'
 import { MAX_FLARE_ELEMENTS, newFlareElement, newFlareId, sameFlareElements, type FlareDoc, type FlareElement, type FlareElementType } from '@/grade/flare'
+import { MAX_MASKS, newMask, rescaleMask, type LocalMask, type MaskPart } from '@/grade/mask'
 import { DEFAULT_POST, type PostDoc, type PostSection, type ToneMapping } from '@/grade/post'
 import { matchesPreset, presetPost, type Preset } from '@/grade/preset'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
@@ -43,6 +44,8 @@ export interface DocState {
   fusion: FusionDoc
   focus: FocusDoc
   grade: GradeDoc
+  /** 局部调整（M8.8b），按列表顺序作用 */
+  masks: LocalMask[]
   post: PostDoc
 }
 
@@ -61,6 +64,7 @@ export const initialDoc: DocState = {
   fusion: DEFAULT_FUSION,
   focus: DEFAULT_FOCUS,
   grade: DEFAULT_GRADE,
+  masks: [],
   post: DEFAULT_POST,
 }
 
@@ -149,6 +153,13 @@ interface AppState {
   moveBlendLayer: (id: string, delta: 1 | -1) => void
   resetCreative: () => void
 
+  /** 添加局部调整，返回其 id；没有背景或达到上限时返回 null */
+  addMask: () => string | null
+  updateMask: (id: string, update: Partial<Pick<LocalMask, 'enabled' | 'shape' | 'invert' | 'snap'>>) => void
+  updateMaskPart: <K extends MaskPart>(id: string, part: K, update: Partial<LocalMask[K]>) => void
+  removeMask: (id: string) => void
+  addMaskStroke: (id: string, stroke: BrushStroke) => void
+
   updatePost: <K extends PostSection>(section: K, update: Partial<PostDoc[K]>) => void
   /** 在最后添加光晕元素，返回其 id；达到上限时返回 null */
   addFlareElement: (type: FlareElementType) => string | null
@@ -181,7 +192,7 @@ export const stepLocked = (doc: DocState, step: StepId) => cameraPending(doc) &&
 
 const allowedStep = (doc: DocState, step: StepId): StepId => (stepLocked(doc, step) ? 'scene' : step)
 
-/** 文档坐标按 (kx, ky) 缩放：立绘位置与大小、背景上的焦点、遮挡区域和点光源的位置随之变化 */
+/** 文档坐标按 (kx, ky) 缩放：立绘位置与大小、背景上的焦点、遮挡区域、局部调整的形状和点光源的位置随之变化 */
 export function rescaleDoc(d: DocState, kx: number, ky: number): DocState {
   if (kx === 1 && ky === 1) return d
   const k = Math.min(kx, ky)
@@ -198,7 +209,8 @@ export function rescaleDoc(d: DocState, kx: number, ky: number): DocState {
   }
   const charTransform = d.character ? { ...t, x: t.x * kx, y: t.y * ky, scale: t.scale * k } : t
   const lights = d.lighting.lights.map((l) => ({ ...l, position: { ...l.position, x: l.position.x * kx, y: l.position.y * ky } }))
-  return { ...d, charTransform, focus, lighting: { ...d.lighting, lights } }
+  const masks = d.masks.map((m) => rescaleMask(m, kx, ky))
+  return { ...d, charTransform, focus, masks, lighting: { ...d.lighting, lights } }
 }
 
 const pushPast = (past: DocState[], doc: DocState) => [...past.slice(-(HISTORY_LIMIT - 1)), doc]
@@ -224,6 +236,10 @@ const withElements = (f: FlareDoc, update: (elements: FlareElement[]) => FlareEl
 
 function setRegions(get: () => AppState, update: (regions: OcclusionRegion[]) => OcclusionRegion[]): void {
   get().setDoc((d) => ({ ...d, focus: { ...d.focus, occlusion: { ...d.focus.occlusion, regions: update(d.focus.occlusion.regions) } } }))
+}
+
+function setMasks(get: () => AppState, update: (masks: LocalMask[]) => LocalMask[]): void {
+  get().setDoc((d) => ({ ...d, masks: update(d.masks) }))
 }
 
 export const useApp = create<AppState>()((set, get) => ({
@@ -494,6 +510,30 @@ export const useApp = create<AppState>()((set, get) => ({
 
   resetCreative: () => {
     setCreative(get, () => DEFAULT_CREATIVE)
+  },
+
+  addMask: () => {
+    const { background, masks } = get().doc
+    if (!background || masks.length >= MAX_MASKS) return null
+    const mask = newMask(background)
+    setMasks(get, (list) => [...list, mask])
+    return mask.id
+  },
+
+  updateMask: (id, update) => {
+    setMasks(get, (masks) => masks.map((m) => (m.id === id ? { ...m, ...update } : m)))
+  },
+
+  updateMaskPart: (id, part, update) => {
+    setMasks(get, (masks) => masks.map((m) => (m.id === id ? { ...m, [part]: { ...m[part], ...update } } : m)))
+  },
+
+  removeMask: (id) => {
+    setMasks(get, (masks) => masks.filter((m) => m.id !== id))
+  },
+
+  addMaskStroke: (id, stroke) => {
+    setMasks(get, (masks) => masks.map((m) => (m.id === id ? { ...m, strokes: [...m.strokes, stroke] } : m)))
   },
 
   updatePost: (section, update) => {

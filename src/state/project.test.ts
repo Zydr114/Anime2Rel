@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_FOCUS, DEFAULT_STYLE } from '@/focus/model'
 import { gridPoints } from '@/fusion/warp'
 import { flarePreset } from '@/grade/flare'
+import { newMask } from '@/grade/mask'
 import { newBlendLayer } from '@/grade/model'
 import { newDirectionalLight, newLightAt } from '@/lighting/model'
 import type { AssetRef } from './assets'
@@ -32,6 +33,10 @@ function sampleDoc(): DocState {
       occlusion: { ...DEFAULT_FOCUS.occlusion, enabled: true, mode: 'water', reflection: 0.6, waterColor: '#9fc4d0', regions: [{ ...DEFAULT_STYLE, mode: 'medium', id: 'region-x', strokes: [{ erase: false, radius: 12, points: [10, 20, 30, 40] }] }] },
     },
     grade: { ...initialDoc.grade, creative: { ...initialDoc.grade.creative, layers: [{ ...newBlendLayer(), opacity: 0.3 }] } },
+    masks: [
+      { ...newMask(background), invert: true, ellipse: { x: 400, y: 300, rx: 200, ry: 100, rotation: 0.5, feather: 0.3 }, adjust: { ...newMask(background).adjust, exposure: -1.5, color: '#3366cc', mode: 'overlay', opacity: 0.4 } },
+      { ...newMask(background), shape: 'brush', enabled: false, strokes: [{ erase: false, radius: 30, points: [100, 200, 300, 400] }], range: { kind: 'depth', near: true, depth: 0.7, softness: 0.2, low: 0, high: 1 } },
+    ],
     post: {
       ...initialDoc.post,
       rays: { ...initialDoc.post.rays, intensity: 0.5, light: lamp.id },
@@ -50,6 +55,7 @@ function withoutIds(doc: DocState) {
     lighting: { ...doc.lighting, analyzedFor: null, lights: doc.lighting.lights.map((l, i) => ({ ...l, id: i })) },
     focus: { ...doc.focus, occlusion: { ...doc.focus.occlusion, regions: doc.focus.occlusion.regions.map((r) => ({ ...r, id: 0 })) } },
     grade: { ...doc.grade, creative: { ...doc.grade.creative, layers: doc.grade.creative.layers.map((l) => ({ ...l, id: 0 })) } },
+    masks: doc.masks.map((m) => ({ ...m, id: 0 })),
     post: {
       ...doc.post,
       rays: { ...doc.post.rays, light: doc.post.rays.light && lights.indexOf(doc.post.rays.light) },
@@ -96,6 +102,9 @@ describe('project', () => {
     expect(restored.charTransform.scale).toBeCloseTo(1.5)
     expect(restored.lighting.lights[1].position).toMatchObject({ x: 150, y: 100 })
     expect(restored.focus.occlusion.regions[0].strokes[0]).toEqual({ erase: false, radius: 6, points: [5, 10, 15, 20] })
+    expect(restored.masks[0].ellipse).toEqual({ x: 200, y: 150, rx: 100, ry: 50, rotation: 0.5, feather: 0.3 })
+    expect(restored.masks[0].linear).toEqual({ x0: 250, y0: 400, x1: 250, y1: 200 })
+    expect(restored.masks[1].strokes[0]).toEqual({ erase: false, radius: 15, points: [50, 100, 150, 200] })
   })
 
   it('replaces invalid values with defaults or clamps them', () => {
@@ -103,11 +112,14 @@ describe('project', () => {
     manifest.doc.fusion.relight = { style: 'evil', strength: 99, rim: 'x' }
     manifest.doc.focus.dof = { blades: 7, aperture: -1 }
     manifest.doc.lighting.lights = [{ type: 'laser' }, { type: 'directional', direction: [0, 0, 0], intensity: Infinity }]
+    manifest.doc.masks = Array.from({ length: 12 }, () => ({ shape: 'star', range: { kind: 'evil', softness: 3 }, adjust: { exposure: 99, mode: 'evil', color: 'red' } })) as never
     const doc = conformProject(readManifest(JSON.stringify(manifest)), { background: asset('bg', 1000, 800), character: null })
     expect(doc.fusion.relight).toMatchObject({ style: 'realistic', strength: 1, rim: initialDoc.fusion.relight.rim })
     expect(doc.focus.dof).toMatchObject({ blades: 0, aperture: 0 })
     expect(doc.lighting.lights).toHaveLength(1)
     expect(doc.lighting.lights[0].direction).toEqual([0, 0, 1])
+    expect(doc.masks).toHaveLength(8)
+    expect(doc.masks[0]).toMatchObject({ shape: 'ellipse', range: { kind: 'all', softness: 0.5 }, adjust: { exposure: 5, mode: 'soft-light', color: '#ff9d4d' } })
     // 没有立绘时，立绘上的接地点没有意义
     expect(doc.fusion.ground).toBeNull()
   })
