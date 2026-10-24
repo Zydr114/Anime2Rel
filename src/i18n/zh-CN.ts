@@ -11,6 +11,7 @@ import type { BlendKind, BlendMode, CurveChannel, GradeLevel, HslBand, ToneKey, 
 import type { ToneMapping } from '@/grade/post'
 import type { ImageFormat } from '@/io/encode'
 import type { LightType } from '@/lighting/model'
+import type { ShadowMethod } from '@/fusion/model'
 import type { BuiltinPresetId } from '@/grade/preset'
 import type { ThemeChoice } from '@/state/appearance'
 import type { GradeTab } from '@/state/grade'
@@ -234,16 +235,29 @@ export const zhCN = {
     groundReset: '恢复自动',
     groundHint: '接地点：在画布上把立绘脚下的三角标记拖到脚底，双击恢复自动。站在水中时放在人物与水面相交处，那里就是水线。',
     depthHint: '深度越大越靠近镜头。遮挡、灯的方向和衰减、立绘周围的颜色统计都按它计算。',
-    shadow: '站立阴影',
+    shadow: '人物与地面',
     contact: '接触阴影',
     contactSize: '接触阴影大小',
     contactSoftness: '接触阴影柔和度',
     cast: '投影',
     castSoftness: '投影柔和度',
     shadowSummary: (contact: string, cast: string) => `接触 ${contact} · 投影 ${cast}`,
-    shadowHint: '接触阴影画在接地点周围；投影沿主光源方向投到地面上，光源越低影子越长，阴天时很淡。阴影只落在与地面深度一致的地方。',
+    shadowHint: '接触阴影画在接地点周围；投影沿主光源方向投到地面上，光源越低影子越长，阴天时很淡。贴合表面会贴着台阶、斜坡弯折；自身投影是手臂挡在身前时落在自己身上的影子。',
+    shadowMethod: '投影方式',
+    shadowMethods: { plane: '平面', surface: '贴合表面' } as Record<ShadowMethod, string>,
+    selfShadow: '自身投影',
     shadowWater: '水体遮挡开启时接地点就是水线，不画站立阴影。',
     shadowCut: '立绘底部被图片边缘截断，按半身像处理，不画阴影；在画布上拖动接地点后会显示。',
+    shadowNoDepth: '深度还没有按地面校准，无法重建三维位置：贴合表面与离地遮蔽暂不可用。',
+    shadowNoLights: '没有启用的光源，投影和地面反光不起作用。',
+    grounding: '离地遮蔽与地面反光',
+    groundOcclusion: '遮蔽强度',
+    groundOcclusionRange: '遮蔽范围（相对人物高度）',
+    groundBounce: '反光强度',
+    groundBounceRange: '反光范围（相对人物高度）',
+    groundingSummary: (ao: string, bounce: string) => `遮蔽 ${ao} · 反光 ${bounce}`,
+    groundingHint: '离地遮蔽让人物越靠近地面越暗，脚与地面衔接得更自然；地面反光把接地点周围地面的颜色映到朝下的面上，颜色取自照片本身。',
+    groundingNoGround: '接地点周围没有取到地面（水中或悬空），地面反光不起作用。',
     colorMatch: '颜色匹配',
     whiteBalance: '白平衡',
     tone: '影调',

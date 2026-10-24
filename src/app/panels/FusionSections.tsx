@@ -1,7 +1,8 @@
 import { useCallback, useRef } from 'react'
 import type { SegmentedButtonGroup } from 'mdui/components/segmented-button-group.js'
+import { depthScaleFor } from '@/camera/depthScale'
 import { waterActive } from '@/focus/model'
-import { RELIGHT_STYLES, type FusionDoc, type FusionSection, type RelightStyle } from '@/fusion/model'
+import { RELIGHT_STYLES, SHADOW_METHODS, type FusionDoc, type FusionSection, type RelightStyle, type ShadowMethod } from '@/fusion/model'
 import { characterDepth } from '@/fusion/placement'
 import { cutOff } from '@/fusion/shadow'
 import { t } from '@/i18n'
@@ -54,6 +55,7 @@ export function FusionSections() {
     <>
       <RelightSection />
       <ShadowSection />
+      <GroundingSection />
       <ColorSection />
       <EdgeSection />
       <NormalSection />
@@ -104,22 +106,77 @@ export function DepthSection() {
   )
 }
 
+/** 深度是否按地面校准：贴合表面与离地遮蔽都要按米重建三维位置 */
+function useCalibratedDepth(): boolean {
+  const doc = useApp((s) => s.doc)
+  const depth = useDepth(() => getDepthResult(doc.background?.id))
+  return !!doc.background && !!depth && depthScaleFor(doc.camera, doc.background, depth).state === 'ground'
+}
+
 function ShadowSection() {
   const doc = useApp((s) => s.doc)
   const info = useCharacterInfo(doc)
-  const { contact, cast } = doc.fusion.shadow
+  const { contact, cast, method } = doc.fusion.shadow
+  const calibrated = useCalibratedDepth()
+  const hasLights = useApp((s) => s.doc.lighting.lights.some((l) => l.enabled))
   const f = t.fusion
-  const warning = waterActive(doc.focus) ? f.shadowWater : cutOff(doc, info) ? f.shadowCut : null
+  const groupRef = useRef<SegmentedButtonGroup>(null)
+  useDomEvent(groupRef, 'change', (e, el) => {
+    if (e.target !== el) return
+    const v = el.value as ShadowMethod
+    // 单选组再次点击会取消选中，恢复原值
+    if (v) useApp.getState().updateFusion('shadow', { method: v })
+    else el.value = useApp.getState().doc.fusion.shadow.method
+  })
+  const warning = waterActive(doc.focus) ? f.shadowWater : cutOff(doc, info) ? f.shadowCut : !calibrated ? f.shadowNoDepth : null
   return (
     <Group id="fusion.shadow" title={f.shadow} summary={f.shadowSummary(formatPercent(contact * 100), formatPercent(cast * 100))} help={f.shadowHint} testId="fusion-shadow">
       {warning && <Hint warn>{warning}</Hint>}
+      {!hasLights && <Hint warn>{f.shadowNoLights}</Hint>}
       <FusionSlider section="shadow" field="contact" label={f.contact} min={0} max={100} />
       <FusionSlider section="shadow" field="cast" label={f.cast} min={0} max={100} />
+      <span className="text-sm">{f.shadowMethod}</span>
+      <mdui-segmented-button-group ref={groupRef} selects="single" value={method} full-width data-testid="fusion-shadow-method">
+        {SHADOW_METHODS.map((v) => (
+          <mdui-segmented-button key={v} value={v} disabled={v === 'surface' && !calibrated}>
+            {f.shadowMethods[v]}
+          </mdui-segmented-button>
+        ))}
+      </mdui-segmented-button-group>
+      <FusionSlider section="shadow" field="self" label={f.selfShadow} min={0} max={100} />
       <More id="fusion.shadow.more">
         <FusionSlider section="shadow" field="contactSize" label={f.contactSize} min={30} max={300} />
         <FusionSlider section="shadow" field="contactSoftness" label={f.contactSoftness} min={0} max={100} />
         <FusionSlider section="shadow" field="castSoftness" label={f.castSoftness} min={0} max={100} />
       </More>
+    </Group>
+  )
+}
+
+function GroundingSection() {
+  const doc = useApp((s) => s.doc)
+  const info = useCharacterInfo(doc)
+  const grounding = doc.fusion.grounding
+  const calibrated = useCalibratedDepth()
+  const hasLights = useApp((s) => s.doc.lighting.lights.some((l) => l.enabled))
+  // 地面颜色由融合 Worker 取，取样不足时没有反光
+  const hasGround = useFusion((s) => !!s.stats?.groundColor)
+  const f = t.fusion
+  const warning = waterActive(doc.focus) ? f.shadowWater : cutOff(doc, info) ? f.shadowCut : !calibrated ? f.shadowNoDepth : grounding.bounce > 0 && !hasGround ? f.groundingNoGround : null
+  return (
+    <Group
+      id="fusion.grounding"
+      title={f.grounding}
+      summary={f.groundingSummary(formatPercent(grounding.ao * 100), formatPercent(grounding.bounce * 100))}
+      help={f.groundingHint}
+      testId="fusion-grounding"
+    >
+      {warning && <Hint warn>{warning}</Hint>}
+      {!hasLights && grounding.bounce > 0 && <Hint warn>{f.shadowNoLights}</Hint>}
+      <FusionSlider section="grounding" field="ao" label={f.groundOcclusion} min={0} max={100} />
+      <FusionSlider section="grounding" field="aoRange" label={f.groundOcclusionRange} min={5} max={100} />
+      <FusionSlider section="grounding" field="bounce" label={f.groundBounce} min={0} max={100} />
+      <FusionSlider section="grounding" field="bounceRange" label={f.groundBounceRange} min={5} max={100} />
     </Group>
   )
 }
