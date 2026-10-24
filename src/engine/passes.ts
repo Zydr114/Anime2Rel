@@ -243,7 +243,8 @@ export function createCompositePass(input: { placement: Placement; layers: Layer
 
   // 阴影随地面一起离焦：按背景的弥散圆选用 mip；有雾时按接地点处的透过率减淡
   const prep = sampleLevel(layers.prep, screenUV)
-  const shadowLod = log2(max(abs(prep.a), 1))
+  // 阴影用代理分辨率时，同样的物理模糊对应更少的阴影像素
+  const shadowLod = max(log2(max(abs(prep.a), 1)).sub(input.shadow.proxyLod), 0)
   const shadow = mix(vec3(1), sampleLevel(layers.shadow, screenUV, shadowLod).rgb, input.shadow.enabled.mul(input.atmosphere.contact))
   // 没有景深时直接用预处理后（已加雾）的背景
   const bg = mix(sampleLevel(layers.backgroundDof, screenUV).rgb, prep.rgb, dof.bypass).mul(shadow)

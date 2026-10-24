@@ -343,6 +343,17 @@ function sizeLayers(targets: Partial<LayerTargets>, width: number, height: numbe
   }
 }
 
+/** 阴影代理分辨率的长边上限：预览与导出（M8.8d 的贴合表面、自身投影用它控制开销） */
+const SHADOW_PREVIEW_EDGE = 1024
+const SHADOW_EXPORT_EDGE = 2048
+
+/** 阴影代理的缩小倍数：长边不超过 cap 的最小 2 的幂（分块导出时按整幅图像算，块之间才一致） */
+function shadowDivisor(width: number, height: number, cap: number): number {
+  let div = 1
+  while (Math.max(width, height) / div > cap) div *= 2
+  return div
+}
+
 /** 渲染方式：预览（叠加调试视图）、整幅导出、分块导出前的整幅代理渲染（到全局调整和 Bloom、光束为止）、分块导出的一块 */
 type RenderMode = 'preview' | 'full' | 'proxy' | 'tile'
 
@@ -378,6 +389,8 @@ export class Engine {
   private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: false, maskOverlay: -1 }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
+  /** 导出时阴影代理的缩小倍数（按整幅图像算好）；0 为按当前的渲染尺寸自动决定 */
+  private shadowDiv = 0
   /** 文档要求的自身投影强度；阴影关闭（前后对比、法线视图）时不用 */
   private fusionSelfShadow = 0
   /** 阴影用贴合表面的材质渲染（参数就绪时为 true，否则退回平面方式） */
@@ -1175,7 +1188,10 @@ export class Engine {
     }
     // 立绘深度只用到立绘的 alpha 与浮雕，与融合的结果无关；提前渲染，阴影 pass 才能用它做贴合表面与自身投影（M8.8d）
     pass(this.quads.characterDepth, targets.characterDepth)
-    if (effects.shadow) pass(this.surfaceShadow ? this.quads.shadowSurface : this.quads.shadow, targets.shadow)
+    if (effects.shadow) {
+      this.sizeShadow(targets, mode)
+      pass(this.surfaceShadow ? this.quads.shadowSurface : this.quads.shadow, targets.shadow)
+    }
     pass(this.quads.character, targets.character)
     tone('character')
     pass(this.quads.characterAdjust, targets.characterAdjusted)
@@ -1194,6 +1210,20 @@ export class Engine {
     if (mode !== 'preview') return pass(this.quads.finish, out)
     pass(this.quads.finish, targets.graded)
     pass(this.quads.display, out)
+  }
+
+  /**
+   * 阴影在不超过上限的 2 的幂分辨率上计算：贴合表面与自身投影要逐像素步进，输出越大越吃不消。
+   * 平面方式且没有自身投影时保持文档分辨率，输出与 M8.8c 一致。合成按代理的缩小倍数调整选 mip。
+   */
+  private sizeShadow(targets: LayerTargets, mode: RenderMode): void {
+    const full = targets.character
+    // 分块导出按整幅图像算，各块的代理网格才对齐（块宽都是 2880 的倍数，能被 2、4 整除）
+    const div = this.shadowDiv || (this.surfaceShadow || this.fusionSelfShadow > 0 ? shadowDivisor(full.width, full.height, mode === 'preview' ? SHADOW_PREVIEW_EDGE : SHADOW_EXPORT_EDGE) : 1)
+    const width = Math.max(1, Math.ceil(full.width / div))
+    const height = Math.max(1, Math.ceil(full.height / div))
+    if (targets.shadow.width !== width || targets.shadow.height !== height) targets.shadow.setSize(width, height)
+    this.shadow.proxyLod.value = Math.log2(div)
   }
 
   /**
@@ -1280,6 +1310,7 @@ export class Engine {
     }
     const downscaled = size.width !== this.docSize.width || size.height !== this.docSize.height
     if (this.warpDirty) this.applyWarp()
+    this.shadowDiv = shadowDivisor(size.width, size.height, SHADOW_EXPORT_EDGE)
     this.exporting = true
     this.syncDisplay(FINAL_DISPLAY)
     try {
@@ -1288,6 +1319,7 @@ export class Engine {
       return size
     } finally {
       this.exporting = false
+      this.shadowDiv = 0
       this.bindLayers(this.layers)
       const t = this.tile.uniforms
       t.bgOffset.value.set(0, 0)

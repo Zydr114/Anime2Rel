@@ -55,6 +55,8 @@ export function createShadowUniforms() {
     cullRect: uniform(new THREE.Vector4(0, 0, 1e6, 1e6)),
     /** 自身投影强度 [0,1]，0 为关闭 */
     selfStrength: uniform(0),
+    /** 阴影纹理比当前渲染目标小多少（log2）：合成按背景的弥散圆选 mip 时要减掉它 */
+    proxyLod: uniform(0),
   }
 }
 

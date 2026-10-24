@@ -4,7 +4,7 @@
  * 输入输出都是线性预乘 alpha。
  */
 import * as THREE from 'three/webgpu'
-import { atan, cos, dFdx, dFdy, dot, exp, float, hash, int, length, log2, max, min, mix, normalize, pow, saturate, select, sin, smoothstep, texture, textureSize, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { atan, cos, dFdx, dFdy, dot, exp, float, hash, int, length, log2, max, min, mix, normalize, pow, saturate, screenUV, select, sin, smoothstep, texture, textureSize, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { RIM_WIDTH } from '@/fusion/normals'
 import { FUSION_LIGHTS, type FusionParams } from '@/fusion/params'
 import { evalSh, fromOklab, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type TileMapping, type Vec3Node, type Vec4Node } from './nodes'
@@ -165,8 +165,9 @@ export function createFusionNode(input: FusionNodeInput) {
   // 重光照：像素在立绘平面上的相机空间位置，用于点光源的方向和衰减
   const P = vec3(p.x.sub(docSize.x.mul(0.5)).mul(u.planeK), docSize.y.mul(0.5).sub(p.y).mul(u.planeK), u.planeDepth.negate())
   const docUV = p.div(docSize)
-  // 立绘自身的投影：阴影纹理的 a 是主光源的可见度（环境光与轮廓光不受影响）
-  const selfVisibility = mix(float(1), sampleAt(input.shadow, docUV).a, u.selfShadow)
+  // 立绘自身的投影：阴影纹理的 a 是主光源的可见度（环境光与轮廓光不受影响）。
+  // 阴影与当前渲染目标同尺寸、同一套 UV（分块导出时也按渲染目标 UV 取样，不是文档 UV）
+  const selfVisibility = mix(float(1), sampleAt(input.shadow, screenUV).a, u.selfShadow)
   let irradiance: Vec3Node = max(evalSh(u.sh, N), vec3(0))
   let rimLight: Vec3Node = vec3(0)
   let specLight: Vec3Node = vec3(0)
