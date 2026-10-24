@@ -22,7 +22,7 @@ import {
   type OcclusionRegion,
   type OcclusionStyle,
 } from '@/focus/model'
-import { DEFAULT_FUSION, RELIGHT_STYLES, type FusionDoc } from '@/fusion/model'
+import { DEFAULT_FUSION, RELIGHT_STYLES, SHADOW_METHODS, type FusionDoc } from '@/fusion/model'
 import { DEPTH_BRUSH_MODES, EMPTY_DEPTH_EDIT, type DepthEditDoc, type DepthStroke } from '@/fusion/depthEdit'
 import { conformWarp, IDENTITY_WARP } from '@/fusion/warp'
 import { DEFAULT_RANGE, MASK_RANGES, MASK_SHAPES, MAX_MASKS, newMaskId, NEUTRAL_MASK_ADJUST, type LocalMask } from '@/grade/mask'
@@ -251,7 +251,8 @@ function conformFusion(v: unknown, hasCharacter: boolean): FusionDoc {
     relight: fields(o.relight, d.relight, { celThreshold: [-0.5, 0.5], celSoftness: [0, 0.3], rim: [0, 2] }, { style: RELIGHT_STYLES }),
     normals: fields(o.normals, d.normals, { inflateRadius: [0.01, 0.2] }),
     edge: fields(o.edge, d.edge, { wrapRadius: [0.001, 0.03], feather: [0, 3], noise: [0, 2], shrink: [0, 2] }),
-    shadow: fields(o.shadow, d.shadow, { contactSize: [0.3, 3] }),
+    shadow: fields(o.shadow, d.shadow, { contactSize: [0.3, 3] }, { method: SHADOW_METHODS }),
+    grounding: fields(o.grounding, d.grounding, { aoRange: [0.05, 1], bounceRange: [0.05, 1] }),
     depth: typeof o.depth === 'number' ? num(o.depth, 0.5, 0, 1) : null,
     ground: hasCharacter ? uv(o.ground) : null,
   }

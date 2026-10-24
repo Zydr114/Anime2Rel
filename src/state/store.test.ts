@@ -189,6 +189,8 @@ describe('fusion', () => {
   it('merges section updates and keeps the character depth and ground point on reset', () => {
     const s = useApp.getState()
     s.updateFusion('relight', { style: 'cel' })
+    s.updateFusion('shadow', { method: 'surface' })
+    s.updateFusion('grounding', { ao: 0.8 })
     useApp.getState().setCharDepth(0.4)
     useApp.getState().setCharGround({ u: 0.4, v: 0.9 })
     useApp.getState().resetFusion()
