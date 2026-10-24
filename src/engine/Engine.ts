@@ -378,6 +378,8 @@ export class Engine {
   private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: false, maskOverlay: -1 }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
+  /** 阴影用贴合表面的材质渲染（参数就绪时为 true，否则退回平面方式） */
+  private surfaceShadow = false
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
   private grade: GradeParams | null = null
   private masks: MaskParams | null = null
@@ -437,6 +439,7 @@ export class Engine {
     | 'characterDof'
     | 'occlusion'
     | 'shadow'
+    | 'shadowSurface'
     | 'composite'
     | 'globalAdjust'
     | 'localAdjust'
@@ -560,7 +563,9 @@ export class Engine {
       ),
       characterDof: quad(createCharacterDofPass(dof, nodes.characterAdjusted, nodes.characterDepth)),
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
-      shadow: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background)),
+      shadow: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background, nodes.characterDepth, 'plane')),
+      // 贴合表面与平面方式共用同一组统一量，按投影方式选用其中一个材质（平面方式不受步进的开销影响）
+      shadowSurface: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background, nodes.characterDepth, 'surface')),
       composite: quad(createCompositePass({ placement, layers: nodes, dof, shadow: this.shadow, atmosphere })),
       globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt('global'), nodes.composited)),
       // 有局部调整时，全局调整的结果先写入 graded（预览中它在终处理时才用到）
@@ -776,6 +781,7 @@ export class Engine {
   /** 站立阴影；null 为不画阴影 */
   setShadow(params: ShadowParams | null): void {
     this.shadowParams = params
+    this.surfaceShadow = !!params?.surface
     if (params) applyShadowParams(this.shadow, params)
     this.syncDisplay()
   }
@@ -1164,7 +1170,7 @@ export class Engine {
     }
     // 立绘深度只用到立绘的 alpha 与浮雕，与融合的结果无关；提前渲染，阴影 pass 才能用它做贴合表面与自身投影（M8.8d）
     pass(this.quads.characterDepth, targets.characterDepth)
-    if (effects.shadow) pass(this.quads.shadow, targets.shadow)
+    if (effects.shadow) pass(this.surfaceShadow ? this.quads.shadowSurface : this.quads.shadow, targets.shadow)
     pass(this.quads.character, targets.character)
     tone('character')
     pass(this.quads.characterAdjust, targets.characterAdjusted)
