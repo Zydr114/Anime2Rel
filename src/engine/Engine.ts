@@ -17,7 +17,7 @@ import {
   TILE,
 } from './dof'
 import { applyFinishParams, createFinishPass, createFinishUniforms, disposeFinish, setFinishLut } from './finish'
-import { applyFusionParams } from './fusion'
+import { applyFusionParams, applyGroundingParams } from './fusion'
 import { applyMaskParams, createMaskPass, createMaskUniforms } from './masks'
 import { createTileMapping } from './nodes'
 import {
@@ -70,6 +70,7 @@ import type { BrushMasks } from '@/grade/maskBrush'
 import type { GradeParams } from '@/grade/params'
 import type { PostParams } from '@/grade/post'
 import type { MatteMap, NormalMap } from '@/fusion/protocol'
+import type { GroundingParams } from '@/fusion/grounding'
 import type { ShadowParams } from '@/fusion/shadow'
 import { IDENTITY_WARP, isIdentityWarp, WARP_SEGMENTS, warpMesh, type Bounds, type CharWarp } from '@/fusion/warp'
 import type { RegionMask } from '@/focus/regions'
@@ -531,7 +532,7 @@ export class Engine {
     // 立绘的雾按立绘自身的深度（含深度起伏和修正）计算，倒影 pass 中随镜像的坐标一起变化
     const characterFogDepth = characterDepthNode(dof, this.depthNodes.character.depth, this.depthNodes.uniforms.hasCharDepth)
     const lt = (level: GradeLevel): LocalTone => ({ ...this.local, uv: this.tile.uv, tone: nodes.tone, coef: nodes[COEF[level]] })
-    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder, nodes.shadow)
+    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder, nodes.shadow, nodes.characterDepth)
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder, this.tile)
@@ -800,6 +801,13 @@ export class Engine {
     this.surfaceShadow = params?.method === 'surface'
     if (params) applyShadowParams(this.shadow, params)
     this.syncDisplay()
+  }
+
+  /** 离地遮蔽与地面反光；null 为关闭 */
+  setGrounding(params: GroundingParams | null): void {
+    applyGroundingParams(this.character.fusion, params)
+    this.docDirty = true
+    this.schedule()
   }
 
   /** 雾与尘埃；null 为没有背景深度 */

@@ -182,6 +182,7 @@ export function createCharacterPass(
   normalPlaceholder: THREE.Texture,
   rimPlaceholder: THREE.Texture,
   shadow: TextureNode,
+  characterDepth: TextureNode,
 ) {
   const u = placement.uniforms
   const fusion = createFusionNode({
@@ -192,6 +193,7 @@ export function createCharacterPass(
     normalPlaceholder,
     rimPlaceholder,
     shadow,
+    characterDepth,
     tile: placement.tile,
     docSize: u.docSize,
     charSize: u.charSize,

@@ -12,6 +12,7 @@ import { currentDepthEdit } from '@/state/depthEdit'
 import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis } from '@/state/lighting'
 import { useApp, type DocState } from '@/state/store'
+import { groundingParams, type GroundingParams } from './grounding'
 import { fusionParams, whiteAdaptation, type FusionParams } from './params'
 import { characterBox, characterDepth } from './placement'
 import type { FusionWorkerApi, MatteMap, NormalMap } from './protocol'
@@ -239,6 +240,13 @@ export function currentShadowParams(doc: DocState): ShadowParams | null {
   const info = characterInfo(doc)
   if (!bg || !info) return null
   return shadowParams({ doc, background: getDepthResult(bg.id), info, ambient: getAnalysis(bg.id)?.ambient })
+}
+
+/** 当前的离地遮蔽与地面反光参数；背景或立绘未就绪时返回 null */
+export function currentGroundingParams(doc: DocState): GroundingParams | null {
+  const bg = doc.background
+  if (!bg) return null
+  return groundingParams({ doc, background: getDepthResult(bg.id), info: characterInfo(doc) })
 }
 
 /** 当前立绘去除残留底色用的数据 */
