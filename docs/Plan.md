@@ -1637,6 +1637,8 @@ M8.8d 实现说明（与上文不同的地方）
 - **测试**：src/fusion/shadow.test.ts、src/fusion/grounding.test.ts、src/fusion/stats.test.ts、src/state/project.test.ts、src/state/store.test.ts；tests/e2e/m8-8.spec.ts 新增两个用例（离地遮蔽与地面反光只改变下半身、自身投影不误判 + 全部效果的分块导出），WebGPU 与 WebGL2 各跑一遍。
   - 合成场景里的简笔立绘几乎是平的，太阳又在镜头这一侧，自身投影在上面看不出变化；用例断言的是“不把整块立绘误判成阴影”，真实立绘上的效果留待验收时看。
 
+- **验收结论**（2026-10-24）：通过。
+
 ---
 
 ## 4. 用户流程
