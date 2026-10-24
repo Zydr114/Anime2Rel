@@ -7,7 +7,7 @@
  * （Engine.renderDocument），立绘着色时再按文档坐标取 a 通道。
  */
 import * as THREE from 'three/webgpu'
-import { If, Loop, abs, cos, dot, float, length, log2, max, min, mix, pow, screenUV, select, sin, smoothstep, step, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { Fn, If, Loop, abs, cos, dot, float, length, log2, max, min, mix, pow, screenUV, select, sin, smoothstep, step, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { DEPTH_SHIFT } from '@/focus/dof'
 import type { ShadowParams } from '@/fusion/shadow'
 import { SURFACE_STEPS } from '@/fusion/shadow'
@@ -108,12 +108,16 @@ export function createShadowPass(
   let visibility: FloatNode
   if (method === 'plane') {
     cast = planeCast(u, placement, character, ray, t).mul(u.castStrength).mul(onGround)
-    // 自身投影与投影方式无关。关闭时整段跳过；只对完全由背景像素组成的线程束有收益，但这是大多数
-    const self = float(1).toVar()
-    If(u.selfStrength.mul(isCharacter).greaterThan(0), () => {
-      self.assign(float(1).sub(march(u, placement, character, characterDepth, ray.mul(charFront)).mul(u.selfStrength)))
+    // 自身投影与投影方式无关。关闭时整段跳过；只对完全由背景像素组成的线程束有收益，但这是大多数。
+    // If 只能在 Fn 的栈里用（three 的 TSLCore），所以包一层
+    const selfRange = Fn(() => {
+      const self = float(1).toVar()
+      If(u.selfStrength.mul(isCharacter).greaterThan(0), () => {
+        self.assign(float(1).sub(march(u, placement, character, characterDepth, ray.mul(charFront)).mul(u.selfStrength)))
+      })
+      return self
     })
-    visibility = self
+    visibility = selfRange()
   } else {
     // 受影点是立绘自身时从正面出发（自身投影），否则从背景表面出发
     const occ = march(u, placement, character, characterDepth, ray.mul(mix(zBackground, charFront, isCharacter)))
@@ -178,17 +182,16 @@ function march(
     const distance = cur.z.negate()
     const safe = max(distance, 1e-3)
     const q = vec2(half.x.add(cur.x.div(safe).mul(u.focal)), half.y.sub(cur.y.div(safe).mul(u.focal))).toVar()
-    const uv = q.div(pu.docSize)
+    // 立绘深度与当前渲染目标同尺寸：分块导出时要把文档坐标换算到这一块的 UV
+    const uv = placement.tile.toTarget(q.div(pu.docSize))
     const inside = step(0, uv.x).mul(step(uv.x, 1)).mul(step(0, uv.y)).mul(step(uv.y, 1)).mul(step(1e-3, distance))
 
+    // 立绘在该像素处占据的深度区间 [正面, 正面 + 厚度]（相机空间的距离）
     const front = float(1).div(max(sampleLevel(characterDepth, uv).r.mul(u.depthScale.x).add(u.depthScale.y), 1e-6))
-    // 遮挡判定在“到光源的距离”上做：立绘占据 [dMarch − 厚度, dMarch]，受影点自身落在区间的端点外侧
-    const Xc = vec3(q.x.sub(half.x).div(u.focal).mul(front), half.y.sub(q.y).div(u.focal).mul(front), front.negate())
-    const dOcc = select(u.surfaceType.equal(0), dot(Xc, u.surfaceLight), length(Xc.sub(u.surfaceLight)))
-    const dMarch = select(u.surfaceType.equal(0), dot(cur, u.surfaceLight), length(cur.sub(u.surfaceLight)))
     const bias = float(SURFACE_BIAS).add(len.mul(SURFACE_BIAS_STEP))
-    const near = smoothstep(dMarch.sub(u.surfaceThickness).sub(bias), dMarch.sub(u.surfaceThickness), dOcc)
-    const back = float(1).sub(smoothstep(dMarch.sub(bias), dMarch.add(bias), dOcc))
+    // 容差放在进入体积的一侧：受影点自己在表面上，避免表面自身的深度误差造成自遮挡
+    const near = smoothstep(front.add(bias), front.add(bias.mul(2)), distance)
+    const back = float(1).sub(smoothstep(front.add(u.surfaceThickness), front.add(u.surfaceThickness).add(bias), distance))
     // 半影：离受影点越远越模糊，按行进距离与立绘尺寸换算 mip
     const blur = travelled.mul(u.focal.div(safe)).mul(mix(0.02, 0.27, u.castSoftness))
     const lod = log2(max(blur.div(pu.charScale), 1))
