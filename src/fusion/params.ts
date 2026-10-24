@@ -100,6 +100,10 @@ export interface FusionParams {
   rim: number
   specular: number
   mid: number
+  /** 主光源在 lights 中的下标（-1 为没有），自身投影只乘在它的直射光上 */
+  mainLight: number
+  /** 自身投影：1 时按阴影纹理的 alpha 减弱主光源的直射光 */
+  selfShadow: number
 
   // 边缘与质感（文档像素）
   lightWrap: number
@@ -135,6 +139,8 @@ export interface FusionInputs {
   depth: number
   /** 逆深度到距离的换算（深度校准） */
   depthScale: DepthScale
+  /** 主光源在启用光源中的下标（与站立阴影用的是同一个），未给出时为 -1 */
+  mainLight?: number
 }
 
 export function fusionParams(input: FusionInputs): FusionParams {
@@ -210,6 +216,8 @@ export function fusionParams(input: FusionInputs): FusionParams {
     rim: lit ? rl.rim / refLuma : 0,
     specular: lit ? rl.specular / refLuma : 0,
     mid: tone.ys[1] ** 3,
+    mainLight: input.mainLight !== undefined && input.mainLight < lights.length ? input.mainLight : -1,
+    selfShadow: fusion.shadow.self > 0 ? 1 : 0,
 
     lightWrap: edge.lightWrap,
     wrapRadius: edge.wrapRadius * Math.min(size.width, size.height),

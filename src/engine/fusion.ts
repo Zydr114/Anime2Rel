@@ -56,6 +56,8 @@ export interface FusionNodeInput {
   normalPlaceholder: THREE.Texture
   /** 轮廓光的边缘带（src/fusion/normals.ts 的 rimMap），带 mipmap */
   rimPlaceholder: THREE.Texture
+  /** 阴影纹理（文档像素，a 为立绘的直射光可见度，M8.8d） */
+  shadow: TextureNode
   tile: TileMapping
   docSize: THREE.UniformNode<'vec2', THREE.Vector2>
   charSize: THREE.UniformNode<'vec2', THREE.Vector2>
@@ -80,12 +82,21 @@ export function createFusionNode(input: FusionNodeInput) {
     skinProtect: uniform(0),
 
     relight: uniform(0),
+    /** 自身投影：1 时按阴影纹理的 a 减弱主光源的直射光 */
+    selfShadow: uniform(0),
     style: uniform(0),
     celThreshold: uniform(0),
     celSoftness: uniform(0.05),
     inverseReference: uniform(new THREE.Vector3(1, 1, 1)),
     sh: Array.from({ length: 9 }, v3),
-    lights: Array.from({ length: FUSION_LIGHTS }, () => ({ type: uniform(0), vector: uniform(new THREE.Vector3(0, 0, 1)), color: v3(), softness: uniform(0) })),
+    lights: Array.from({ length: FUSION_LIGHTS }, () => ({
+      type: uniform(0),
+      vector: uniform(new THREE.Vector3(0, 0, 1)),
+      color: v3(),
+      softness: uniform(0),
+      /** 1 表示它是投影用的主光源，只有它乘自身投影 */
+      main: uniform(0),
+    })),
     planeK: uniform(0),
     planeDepth: uniform(1),
     referenceDistance: uniform(1),
@@ -153,6 +164,9 @@ export function createFusionNode(input: FusionNodeInput) {
 
   // 重光照：像素在立绘平面上的相机空间位置，用于点光源的方向和衰减
   const P = vec3(p.x.sub(docSize.x.mul(0.5)).mul(u.planeK), docSize.y.mul(0.5).sub(p.y).mul(u.planeK), u.planeDepth.negate())
+  const docUV = p.div(docSize)
+  // 立绘自身的投影：阴影纹理的 a 是主光源的可见度（环境光与轮廓光不受影响）
+  const selfVisibility = mix(float(1), sampleAt(input.shadow, docUV).a, u.selfShadow)
   let irradiance: Vec3Node = max(evalSh(u.sh, N), vec3(0))
   let rimLight: Vec3Node = vec3(0)
   let specLight: Vec3Node = vec3(0)
@@ -167,13 +181,14 @@ export function createFusionNode(input: FusionNodeInput) {
     const wrap = max(x.add(l.softness).div(l.softness.add(1)), 0)
     const soft = x.add(1).mul(0.5).pow(2)
     const cel = smoothstep(u.celThreshold.sub(u.celSoftness), u.celThreshold.add(u.celSoftness), x)
-    irradiance = irradiance.add(color.mul(select(u.style.equal(1), soft, select(u.style.equal(2), cel, wrap))))
+    const direct = mix(float(1), selfVisibility, l.main)
+    irradiance = irradiance.add(color.mul(select(u.style.equal(1), soft, select(u.style.equal(2), cel, wrap))).mul(direct))
     // 轮廓光：朝向光源一侧的边缘；光源在人物后方时整圈都有
     const lxy = dir.xy.div(max(length(dir.xy), 1e-4))
     const side = mix(saturate(dot(nxy, lxy)), 1, saturate(dir.z.negate()))
     rimLight = rimLight.add(color.mul(side).mul(saturate(dir.z.mul(-0.7).add(0.3))))
     const h = normalize(dir.add(vec3(0, 0, 1)))
-    specLight = specLight.add(color.mul(pow(max(dot(N, h), 0), 40)))
+    specLight = specLight.add(color.mul(pow(max(dot(N, h), 0), 40)).mul(direct))
   }
   // 边缘带 = alpha × (1 − 模糊 alpha)，轮廓光与 Light Wrap 共用
   const radius = u.wrapRadius
@@ -185,7 +200,6 @@ export function createFusionNode(input: FusionNodeInput) {
     .map((d) => sampleAt(character, charUV.add(d.mul(texel).mul(half)), charLod).a)
     .reduce<FloatNode>((acc, a) => acc.add(a), sampleAt(character, charUV, charLod).a)
     .div(5)
-  const docUV = p.div(docSize)
   const blurredBg = diagonal
     .map((d) => sampleAt(background, tile.toBackground(docUV.add(d.mul(half).div(docSize))), bgLod).rgb)
     .reduce<Vec3Node>((acc, v) => acc.add(v), sampleAt(background, tile.toBackground(docUV), bgLod).rgb)
@@ -251,6 +265,7 @@ export function applyFusionParams(u: FusionUniforms, params: FusionParams): void
   u.skinProtect.value = params.skinProtect
 
   u.relight.value = params.relight
+  u.selfShadow.value = params.selfShadow
   u.style.value = params.style
   u.celThreshold.value = params.cel.threshold
   u.celSoftness.value = Math.max(params.cel.softness, 1e-3)
@@ -262,6 +277,7 @@ export function applyFusionParams(u: FusionUniforms, params: FusionParams): void
     node.vector.value.set(...(l?.vector ?? [0, 0, 1]))
     node.color.value.set(...(l?.color ?? [0, 0, 0]))
     node.softness.value = l?.softness ?? 0
+    node.main.value = i === params.mainLight ? 1 : 0
   })
   u.planeK.value = params.plane.k
   u.planeDepth.value = params.plane.depth

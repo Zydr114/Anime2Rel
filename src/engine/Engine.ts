@@ -378,6 +378,8 @@ export class Engine {
   private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: false, maskOverlay: -1 }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
+  /** 文档要求的自身投影强度；阴影关闭（前后对比、法线视图）时不用 */
+  private fusionSelfShadow = 0
   /** 阴影用贴合表面的材质渲染（参数就绪时为 true，否则退回平面方式） */
   private surfaceShadow = false
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
@@ -516,7 +518,7 @@ export class Engine {
     // 立绘的雾按立绘自身的深度（含深度起伏和修正）计算，倒影 pass 中随镜像的坐标一起变化
     const characterFogDepth = characterDepthNode(dof, this.depthNodes.character.depth, this.depthNodes.uniforms.hasCharDepth)
     const lt = (level: GradeLevel): LocalTone => ({ ...this.local, uv: this.tile.uv, tone: nodes.tone, coef: nodes[COEF[level]] })
-    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder)
+    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder, nodes.shadow)
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder, this.tile)
@@ -756,6 +758,7 @@ export class Engine {
   /** 设置融合参数；null 表示数据未就绪，立绘按原样显示。 */
   setFusion(params: FusionParams | null): void {
     this.fusionReady = !!params
+    this.fusionSelfShadow = params?.selfShadow ?? 0
     if (params) applyFusionParams(this.character.fusion, params)
     this.decontaminate = params?.decontaminate ?? false
     this.syncDisplay()
@@ -781,7 +784,7 @@ export class Engine {
   /** 站立阴影；null 为不画阴影 */
   setShadow(params: ShadowParams | null): void {
     this.shadowParams = params
-    this.surfaceShadow = !!params?.surface
+    this.surfaceShadow = params?.method === 'surface'
     if (params) applyShadowParams(this.shadow, params)
     this.syncDisplay()
   }
@@ -882,7 +885,10 @@ export class Engine {
 
   private syncDisplay(display = this.display): void {
     const fusion = this.character.fusion
+    const effects = this.effects(display)
     fusion.enabled.value = this.fusionReady && display.compare !== 'raw' ? 1 : 0
+    // 自身投影的可见度写在阴影纹理里：前后对比、法线视图不画阴影，也就不采信
+    fusion.selfShadow.value = effects.shadow ? this.fusionSelfShadow : 0
     // 对比直接贴上去的效果时，立绘保留原来的边缘
     const matte = !!this.matte && this.decontaminate && fusion.enabled.value === 1
     if (matte !== this.matteApplied) {
@@ -890,7 +896,6 @@ export class Engine {
       this.prepCharacter()
     }
     fusion.showNormals.value = display.showNormals ? 1 : 0
-    const effects = this.effects(display)
     this.dof.bypass.value = effects.dof ? 0 : 1
     this.dof.occlusion.value = effects.occlusion ? 1 : 0
     this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
@@ -1204,6 +1209,9 @@ export class Engine {
     const character = this.layerNodes.character
     const [a, b, c, d, e, f, g, h, i] = this.focus!.occlusion.water.mirror
     mirror.set(a, b, c, d, e, f, g, h, i)
+    // 倒影里不计算自身投影：阴影纹理按文档坐标取样，镜像后对不上
+    const self = this.character.fusion.selfShadow.value
+    this.character.fusion.selfShadow.value = 0
     try {
       r.setRenderTarget(targets.mirror)
       this.quads.character.render(r)
@@ -1216,6 +1224,7 @@ export class Engine {
       this.quads.characterAdjust.render(r)
     } finally {
       character.value = targets.character.texture
+      this.character.fusion.selfShadow.value = self
       mirror.identity()
     }
   }

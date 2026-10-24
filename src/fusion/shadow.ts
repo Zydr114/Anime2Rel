@@ -87,8 +87,14 @@ export interface ShadowParams {
     softness: number
     tint: Vec3
   }
-  /** 贴合表面方式下的步进参数；平面方式或无法重建三维位置时为 null */
+  /** 实际使用的投影方式：贴合表面在参数没有就绪时退回平面 */
+  method: 'plane' | 'surface'
+  /** 步进参数；投影方式为平面且没有开启自身投影、或无法重建三维位置时为 null */
   surface: SurfaceCast | null
+  /** 主光源在启用列表中的下标，-1 为没有方向明确的光源 */
+  main: number
+  /** 立绘自身投影的强度 [0,1]；0 为关闭 */
+  self: number
 }
 
 export interface ShadowInputs {
@@ -132,7 +138,7 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
   const bg = doc.background
   const ch = doc.character
   const s = doc.fusion.shadow
-  if (!bg || !ch || (s.contact <= 0 && s.cast <= 0) || waterActive(doc.focus)) return null
+  if (!bg || !ch || (s.contact <= 0 && s.cast <= 0 && s.self <= 0) || waterActive(doc.focus)) return null
   const bbox = info?.bbox ?? FULL_BOX
   if (cutOff(doc, info)) return null
 
@@ -195,7 +201,10 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
     normal,
     contact: { strength: s.contact, center, dir: horizonLine(doc.camera, bg).dir, axes: [a, Math.max(1.5, a * aspect)], softness: s.contactSoftness, tint: contactTint },
     cast,
+    method: s.method === 'surface' && surface ? 'surface' : 'plane',
     surface,
+    main,
+    self: s.self,
   }
 }
 
@@ -221,14 +230,17 @@ interface SurfaceInput {
 /** 贴合表面的步进参数：光源、立绘厚度、几何步长与裁剪矩形。平面方式、深度未按地面校准，或光源太低时为 null。 */
 function surfaceCast({ doc, size, bbox, lights, directions, main, scale, at, normal, fov, focal, zChar }: SurfaceInput): SurfaceCast | null {
   const s = doc.fusion.shadow
-  if (main < 0 || s.cast <= 0 || s.method !== 'surface' || scale.state !== 'ground') return null
+  // 自身投影也要步进；两者都没有时才不需要
+  const marching = (s.method === 'surface' && s.cast > 0) || s.self > 0
+  if (main < 0 || !marching || scale.state !== 'ground') return null
   const light = lights[main]
   const height = characterMeters(doc, bbox) ?? doc.camera.height * 0.6
   // 立绘厚度与浮雕的取值范围是同一个量（src/focus/dof.ts 的 reliefScale）
   const thickness = Math.max(0.005, doc.focus.thickness) * height
   const sin = clamp(dot(normal, directions[main]), 0.06, 0.999)
   const tanElevation = sin / Math.sqrt(1 - sin * sin)
-  const reachMax = Math.min(SURFACE_REACH * height, height / tanElevation)
+  // 自身投影要走遍人物自身，仰角很高时也留出 1.5 倍人物高度的距离
+  const reachMax = Math.min(SURFACE_REACH * height, Math.max(height / tanElevation, 1.5 * height))
   const vector: Vec3 = light.type === 'directional' ? directions[main] : unproject(light.position, light.position.depth, size, fov, scale)
   const toLight: Vec3 = vector.map((v, i) => v - at[i]) as Vec3
   const away: Vec3 = light.type === 'directional' ? (directions[main].map((v) => -v) as Vec3) : normalize(toLight.map((v) => -v) as Vec3)

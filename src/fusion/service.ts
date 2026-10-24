@@ -212,7 +212,7 @@ export function startAutoFusion(): () => void {
 }
 
 /** 按当前文档和融合数据换算着色器参数；背景或立绘尚未送入 Worker 时返回 null。 */
-export function currentFusionParams(doc: DocState): FusionParams | null {
+export function currentFusionParams(doc: DocState, mainLight = -1): FusionParams | null {
   const bg = doc.background
   const fusion = useFusion.getState()
   if (!bg || !doc.character || fusion.background?.id !== bg.id || fusion.character?.id !== doc.character.id) return null
@@ -229,6 +229,7 @@ export function currentFusionParams(doc: DocState): FusionParams | null {
     center: { x: box.reduce((s, p) => s + p.x, 0) / 4, y: box.reduce((s, p) => s + p.y, 0) / 4 },
     depth: characterDepth(doc, getDepthResult(bg.id), bbox),
     depthScale: depthScaleFor(doc.camera, bg, getDepthResult(bg.id)),
+    mainLight,
   })
 }
 

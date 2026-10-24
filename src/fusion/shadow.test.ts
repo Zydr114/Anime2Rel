@@ -53,6 +53,7 @@ describe('surface shadow', () => {
   it('keeps the plane method unless 贴合表面 is selected', () => {
     const p = call(doc('plane'))!
     expect(p.cast.strength).toBeGreaterThan(0)
+    expect(p.method).toBe('plane')
     expect(p.surface).toBeNull()
     expect(call(doc('surface'))!.surface).not.toBeNull()
   })
@@ -117,6 +118,19 @@ describe('surface shadow', () => {
     expect(p.surface).toBeNull()
     // 平面方式照旧
     expect(p.cast.strength).toBeGreaterThan(0)
+  })
+
+  it('steps for the self shadow even when the cast shadow stays on the plane', () => {
+    const d = doc('plane')
+    d.fusion = { ...d.fusion, shadow: { ...d.fusion.shadow, self: 0.5 } }
+    const p = call(d)!
+    expect(p.method).toBe('plane')
+    expect(p.self).toBe(0.5)
+    expect(p.surface).not.toBeNull()
+    // 仰角很高时也要走遍人物自身
+    const height = characterMeters(d, info.bbox)!
+    expect(p.surface!.reach).toBeGreaterThanOrEqual(1.5 * height - 1e-9)
+    expect(p.surface!.thickness).toBeCloseTo(initialDoc.focus.thickness * height, 6)
   })
 
   it('has no step parameters without a light or with the cast turned off', () => {
