@@ -131,3 +131,72 @@ export function noiseSigma(rgb: Float32Array, w: number, h: number): Vec3 {
   }
   return result as Vec3
 }
+
+/** 地面取色至少需要的像素数：太少说明接地点不在地面上（水中、空中、被挡住） */
+const GROUND_MIN_PIXELS = 40
+
+export interface GroundSampleInput {
+  /** 统计分辨率下的线性 RGB */
+  linear: Float32Array
+  /** 同一网格上的归一化逆深度与天空遮罩 */
+  depth: Float32Array | null
+  sky: Float32Array | null
+  width: number
+  height: number
+  /** 背景位图的尺寸（像素），接地点、半径与焦距都按它给出 */
+  size: { width: number; height: number }
+  point: { x: number; y: number }
+  plane: Vec3
+  up: Vec3
+  radius: number
+  tolerance: number
+  depthScale: { a: number; b: number; far: number }
+  focal: number
+}
+
+/**
+ * 接地点周围地面的平均颜色（线性）：只取三维位置离地面平面不超过 tolerance、不是天空、
+ * 深度有效的像素。取样区域是接地点周围 radius 的椭圆（与统计网格的宽高比一致）。
+ * 像素太少时返回 null，交给调用方当作没有地面。
+ */
+export function sampleGroundColor(input: GroundSampleInput): Vec3 | null {
+  const { width, height, size, linear, depth, sky } = input
+  if (!depth) return null
+  const kx = width / size.width
+  const ky = height / size.height
+  const cx = input.point.x * kx
+  const cy = input.point.y * ky
+  const rx = Math.max(0.5, input.radius * kx)
+  const ry = Math.max(0.5, input.radius * ky)
+  const halfW = size.width / 2
+  const halfH = size.height / 2
+  const { a, b, far } = input.depthScale
+  const color = [0, 0, 0]
+  let count = 0
+  const y0 = Math.max(0, Math.floor(cy - ry))
+  const y1 = Math.min(height - 1, Math.ceil(cy + ry))
+  const x0 = Math.max(0, Math.floor(cx - rx))
+  const x1 = Math.min(width - 1, Math.ceil(cx + rx))
+  for (let y = y0; y <= y1; y++) {
+    const dy = (y + 0.5 - cy) / ry
+    for (let x = x0; x <= x1; x++) {
+      const dx = (x + 0.5 - cx) / rx
+      if (dx * dx + dy * dy > 1) continue
+      const i = y * width + x
+      if (sky && sky[i] > 0.5) continue
+      const inv = a * depth[i] + b
+      const z = 1 / inv
+      if (!(inv > 0) || z > far) continue
+      // 统计网格的像素中心换算回背景位图的像素，再按针孔相机重建三维位置
+      const px = (x + 0.5) / kx
+      const py = (y + 0.5) / ky
+      const X = ((px - halfW) / input.focal) * z
+      const Y = ((halfH - py) / input.focal) * z
+      const h = (X - input.plane[0]) * input.up[0] + (Y - input.plane[1]) * input.up[1] + (-z - input.plane[2]) * input.up[2]
+      if (Math.abs(h) > input.tolerance) continue
+      for (let c = 0; c < 3; c++) color[c] += linear[i * 3 + c]
+      count++
+    }
+  }
+  return count >= GROUND_MIN_PIXELS ? ((color.map((v) => v / count)) as Vec3) : null
+}

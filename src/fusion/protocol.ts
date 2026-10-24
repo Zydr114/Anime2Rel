@@ -94,6 +94,29 @@ export interface StatsRequest {
   region: { cx: number; cy: number; rx: number; ry: number }
   /** 立绘所在的归一化逆深度 */
   depth: number
+  /** 地面取色（M8.8d 的地面反光）；不需要时为 null */
+  ground: GroundRequest | null
+}
+
+/**
+ * 地面取色：接地点周围、三维位置离地面平面足够近的背景像素的平均颜色（线性）。
+ * 深度、焦距与尺寸都是背景位图的像素，Worker 按自己的统计分辨率取样。
+ */
+export interface GroundRequest {
+  /** 接地点（背景像素） */
+  point: { x: number; y: number }
+  /** 地面平面上的一点（相机空间，米）与该平面的法线 */
+  plane: Vec3
+  up: Vec3
+  /** 取样半径（背景像素）与到地面的容差（米） */
+  radius: number
+  tolerance: number
+  /** 逆深度到距离的换算 1/z = a·d + b 与最远距离 */
+  depthScale: { a: number; b: number; far: number }
+  /** 焦距（背景像素） */
+  focal: number
+  /** 背景位图的尺寸（像素） */
+  size: Size
 }
 
 export interface FusionStats {
@@ -103,6 +126,8 @@ export interface FusionStats {
   local: LabStats | null
   /** 同一权重下背景的平均颜色（线性） */
   localColor: Vec3
+  /** 接地点周围地面的平均颜色（线性）；没有足够的像素时（水中、空中）为 null */
+  groundColor: Vec3 | null
 }
 
 export interface FusionWorkerApi {

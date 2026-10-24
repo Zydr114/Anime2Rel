@@ -12,7 +12,7 @@ import { currentDepthEdit } from '@/state/depthEdit'
 import { characterInfo, useFusion } from '@/state/fusion'
 import { getAnalysis } from '@/state/lighting'
 import { useApp, type DocState } from '@/state/store'
-import { groundingParams, type GroundingParams } from './grounding'
+import { groundingParams, groundRequest, type GroundingParams } from './grounding'
 import { fusionParams, whiteAdaptation, type FusionParams } from './params'
 import { characterBox, characterDepth } from './placement'
 import type { FusionWorkerApi, MatteMap, NormalMap } from './protocol'
@@ -168,6 +168,7 @@ async function runStats(): Promise<void> {
     cat: whiteAdaptation(doc.fusion.colorMatch, background.info.whitePoint),
     region: { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, rx: (x1 - x0) / 2, ry: (y1 - y0) / 2 },
     depth: characterDepth(doc, getDepthResult(bg.id), bbox),
+    ground: groundRequest(doc, getDepthResult(bg.id), characterInfo(doc)),
   })
   const now = useFusion.getState()
   if (now.background?.id === bg.id && now.character?.id === character.id) now.setStats(stats)
@@ -199,6 +200,8 @@ export function startAutoFusion(): () => void {
       doc.charTransform !== old.charTransform ||
       doc.charWarp !== old.charWarp ||
       doc.fusion.depth !== old.fusion.depth ||
+      doc.fusion.ground !== old.fusion.ground ||
+      doc.fusion.grounding !== old.fusion.grounding ||
       doc.fusion.colorMatch.whiteBalance !== old.fusion.colorMatch.whiteBalance ||
       doc.background?.id !== old.background?.id ||
       doc.character?.id !== old.character?.id
@@ -246,7 +249,7 @@ export function currentShadowParams(doc: DocState): ShadowParams | null {
 export function currentGroundingParams(doc: DocState): GroundingParams | null {
   const bg = doc.background
   if (!bg) return null
-  return groundingParams({ doc, background: getDepthResult(bg.id), info: characterInfo(doc) })
+  return groundingParams({ doc, background: getDepthResult(bg.id), info: characterInfo(doc), bounceColor: useFusion.getState().stats?.groundColor })
 }
 
 /** 当前立绘去除残留底色用的数据 */

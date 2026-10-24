@@ -3,8 +3,9 @@
  * 遮蔽乘在环境光上（越靠近地面越暗，朝下的法线遮蔽更多）；地面反光作为一个来自下方的面光源加进环境项，
  * 颜色取自接地点周围的地面。GPU 实现见 src/engine/fusion.ts。
  */
-import { unproject, type DepthScale } from '@/algo/camera'
-import { clamp, type Point } from '@/algo/geometry'
+import { sceneDepth, unproject, type DepthScale } from '@/algo/camera'
+import { clamp, type Point, type Size } from '@/algo/geometry'
+import { focalLength } from '@/algo/normals'
 import type { Vec3 } from '@/algo/sh'
 import { characterMeters } from '@/camera/character'
 import { depthScaleFor } from '@/camera/depthScale'
@@ -13,7 +14,7 @@ import type { DepthResult } from '@/depth/protocol'
 import { waterActive } from '@/focus/model'
 import type { DocState } from '@/state/store'
 import { characterDepth, characterGround } from './placement'
-import type { CharacterInfo } from './protocol'
+import type { CharacterInfo, GroundRequest } from './protocol'
 import { cutOff } from './shadow'
 
 const FULL_BOX: CharacterInfo['bbox'] = { x0: 0, y0: 0, x1: 1, y1: 1 }
@@ -63,33 +64,77 @@ export interface GroundingInputs {
   bounceColor?: Vec3 | null
 }
 
-/** 没有立绘、两项强度都是 0、水体遮挡开启、立绘底部被裁切（且接地点为自动）、深度未按地面校准时返回 null。 */
-export function groundingParams({ doc, background, info, bounceColor }: GroundingInputs): GroundingParams | null {
-  const s = doc.fusion.grounding
+interface GroundGeometry {
+  /** 接地点（文档像素）与它的三维位置（相机空间，米） */
+  point: Point
+  at: Vec3
+  /** 立绘平面的距离（米） */
+  distance: number
+  /** 人物高度（米） */
+  height: number
+  up: Vec3
+  scale: DepthScale
+  /** 背景位图的尺寸与焦距（像素） */
+  size: Size
+  focal: number
+}
+
+/** 水体遮挡、半身像、深度未按地面校准时为 null（h 要按米算，必须有按地面校准的深度）。 */
+function groundGeometry(doc: DocState, background: DepthResult | undefined, info: CharacterInfo | undefined): GroundGeometry | null {
   const bg = doc.background
   if (!bg || !doc.character || waterActive(doc.focus) || cutOff(doc, info)) return null
-  if (s.ao <= 0 && s.bounce <= 0) return null
   const scale = depthScaleFor(doc.camera, bg, background)
-  // h 要按米算，深度必须是按地面校准的
   if (scale.state !== 'ground') return null
   const bbox = info?.bbox ?? FULL_BOX
-  const ground = characterGround(doc, bg, bbox)
-  const at = unproject(ground, characterDepth(doc, background, bbox), bg, doc.camera.fovDeg, scale)
-  const height = characterMeters(doc, bbox) ?? doc.camera.height * 0.6
+  const depth = characterDepth(doc, background, bbox)
+  const point = characterGround(doc, bg, bbox)
   return {
+    point,
+    at: unproject(point, depth, bg, doc.camera.fovDeg, scale),
+    distance: sceneDepth(depth, scale),
+    height: characterMeters(doc, bbox) ?? doc.camera.height * 0.6,
     up: cameraUp(doc.camera),
-    ground: at,
-    ao: s.ao,
-    aoRange: Math.max(0.01, s.aoRange * height),
-    bounce: s.bounce,
-    bounceRange: Math.max(0.01, s.bounceRange * height),
-    bounceColor: bounceColor ?? [0, 0, 0],
-    depthScale: scale,
+    scale,
+    size: bg,
+    focal: focalLength(bg.width, bg.height, doc.camera.fovDeg),
   }
 }
 
-/** 接地点（文档像素），供地面取色用 */
-export function groundingPoint(doc: DocState, info: CharacterInfo | undefined): Point {
-  const bg = doc.background
-  return bg ? characterGround(doc, bg, info?.bbox ?? FULL_BOX) : { x: 0, y: 0 }
+/** 没有立绘、两项强度都是 0、水体遮挡开启、立绘底部被裁切（且接地点为自动）、深度未按地面校准时返回 null。 */
+export function groundingParams({ doc, background, info, bounceColor }: GroundingInputs): GroundingParams | null {
+  const s = doc.fusion.grounding
+  if (s.ao <= 0 && s.bounce <= 0) return null
+  const g = groundGeometry(doc, background, info)
+  if (!g) return null
+  return {
+    up: g.up,
+    ground: g.at,
+    ao: s.ao,
+    aoRange: Math.max(0.01, s.aoRange * g.height),
+    bounce: s.bounce,
+    bounceRange: Math.max(0.01, s.bounceRange * g.height),
+    bounceColor: bounceColor ?? [0, 0, 0],
+    depthScale: g.scale,
+  }
+}
+
+/** 地面取色的范围：取样半径相对人物高度，以及到地面平面的容差 */
+const SAMPLE_RADIUS = 0.6
+const SAMPLE_TOLERANCE = 0.05
+
+/** 地面反光要用的取色请求；不需要地面反光或接地点不可用时为 null。 */
+export function groundRequest(doc: DocState, background: DepthResult | undefined, info: CharacterInfo | undefined): GroundRequest | null {
+  if (doc.fusion.grounding.bounce <= 0) return null
+  const g = groundGeometry(doc, background, info)
+  if (!g) return null
+  return {
+    point: g.point,
+    plane: g.at,
+    up: g.up,
+    radius: Math.max(1, (SAMPLE_RADIUS * g.height * g.focal) / Math.max(g.distance, 1e-3)),
+    tolerance: SAMPLE_TOLERANCE * g.height,
+    depthScale: { a: g.scale.a, b: g.scale.b, far: g.scale.far },
+    focal: g.focal,
+    size: g.size,
+  }
 }
