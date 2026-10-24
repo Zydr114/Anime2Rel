@@ -1162,15 +1162,16 @@ export class Engine {
       pass(this.quads.tiles, targets.tiles)
       if (effects.dof) pass(this.quads.backgroundDof, targets.backgroundDof)
     }
+    // 立绘深度只用到立绘的 alpha 与浮雕，与融合的结果无关；提前渲染，阴影 pass 才能用它做贴合表面与自身投影（M8.8d）
+    pass(this.quads.characterDepth, targets.characterDepth)
+    if (effects.shadow) pass(this.quads.shadow, targets.shadow)
     pass(this.quads.character, targets.character)
     tone('character')
     pass(this.quads.characterAdjust, targets.characterAdjusted)
     if (effects.reflection) this.renderMirror(targets, effects)
     else for (const key of MIRROR_KEYS) if (targets[key].width > 1) targets[key].setSize(1, 1)
-    pass(this.quads.characterDepth, targets.characterDepth)
     if (effects.dof) pass(this.quads.characterDof, targets.characterDof)
     if (effects.occlusion) pass(this.quads.occlusion, targets.occlusion)
-    if (effects.shadow) pass(this.quads.shadow, targets.shadow)
     pass(this.quads.composite, targets.composited)
     tone('global')
     if (effects.masks) {
