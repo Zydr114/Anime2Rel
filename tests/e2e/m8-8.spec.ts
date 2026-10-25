@@ -6,7 +6,7 @@ import { exportPixels, pixel, type ExportedImage } from './export'
 import { figure } from './figure'
 import { swiftshader } from './gpu'
 import { encodePng } from './png'
-
+// M8.8a 镜头与滤镜、M8.8b 局部调整蒙版、M8.8c 空气与光线、M8.8d 人物与地面（docs/Plan.md §3.7 M8.8）。场景与 m5.spec.ts 相同：太阳在右上方的画面内，立绘为蓝色裙子的简笔人物。
 // M8.8a 镜头与滤镜、M8.8b 局部调整蒙版（docs/Plan.md §3.7 M8.8）。场景与 m5.spec.ts 相同：太阳在右上方的画面内，立绘为蓝色裙子的简笔人物。
 const W = 640
 const H = 480
@@ -521,4 +521,227 @@ test('backlit dust shows toward the sun and is hidden before fusion, and a tiled
   await settle(page)
   const tiled = await exportPixels(page)
   expect(maxImageDiff(whole, tiled)).toBeLessThanOrEqual(4)
+})
+
+// M8.8d 人物与地面
+type Box = { x0: number; x1: number; y0: number; y1: number }
+
+/** 展开“人物与地面”分组和它的“更多”（展开有动画，点击可能落空） */
+async function openShadowGroup(page: Page) {
+  await page.getByTestId('step-fusion').click()
+  for (const id of ['fusion.shadow', 'fusion.shadow.more']) {
+    const header = page.locator(`[data-group-header="${id}"]`)
+    await expect(async () => {
+      if ((await header.getAttribute('aria-expanded')) !== 'true') await header.click()
+      await expect(header).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 })
+    }).toPass()
+  }
+}
+
+/** 立绘缩小到 50%、中心 (320, 300)：双脚在 y ≈ 415 处，脚前留出一片地面 */
+async function standOnGround(page: Page) {
+  await page.getByTestId('step-place').click()
+  await setSlider(page, 'char-scale', 50)
+  await setSlider(page, 'char-y', 300)
+}
+
+async function setShadowMode(page: Page, mode: 'plane' | 'surface') {
+  const group = page.getByTestId('fusion-shadow-mode')
+  await group.locator(`mdui-segmented-button[value="${mode}"]`).click()
+  await expect(group).toHaveJSProperty('value', mode)
+}
+
+/** 把分析出的太阳改为从右侧略偏前方照来的低角度侧光 */
+async function sideLight(page: Page) {
+  await page.getByTestId('step-fusion').click()
+  await page.locator('[data-testid^="light-row-"]').first().click()
+  await setSlider(page, 'light-azimuth', 80)
+  await setSlider(page, 'light-elevation', 25)
+}
+
+/** 逐像素的线性亮度比 a / b */
+function ratioMap(a: ExportedImage, b: ExportedImage): Float32Array {
+  const out = new Float32Array(a.width * a.height)
+  for (let i = 0; i < out.length; i++) out[i] = linearLuma(a.data.slice(i * 4, i * 4 + 3)) / Math.max(linearLuma(b.data.slice(i * 4, i * 4 + 3)), 1e-4)
+  return out
+}
+
+/** 范围内亮度比低于 threshold 的像素（影子）的掩码 */
+function shadowMask(ratio: Float32Array, box: Box, threshold: number): Set<number> {
+  const out = new Set<number>()
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) if (ratio[y * W + x] < threshold) out.add(y * W + x)
+  return out
+}
+
+/** 范围内每一列亮度比低于 threshold 的行数的平均值：影子在画面纵深方向的宽度 */
+function shadowRows(ratio: Float32Array, box: Box, threshold: number): number {
+  let n = 0
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) if (ratio[y * W + x] < threshold) n++
+  return n / (box.x1 - box.x0)
+}
+
+/** 斑点：亮度比与 5×5 邻域平均相差超过 0.1 的像素在范围内所占的比例 */
+function speckles(ratio: Float32Array, box: Box): number {
+  let n = 0
+  let total = 0
+  for (let y = box.y0 + 2; y < box.y1 - 2; y++)
+    for (let x = box.x0 + 2; x < box.x1 - 2; x++) {
+      let sum = 0
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) sum += ratio[(y + dy) * W + x + dx]
+      if (Math.abs(ratio[y * W + x] - sum / 25) > 0.1) n++
+      total++
+    }
+  return n / total
+}
+
+test('the surface shadow follows the plane shadow on flat ground without speckles and narrows under side light', async ({ page }, info) => {
+  await open(page, info.project.metadata.renderer)
+  await standOnGround(page)
+  await openShadowGroup(page)
+  await expect(page.getByTestId('fusion-shadow-surface-state')).toHaveCount(0)
+  await setSlider(page, 'fusion-shadow-contact', 0)
+  await setSlider(page, 'fusion-shadow-cast', 100)
+  const plane = await exportPixels(page)
+  await openShadowGroup(page)
+  await setShadowMode(page, 'surface')
+  await expect(page.getByTestId('fusion-shadow')).toContainText('贴合')
+  await expect(page.getByTestId('fusion-shadow-surface-state')).toHaveCount(0)
+  const surface = await exportPixels(page)
+  await openShadowGroup(page)
+  await setSlider(page, 'fusion-shadow-cast', 0)
+  const plain = await exportPixels(page)
+
+  // 太阳在右上方的远处：双腿的影子从脚下（y ≈ 415）朝左下方落在脚前的平地上；脚后的地面不受影响
+  const planeRatio = ratioMap(plane, plain)
+  const surfaceRatio = ratioMap(surface, plain)
+  const nearFeet: Box = { x0: 250, x1: 350, y0: 418, y1: 440 }
+  const p = shadowMask(planeRatio, nearFeet, 0.85)
+  const s = shadowMask(surfaceRatio, nearFeet, 0.85)
+  expect(p.size).toBeGreaterThan(200)
+  expect([...p].filter((i) => s.has(i)).length / p.size).toBeGreaterThan(0.6)
+  expect(shadowMask(surfaceRatio, { x0: 250, x1: 350, y0: 380, y1: 410 }, 0.85).size).toBeLessThan(5)
+  const front: Box = { x0: 200, x1: 360, y0: 400, y1: H }
+  expect(speckles(planeRatio, front)).toBeLessThan(0.02)
+  expect(speckles(surfaceRatio, front)).toBeLessThan(0.02)
+
+  // 从右前方照来的低角度侧光：影子朝左伸出画面。平面方式把立绘转向光源，裙子的影子向纵深摊开成肩宽；贴合表面只有身体厚度
+  await sideLight(page)
+  await openShadowGroup(page)
+  await setSlider(page, 'fusion-shadow-cast', 100)
+  const sideSurface = await exportPixels(page)
+  await openShadowGroup(page)
+  await setShadowMode(page, 'plane')
+  const sidePlane = await exportPixels(page)
+  await openShadowGroup(page)
+  await setSlider(page, 'fusion-shadow-cast', 0)
+  const sidePlain = await exportPixels(page)
+  const dress: Box = { x0: 120, x1: 200, y0: 330, y1: H }
+  const planeWidth = shadowRows(ratioMap(sidePlane, sidePlain), dress, 0.7)
+  const surfaceWidth = shadowRows(ratioMap(sideSurface, sidePlain), dress, 0.7)
+  expect(surfaceWidth).toBeGreaterThan(5)
+  expect(surfaceWidth).toBeLessThan(planeWidth * 0.8)
+})
+
+test('an arm pulled forward by the depth brush shadows the dress beside it; preview, whole and tiled exports agree', async ({ page }, info) => {
+  const query = rendererQuery(info.project.metadata.renderer)
+  await open(page, info.project.metadata.renderer)
+  // 太阳改为从右前上方照来：正面受光，手臂的影子落在它的左下方
+  await page.getByTestId('step-fusion').click()
+  await page.locator('[data-testid^="light-row-"]').first().click()
+  await setSlider(page, 'light-azimuth', 35)
+  await setSlider(page, 'light-elevation', 30)
+
+  // 立绘厚度加大，在裙子中间（x ≈ 333、y 240–336）竖着拉近两笔，像垂在身前的手臂
+  await page.getByTestId('step-place').click()
+  await setSlider(page, 'focus-thickness', 40)
+  await page.getByTestId('char-depth-brush').click()
+  await setSlider(page, 'char-depth-size', 30)
+  await setSlider(page, 'char-depth-strength', 100)
+  const canvas = (await page.getByTestId('depth-brush-canvas').boundingBox())!
+  for (let i = 0; i < 2; i++) {
+    await page.mouse.move(canvas.x + 0.52 * canvas.width, canvas.y + 0.5 * canvas.height)
+    await page.mouse.down()
+    await page.mouse.move(canvas.x + 0.52 * canvas.width, canvas.y + 0.7 * canvas.height, { steps: 12 })
+    await page.mouse.up()
+  }
+  await expect(page.getByTestId('char-depth-strokes')).toHaveText('已修正 2 笔')
+  await page.getByTestId('char-depth-brush').click()
+
+  await openShadowGroup(page)
+  await setSlider(page, 'fusion-shadow-contact', 0)
+  const plain = await exportPixels(page)
+  await openShadowGroup(page)
+  await setSlider(page, 'fusion-shadow-self', 100)
+  const shadowed = await exportPixels(page)
+  const ratio = ratioMap(shadowed, plain)
+  const mean = ({ x0, x1, y0, y1 }: Box) => {
+    let sum = 0
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) sum += ratio[y * W + x]
+    return sum / ((x1 - x0) * (y1 - y0))
+  }
+  expect(mean({ x0: 305, x1: 325, y0: 260, y1: 340 })).toBeLessThan(0.85)
+  expect(mean({ x0: 350, x1: 375, y0: 260, y1: 330 })).toBeGreaterThan(0.97)
+  expect(mean({ x0: 270, x1: 300, y0: 260, y1: 330 })).toBeGreaterThan(0.97)
+
+  // 全部打开：贴合表面的投影、自身投影、离地遮蔽、地面反光。预览与导出一致，分块导出没有接缝
+  await openShadowGroup(page)
+  await setShadowMode(page, 'surface')
+  await setSlider(page, 'fusion-shadow-cast', 100)
+  await setSlider(page, 'fusion-grounding-occlusion', 80)
+  await setSlider(page, 'fusion-grounding-bounce', 80)
+  await page.waitForTimeout(1000)
+  const points: DocPoint[] = [
+    [315 / W, 300 / H],
+    [320 / W, 366 / H],
+    [300 / W, 450 / H],
+    [250 / W, 470 / H],
+  ]
+  const preview = await docPixels(page, points)
+  const whole = await exportPixels(page)
+  points.forEach(([u, v], i) => expect(maxDiff(pixel(whole, Math.round(u * W), Math.round(v * H)), preview[i])).toBeLessThan(8))
+  await page.waitForTimeout(1500)
+  await page.goto(`/?${query}exportTile=128`)
+  await page.getByTestId('resume-project').click()
+  await settle(page)
+  const tiled = await exportPixels(page)
+  expect(maxImageDiff(whole, tiled)).toBeLessThanOrEqual(4)
+})
+
+test('the lower body darkens near the ground and picks up the ground colour', async ({ page }, info) => {
+  await open(page, info.project.metadata.renderer)
+  await openShadowGroup(page)
+  await setSlider(page, 'fusion-shadow-contact', 0)
+  const plain = await exportPixels(page)
+  const mean = (img: ExportedImage, { x0, x1, y0, y1 }: Box) => {
+    const sum = [0, 0, 0]
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) for (let c = 0; c < 3; c++) sum[c] += linear(img.data[(y * W + x) * 4 + c])
+    return sum.map((v) => v / ((x1 - x0) * (y1 - y0)))
+  }
+  const gain = (img: ExportedImage, box: Box) => {
+    const [a, b] = [mean(img, box), mean(plain, box)]
+    return a.map((v, c) => v / b[c])
+  }
+  const lumaGain = (img: ExportedImage, box: Box) => luma(mean(img, box)) / luma(mean(plain, box))
+
+  // 离地遮蔽：两腿下端（y ≈ 450）明显变暗，膝盖（y ≈ 390，约 0.22 倍人物高度）几乎不变，裙子不受影响
+  await openShadowGroup(page)
+  await setSlider(page, 'fusion-grounding-occlusion', 100)
+  const occluded = await exportPixels(page)
+  for (const x0 of [296, 336]) {
+    expect(lumaGain(occluded, { x0, x1: x0 + 9, y0: 445, y1: 460 })).toBeLessThan(0.85)
+    expect(lumaGain(occluded, { x0, x1: x0 + 9, y0: 385, y1: 395 })).toBeGreaterThan(0.95)
+  }
+  expect(lumaGain(occluded, { x0: 280, x1: 360, y0: 250, y1: 350 })).toBeCloseTo(1, 2)
+
+  // 地面反光：裙摆朝下的面变亮，绿色比蓝色增加得多（地面是橄榄色）；裙子朝前的面不变
+  await openShadowGroup(page)
+  await setSlider(page, 'fusion-grounding-occlusion', 0)
+  await setSlider(page, 'fusion-grounding-bounce', 100)
+  await setSlider(page, 'fusion-grounding-bounceRange', 100)
+  const bounced = await exportPixels(page)
+  const hem: Box = { x0: 280, x1: 360, y0: 362, y1: 368 }
+  expect(lumaGain(bounced, hem)).toBeGreaterThan(1.08)
+  const [, green, blue] = gain(bounced, hem)
+  expect(green).toBeGreaterThan(blue)
+  expect(lumaGain(bounced, { x0: 290, x1: 350, y0: 240, y1: 300 })).toBeCloseTo(1, 2)
 })
