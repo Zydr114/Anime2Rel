@@ -27,14 +27,14 @@ export function characterUV(doc: DocState, p: Point): { point: Point; inside: bo
   return unwarpPoint(doc.charWarp, docToLayerUV(doc.charTransform, ch, p))
 }
 
-/** 变形后立绘的外框（文档坐标），从左上角开始顺时针，每条边取 perEdge 段 */
-export function characterOutline(doc: DocState, perEdge = 16): Point[] {
+/** 变形后立绘的外框（文档坐标），从左上角开始顺时针，每条边取 perEdge 段；bbox 为原立绘上的范围，缺省时用整张图 */
+export function characterOutline(doc: DocState, perEdge = 16, bbox: CharacterInfo['bbox'] = FULL_BOX): Point[] {
   const edge = (from: Point, to: Point) => Array.from({ length: perEdge }, (_, k) => ({ x: from.x + ((to.x - from.x) * k) / perEdge, y: from.y + ((to.y - from.y) * k) / perEdge }))
   const corners = [
-    { x: 0, y: 0 },
-    { x: 1, y: 0 },
-    { x: 1, y: 1 },
-    { x: 0, y: 1 },
+    { x: bbox.x0, y: bbox.y0 },
+    { x: bbox.x1, y: bbox.y0 },
+    { x: bbox.x1, y: bbox.y1 },
+    { x: bbox.x0, y: bbox.y1 },
   ]
   return corners.flatMap((c, i) => edge(c, corners[(i + 1) % 4])).map((uv) => characterPoint(doc, uv))
 }

@@ -6,6 +6,9 @@
  * 这样光源仰角与灯光球上看到的一致；深度估计得到的平地法线会随伪深度的偏移明显倾斜，不用来定地面朝向。投影把立绘当作立在接地点上、
  * 朝向光源的竖直平面：地面上沿“背离光源”方向距离接地点 s 的点，对应立绘上高 s·tan(仰角) 的位置。
  * 阴影颜色 = 去掉主光源后的光照 / 全部光照，晴天偏天空色；没有方向明确的光源时投影自然消失。
+ *
+ * 贴合表面（M8.8d）：遮挡体是立绘占据的体积，从主光源的视角生成阴影贴图（src/fusion/shadowMap.ts），受影点取自背景深度，
+ * 影子随台阶、墙面弯折。立绘自身的投影查同一张贴图。
  */
 import { normalize, sceneDepth, unproject, type DepthScale } from '@/algo/camera'
 import type { Point } from '@/algo/geometry'
@@ -18,8 +21,11 @@ import type { DepthResult } from '@/depth/protocol'
 import { waterActive } from '@/focus/model'
 import { effectiveLight } from '@/lighting/preview'
 import type { DocState } from '@/state/store'
-import { characterDepth, characterGround, groundUV, layerUVToDoc } from './placement'
+import type { ShadowMode } from './model'
+import { characterBox, characterDepth, characterGround, characterHeight, characterOutline, groundUV, layerUVToDoc } from './placement'
 import { ROW_BINS, type CharacterInfo } from './protocol'
+import { boundingRect, occupancyCorners, shadowMapParams, type ShadowMapParams } from './shadowMap'
+import { isIdentityWarp } from './warp'
 
 const FULL_BOX: CharacterInfo['bbox'] = { x0: 0, y0: 0, x1: 1, y1: 1 }
 /** 量取脚部宽度的范围：接地点以上包围盒高度的这个比例 */
@@ -28,6 +34,8 @@ const FOOT_BAND = 0.06
 const MIN_SHADOW = 0.2
 /** 接触阴影在阴影颜色基础上再遮住的环境光比例 */
 const CONTACT_OCCLUSION = 0.55
+/** 占据体积的范围按立绘起伏 r 的这个区间估计（深度修正可能让起伏略超出 [0,1]） */
+const RELIEF_RANGE = [-0.25, 1.25] as const
 
 export interface ShadowParams {
   /** 接地点（文档像素）与该处的距离，单位与 depthScale 一致 */
@@ -59,6 +67,32 @@ export interface ShadowParams {
     softness: number
     tint: Vec3
   }
+  /** 实际使用的投影方式：贴合表面需要按地面校准的背景深度，否则按平面计算 */
+  mode: ShadowMode
+  /** 阴影贴图：贴合表面的投影或立绘自身的投影需要它；都不需要或没有主光源时为 null */
+  map: ShadowMapInfo | null
+}
+
+export interface ShadowMapInfo extends ShadowMapParams {
+  /** 立绘平面的距离（米）；起伏换算到米的系数（立绘厚度 × 人物高度，立绘深度未就绪时为 0）与起伏的基准 */
+  planeZ: number
+  relief: number
+  reference: number
+  /** 身体厚度与人物高度（米） */
+  body: number
+  height: number
+  /** 立绘自身的投影强度 */
+  self: number
+  /** 主光源在启用的光源中的序号：重光照把自身投影乘在这个光源上 */
+  lightIndex: number
+}
+
+/** 贴合表面能否使用：需要背景深度，并且深度已按地面校准 */
+export type SurfaceState = 'ok' | 'noDepth' | 'notCalibrated'
+
+export function surfaceState(doc: DocState, background: DepthResult | undefined): SurfaceState {
+  if (!doc.background || !background) return 'noDepth'
+  return depthScaleFor(doc.camera, doc.background, background).state === 'ground' ? 'ok' : 'notCalibrated'
 }
 
 export interface ShadowInputs {
@@ -67,6 +101,8 @@ export interface ShadowInputs {
   info: CharacterInfo | undefined
   /** 光源分析得到的环境光 SH（27 个系数）；未就绪时为 undefined */
   ambient: ArrayLike<number> | undefined
+  /** 立绘的深度结果：未就绪时立绘按平的处理 */
+  character?: DepthResult
 }
 
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -98,11 +134,11 @@ export function cutOff(doc: DocState, info: CharacterInfo | undefined): boolean 
 }
 
 /** 没有立绘、阴影都关闭、水体遮挡开启（接地点是水线），或立绘底部被裁切且接地点为自动时返回 null。 */
-export function shadowParams({ doc, background, info, ambient }: ShadowInputs): ShadowParams | null {
+export function shadowParams({ doc, background, info, ambient, character }: ShadowInputs): ShadowParams | null {
   const bg = doc.background
   const ch = doc.character
   const s = doc.fusion.shadow
-  if (!bg || !ch || (s.contact <= 0 && s.cast <= 0) || waterActive(doc.focus)) return null
+  if (!bg || !ch || (s.contact <= 0 && s.cast <= 0 && s.self <= 0) || waterActive(doc.focus)) return null
   const bbox = info?.bbox ?? FULL_BOX
   if (cutOff(doc, info)) return null
 
@@ -152,13 +188,38 @@ export function shadowParams({ doc, background, info, ambient }: ShadowInputs): 
     }
   }
 
+  const groundZ = sceneDepth(depth, scale)
+  const focal = focalLength(bg.width, bg.height, fov)
+  const mode: ShadowMode = s.mode === 'surface' && scale.state === 'ground' && !!background ? 'surface' : 'plane'
+  let map: ShadowMapInfo | null = null
+  if (main >= 0 && ((mode === 'surface' && cast.strength > 0) || s.self > 0)) {
+    const mainLight = doc.lighting.lights.filter((l) => l.enabled)[main]
+    const height = (characterHeight(doc, bbox) * groundZ) / focal
+    const relief = character ? doc.focus.thickness * height : 0
+    const reference = info?.reliefMedian ?? 0.5
+    const body = s.bodyDepth * height
+    const near = groundZ - (RELIEF_RANGE[1] - reference) * relief
+    const far = groundZ + (reference - RELIEF_RANGE[0]) * relief + body
+    // 不透明区域的包围盒经变形后的外框：变形是连续的，边界的像就围住了整个区域
+    const outline = isIdentityWarp(doc.charWarp) ? characterBox(doc, bbox) : characterOutline(doc, 8, bbox)
+    const corners = occupancyCorners(boundingRect(outline, 0.05), bg, focal, Math.max(near, groundZ * 0.05), far)
+    const light =
+      mainLight.type === 'directional'
+        ? { point: false, vector: mainLight.direction }
+        : { point: true, vector: unproject(mainLight.position, mainLight.position.depth, bg, fov, scale) }
+    const params = shadowMapParams(light, corners)
+    if (params) map = { ...params, planeZ: groundZ, relief, reference, body, height, self: s.self, lightIndex: main }
+  }
+
   return {
     ground,
-    groundZ: sceneDepth(depth, scale),
+    groundZ,
     depthScale: scale,
-    focal: focalLength(bg.width, bg.height, fov),
+    focal,
     normal,
     contact: { strength: s.contact, center, dir: horizonLine(doc.camera, bg).dir, axes: [a, Math.max(1.5, a * aspect)], softness: s.contactSoftness, tint: contactTint },
     cast,
+    mode,
+    map,
   }
 }

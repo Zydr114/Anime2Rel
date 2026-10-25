@@ -161,6 +161,12 @@ export function createDepthNodes(
   const chNormal = texture(placeholder.character.normal, placement.charUV)
   const chEdit = texture(editPlaceholder, placement.charUV)
   const chDepth = saturate(mix(chAux.r, dot(chCoef.rgb, chGuide).add(chCoef.a), u.edgeAlign)).add(chEdit.r)
+  /** 立绘任意纹理坐标处的起伏，与 chDepth 的计算相同；sample 为该处立绘的采样结果（阴影贴图沿光线步进时用） */
+  const characterReliefAt = (at: Vec2Node, sample: Vec4Node) => {
+    const guide = mix(vec3(NEUTRAL_GRAY), srgbEncode(saturate(sample.rgb.div(max(sample.a, 1e-4)))), sample.a)
+    const coef = sampleLevel(chCoef, at)
+    return saturate(mix(sampleLevel(chAux, at).r, dot(coef.rgb, guide).add(coef.a), u.edgeAlign)).add(sampleLevel(chEdit, at).r)
+  }
   return {
     uniforms: u,
     textures: {
@@ -168,7 +174,7 @@ export function createDepthNodes(
       character: { coef: chCoef, aux: chAux, normal: chNormal, edit: chEdit },
     },
     background: { depth: bgDepth, sky: bgAux.g, normal: bgNormal },
-    character: { depth: chDepth, normal: chNormal, straight },
+    character: { depth: chDepth, normal: chNormal, straight, reliefAt: characterReliefAt },
   }
 }
 

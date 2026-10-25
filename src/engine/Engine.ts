@@ -51,6 +51,7 @@ import { applyPostParams, createPostPasses, createPostUniforms, disposePostPasse
 import { SURROUND, type Backdrop } from './backdrop'
 import { Scene3D, type Scene3dInput } from './scene3d'
 import { applyShadowParams, createShadowPass, createShadowUniforms } from './shadow'
+import { applyShadowMapParams, createShadowMapPass, createShadowMapUniforms } from './shadowMap'
 import { planTiles, tilePlan, WHOLE_PIXELS, type Rect } from './tiling'
 import { createWarpPass, WARP_LAYERS, type WarpLayer } from './warp'
 import { srgbToLinear } from '@/algo/color'
@@ -211,6 +212,8 @@ interface Effects {
   /** 水体遮挡中有倒影 */
   reflection: boolean
   shadow: boolean
+  /** 阴影贴图：贴合表面的投影或立绘自身的投影 */
+  shadowMap: boolean
   /** 雾：分层加在背景预处理和立绘层调整中；尘埃：加在合成 pass 中 */
   fog: boolean
   dust: boolean
@@ -412,6 +415,13 @@ export class Engine {
   private readonly dof = createDofUniforms()
   private readonly emptyRegions = this.dof.regions.value
   private readonly shadow = createShadowUniforms()
+  private readonly shadowMap = createShadowMapUniforms()
+  /** 阴影贴图（光源空间，带 mipmap）：只在立绘、摆放或主光源变化时重新生成，见 renderShadowMap */
+  private readonly shadowMapRT = linearTarget(1, 1, true)
+  private readonly shadowMapNode = texture(this.shadowMapRT.texture)
+  private shadowMapKey = ''
+  /** 立绘纹理或深度变化时加 1，阴影贴图需要重新生成 */
+  private shadowMapVersion = 0
   private readonly atmosphere = createAtmosphereUniforms(this.placement.uniforms.docSize)
   private readonly adjust = Object.fromEntries(GRADE_LEVELS.map((level) => [level, createAdjustUniforms()])) as Record<GradeLevel, AdjustUniforms>
   private readonly local = createLocalUniforms()
@@ -436,6 +446,7 @@ export class Engine {
     | 'characterDepth'
     | 'characterDof'
     | 'occlusion'
+    | 'shadowMap'
     | 'shadow'
     | 'composite'
     | 'globalAdjust'
@@ -560,7 +571,16 @@ export class Engine {
       ),
       characterDof: quad(createCharacterDofPass(dof, nodes.characterAdjusted, nodes.characterDepth)),
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
-      shadow: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background)),
+      shadowMap: quad(createShadowMapPass(this.shadowMap, placement, this.shadowCharacter, this.depthNodes.character.reliefAt)),
+      shadow: quad(
+        createShadowPass(
+          this.shadow,
+          placement,
+          this.shadowCharacter,
+          { depth: this.depthNodes.textures.background.aux.r, sky: this.depthNodes.background.sky, normal: this.depthNodes.textures.background.normal.rgb },
+          { uniforms: this.shadowMap, texture: this.shadowMapNode },
+        ),
+      ),
       composite: quad(createCompositePass({ placement, layers: nodes, dof, shadow: this.shadow, atmosphere })),
       globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt('global'), nodes.composited)),
       // 有局部调整时，全局调整的结果先写入 graded（预览中它在终处理时才用到）
@@ -713,6 +733,7 @@ export class Engine {
     }
     // 增量随立绘一起变形，纹理在 bindCharacter 中设置
     if (this.warpBox || this.depthEdit !== old) this.warpDirty = true
+    this.shadowMapVersion++
     this.docDirty = true
     this.schedule()
   }
@@ -776,7 +797,10 @@ export class Engine {
   /** 站立阴影；null 为不画阴影 */
   setShadow(params: ShadowParams | null): void {
     this.shadowParams = params
-    if (params) applyShadowParams(this.shadow, params)
+    if (params) {
+      applyShadowParams(this.shadow, params)
+      applyShadowMapParams(this.shadowMap, params.map, params.cast.softness, params.focal)
+    }
     this.syncDisplay()
   }
 
@@ -855,6 +879,7 @@ export class Engine {
       occlusion,
       reflection: occlusion && !!this.focus?.occlusion.styles.some((s) => s.mode === water && s.reflection > 0),
       shadow: !raw && !!this.shadowParams,
+      shadowMap: !raw && !!this.shadowParams?.map,
       fog: !raw && !!this.atmosphereParams?.fog,
       dust: !raw && !!this.atmosphereParams?.dust,
       grade,
@@ -890,6 +915,7 @@ export class Engine {
     this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
     this.debugView.uniforms.relief.value = display.relief ? 1 : 0
     this.shadow.enabled.value = effects.shadow ? 1 : 0
+    this.shadowMap.self.value = effects.shadowMap ? this.shadowParams!.map!.self : 0
     applyAtmosphereParams(this.atmosphere, this.atmosphereParams, effects, this.focus)
     for (const level of GRADE_LEVELS) {
       const params = this.grade?.levels[level]
@@ -1075,6 +1101,7 @@ export class Engine {
     const targets = this.warpTargets
     const pick = (layer: WarpLayer, source: THREE.Texture | undefined, fallback: THREE.Texture) => (source ? (box ? targets[layer].texture : source) : fallback)
     const character = box ? targets.character.texture : this.charRT.texture
+    this.shadowMapVersion++
     this.characterNode.value = character
     this.shadowCharacter.value = character
     const depth = this.depth.character?.textures
@@ -1155,6 +1182,7 @@ export class Engine {
       pass(this.toneQuads[level], targets.tone)
       if (!tiled) pass(this.quads.toneCoef, targets[COEF[level]])
     }
+    if (effects.shadowMap) this.renderShadowMap(mode, (frame?.outWidth ?? out.width) / this.docSize.width)
     if (background) {
       tone('background')
       pass(this.quads.backgroundAdjust, targets.background)
@@ -1182,6 +1210,40 @@ export class Engine {
     if (mode !== 'preview') return pass(this.quads.finish, out)
     pass(this.quads.finish, targets.graded)
     pass(this.quads.display, out)
+  }
+
+  /**
+   * 阴影贴图：边长按立绘在输出图像中的大小取 2 的幂，预览不超过 1024、导出不超过 2048。
+   * 立绘、摆放、主光源和贴图边长都没变时沿用上一次的结果；分块导出的各块与代理渲染共用一张。
+   * @param scale 输出图像像素 / 文档像素
+   */
+  private renderShadowMap(mode: RenderMode, scale: number): void {
+    const map = this.shadowParams?.map
+    if (!map) return
+    const extent = this.dof.charHeight.value * scale * 1.25
+    const cap = Math.min(mode === 'preview' ? 1024 : 2048, this.textureLimit)
+    const size = Math.min(cap, Math.max(256, 2 ** Math.round(Math.log2(Math.max(extent, 1)))))
+    const pu = this.placement.uniforms
+    const du = this.depthNodes.uniforms
+    const key = JSON.stringify([
+      map,
+      size,
+      pu.charCenter.value,
+      pu.charRotation.value,
+      pu.charScale.value,
+      pu.charFlip.value,
+      pu.charSize.value,
+      pu.charOffset.value,
+      du.hasCharDepth.value,
+      du.edgeAlign.value,
+      this.shadowMapVersion,
+    ])
+    if (key === this.shadowMapKey) return
+    this.shadowMapKey = key
+    if (this.shadowMapRT.width !== size) this.shadowMapRT.setSize(size, size)
+    this.shadowMap.size.value = size
+    this.renderer.setRenderTarget(this.shadowMapRT)
+    this.quads.shadowMap.render(this.renderer)
   }
 
   /**
@@ -1471,6 +1533,7 @@ export class Engine {
     this.bgTexture?.dispose()
     this.charSource?.dispose()
     this.charRT.dispose()
+    this.shadowMapRT.dispose()
     this.scene3d?.dispose()
     for (const rt of Object.values(this.warpTargets)) rt.dispose()
     this.warpPass.dispose()

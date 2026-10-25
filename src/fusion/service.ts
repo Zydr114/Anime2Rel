@@ -237,7 +237,7 @@ export function currentShadowParams(doc: DocState): ShadowParams | null {
   const bg = doc.background
   const info = characterInfo(doc)
   if (!bg || !info) return null
-  return shadowParams({ doc, background: getDepthResult(bg.id), info, ambient: getAnalysis(bg.id)?.ambient })
+  return shadowParams({ doc, background: getDepthResult(bg.id), info, ambient: getAnalysis(bg.id)?.ambient, character: getDepthResult(doc.character?.id) })
 }
 
 /** 当前立绘去除残留底色用的数据 */
