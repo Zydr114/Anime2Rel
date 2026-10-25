@@ -4,6 +4,7 @@ import type { Size } from '@/algo/geometry'
 import type { Vec3 } from '@/algo/sh'
 import type { CharWarp } from './warp'
 import type { DepthEditRaster } from './depthEdit'
+import type { GroundSampling } from './grounding'
 import type { NormalWeights } from './normals'
 import type { LabStats } from './stats'
 
@@ -94,6 +95,8 @@ export interface StatsRequest {
   region: { cx: number; cy: number; rx: number; ry: number }
   /** 立绘所在的归一化逆深度 */
   depth: number
+  /** 地面反光的取色范围；接地点无效时为 null */
+  ground: GroundSampling | null
 }
 
 export interface FusionStats {
@@ -103,6 +106,8 @@ export interface FusionStats {
   local: LabStats | null
   /** 同一权重下背景的平均颜色（线性） */
   localColor: Vec3
+  /** 接地点周围地面的平均颜色（线性，src/fusion/grounding.ts）；取不到时为 null */
+  groundColor: Vec3 | null
 }
 
 export interface FusionWorkerApi {

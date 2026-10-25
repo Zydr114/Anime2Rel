@@ -6,6 +6,7 @@ import * as Comlink from 'comlink'
 import { depthScaleFor } from '@/camera/depthScale'
 import { guideSize } from '@/depth/pipeline'
 import type { DepthResult } from '@/depth/protocol'
+import { waterActive } from '@/focus/model'
 import { getAsset } from '@/state/assets'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { currentDepthEdit } from '@/state/depthEdit'
@@ -16,7 +17,7 @@ import { fusionParams, whiteAdaptation, type FusionParams } from './params'
 import { characterBox, characterDepth } from './placement'
 import type { FusionWorkerApi, MatteMap, NormalMap } from './protocol'
 import { isIdentityWarp } from './warp'
-import { shadowParams, type ShadowParams } from './shadow'
+import { groundSampling, shadowParams, type ShadowParams } from './shadow'
 
 /** 法线参数变化后的防抖时间 */
 const NORMALS_DEBOUNCE = 150
@@ -156,7 +157,8 @@ async function runStats(): Promise<void> {
     useFusion.getState().setStats(null)
     return
   }
-  const bbox = characterInfo(doc)?.bbox
+  const info = characterInfo(doc)
+  const bbox = info?.bbox
   const box = characterBox(doc, bbox)
   const xs = box.map((p) => p.x / bg.width)
   const ys = box.map((p) => p.y / bg.height)
@@ -167,6 +169,7 @@ async function runStats(): Promise<void> {
     cat: whiteAdaptation(doc.fusion.colorMatch, background.info.whitePoint),
     region: { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, rx: (x1 - x0) / 2, ry: (y1 - y0) / 2 },
     depth: characterDepth(doc, getDepthResult(bg.id), bbox),
+    ground: groundSampling(doc, getDepthResult(bg.id), info),
   })
   const now = useFusion.getState()
   if (now.background?.id === bg.id && now.character?.id === character.id) now.setStats(stats)
@@ -198,6 +201,9 @@ export function startAutoFusion(): () => void {
       doc.charTransform !== old.charTransform ||
       doc.charWarp !== old.charWarp ||
       doc.fusion.depth !== old.fusion.depth ||
+      doc.fusion.ground !== old.fusion.ground ||
+      doc.camera !== old.camera ||
+      waterActive(doc.focus) !== waterActive(old.focus) ||
       doc.fusion.colorMatch.whiteBalance !== old.fusion.colorMatch.whiteBalance ||
       doc.background?.id !== old.background?.id ||
       doc.character?.id !== old.character?.id
@@ -237,7 +243,14 @@ export function currentShadowParams(doc: DocState): ShadowParams | null {
   const bg = doc.background
   const info = characterInfo(doc)
   if (!bg || !info) return null
-  return shadowParams({ doc, background: getDepthResult(bg.id), info, ambient: getAnalysis(bg.id)?.ambient, character: getDepthResult(doc.character?.id) })
+  return shadowParams({
+    doc,
+    background: getDepthResult(bg.id),
+    info,
+    ambient: getAnalysis(bg.id)?.ambient,
+    character: getDepthResult(doc.character?.id),
+    groundColor: useFusion.getState().stats?.groundColor,
+  })
 }
 
 /** 当前立绘去除残留底色用的数据 */

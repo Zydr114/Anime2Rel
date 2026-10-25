@@ -17,7 +17,7 @@ import {
   TILE,
 } from './dof'
 import { applyFinishParams, createFinishPass, createFinishUniforms, disposeFinish, setFinishLut } from './finish'
-import { applyFusionParams } from './fusion'
+import { applyFusionParams, applyGroundingParams } from './fusion'
 import { applyMaskParams, createMaskPass, createMaskUniforms } from './masks'
 import { createTileMapping } from './nodes'
 import {
@@ -803,8 +803,9 @@ export class Engine {
     this.shadowParams = params
     if (params) {
       applyShadowParams(this.shadow, params)
-      applyShadowMapParams(this.shadowMap, params.map, params.cast.softness, params.focal)
+      applyShadowMapParams(this.shadowMap, params)
     }
+    applyGroundingParams(this.character.fusion, params)
     this.syncDisplay()
   }
 
@@ -882,7 +883,7 @@ export class Engine {
       dof: !raw && !!this.focus?.dof,
       occlusion,
       reflection: occlusion && !!this.focus?.occlusion.styles.some((s) => s.mode === water && s.reflection > 0),
-      shadow: !raw && !!this.shadowParams,
+      shadow: !raw && !!this.shadowParams && (this.shadowParams.contact.strength > 0 || this.shadowParams.cast.strength > 0),
       shadowMap: !raw && !!this.shadowParams?.map,
       fog: !raw && !!this.atmosphereParams?.fog,
       dust: !raw && !!this.atmosphereParams?.dust,
@@ -1231,6 +1232,7 @@ export class Engine {
     const du = this.depthNodes.uniforms
     const key = JSON.stringify([
       map,
+      this.shadowParams!.figure,
       size,
       pu.charCenter.value,
       pu.charRotation.value,

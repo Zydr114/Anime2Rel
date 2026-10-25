@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three/webgpu'
 import { Break, Fn, If, Loop, abs, dot, float, length, log2, max, min, normalize, screenUV, select, smoothstep, step, uniform, vec2, vec3, vec4 } from 'three/tsl'
-import type { ShadowMapInfo } from '@/fusion/shadow'
+import type { ShadowParams } from '@/fusion/shadow'
 import { sampleLevel } from './dof'
 import { material, type FloatNode, type Vec3Node, type Vec4Node } from './nodes'
 import type { Placement } from './passes'
@@ -145,8 +145,14 @@ export function shadowLookup(u: ShadowMapUniforms, map: TextureNode, x: Vec3Node
   return fine.r.mul(smoothstep(blocker.add(offset), blocker.add(offset.mul(2)), sn)).mul(inside).mul(step(1e-4, coarse.r))
 }
 
-/** 贴图边长（u.size）在渲染贴图时由引擎设置 */
-export function applyShadowMapParams(u: ShadowMapUniforms, map: ShadowMapInfo | null, softness: number, focal: number): void {
+/** 立绘正面的位置（figure）总是设置，离地遮蔽与地面反光也用它；贴图边长（u.size）在渲染贴图时由引擎设置 */
+export function applyShadowMapParams(u: ShadowMapUniforms, params: ShadowParams): void {
+  const { map, figure } = params
+  u.planeZ.value = figure.planeZ
+  u.relief.value = figure.relief
+  u.reference.value = figure.reference
+  u.height.value = figure.height
+  u.focal.value = params.focal
   u.self.value = map?.self ?? 0
   u.lightIndex.value = map ? map.lightIndex : -1
   if (!map) return
@@ -159,11 +165,6 @@ export function applyShadowMapParams(u: ShadowMapUniforms, map: ShadowMapInfo | 
   u.range.value.set(...map.range)
   u.boxMin.value.set(...map.boxMin)
   u.boxMax.value.set(...map.boxMax)
-  u.planeZ.value = map.planeZ
-  u.relief.value = map.relief
-  u.reference.value = map.reference
   u.body.value = map.body
-  u.height.value = map.height
-  u.focal.value = focal
-  u.softness.value = 0.02 + 0.25 * softness
+  u.softness.value = 0.02 + 0.25 * params.cast.softness
 }

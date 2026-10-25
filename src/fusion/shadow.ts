@@ -8,7 +8,7 @@
  * 阴影颜色 = 去掉主光源后的光照 / 全部光照，晴天偏天空色；没有方向明确的光源时投影自然消失。
  *
  * 贴合表面（M8.8d）：遮挡体是立绘占据的体积，从主光源的视角生成阴影贴图（src/fusion/shadowMap.ts），受影点取自背景深度，
- * 影子随台阶、墙面弯折。立绘自身的投影查同一张贴图。
+ * 影子随台阶、墙面弯折。立绘自身的投影查同一张贴图。离地遮蔽与地面反光（src/fusion/grounding.ts）用同一个接地点和地面平面。
  */
 import { normalize, sceneDepth, unproject, type DepthScale } from '@/algo/camera'
 import type { Point } from '@/algo/geometry'
@@ -24,6 +24,7 @@ import type { DocState } from '@/state/store'
 import type { ShadowMode } from './model'
 import { characterBox, characterDepth, characterGround, characterHeight, characterOutline, groundUV, layerUVToDoc } from './placement'
 import { ROW_BINS, type CharacterInfo } from './protocol'
+import { BOUNCE_RADIUS, type GroundSampling } from './grounding'
 import { boundingRect, occupancyCorners, shadowMapParams, type ShadowMapParams } from './shadowMap'
 import { isIdentityWarp } from './warp'
 
@@ -69,18 +70,28 @@ export interface ShadowParams {
   }
   /** 实际使用的投影方式：贴合表面需要按地面校准的背景深度，否则按平面计算 */
   mode: ShadowMode
+  /**
+   * 立绘正面的三维位置：z正面 = planeZ − (r − reference) × relief（米）。
+   * planeZ 为立绘平面的距离，relief 为立绘厚度 × 人物高度（立绘深度未就绪时为 0），height 为人物高度
+   */
+  figure: { planeZ: number; relief: number; reference: number; height: number }
   /** 阴影贴图：贴合表面的投影或立绘自身的投影需要它；都不需要或没有主光源时为 null */
   map: ShadowMapInfo | null
+  /** 离地遮蔽与地面反光：都关闭时为 null。范围已换算到米，地面平面过接地点、法线为 normal */
+  grounding: {
+    point: Vec3
+    occlusion: number
+    occlusionRange: number
+    bounce: number
+    bounceRange: number
+    /** 地面颜色（线性）；取不到时地面反光为 0 */
+    bounceColor: Vec3
+  } | null
 }
 
 export interface ShadowMapInfo extends ShadowMapParams {
-  /** 立绘平面的距离（米）；起伏换算到米的系数（立绘厚度 × 人物高度，立绘深度未就绪时为 0）与起伏的基准 */
-  planeZ: number
-  relief: number
-  reference: number
-  /** 身体厚度与人物高度（米） */
+  /** 身体厚度（米） */
   body: number
-  height: number
   /** 立绘自身的投影强度 */
   self: number
   /** 主光源在启用的光源中的序号：重光照把自身投影乘在这个光源上 */
@@ -103,6 +114,8 @@ export interface ShadowInputs {
   ambient: ArrayLike<number> | undefined
   /** 立绘的深度结果：未就绪时立绘按平的处理 */
   character?: DepthResult
+  /** 接地点周围的地面颜色（融合 Worker 统计）；未就绪或取不到时为 null */
+  groundColor?: Vec3 | null
 }
 
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -133,21 +146,40 @@ export function cutOff(doc: DocState, info: CharacterInfo | undefined): boolean 
   return !doc.fusion.ground && !!info && info.cut
 }
 
-/** 没有立绘、阴影都关闭、水体遮挡开启（接地点是水线），或立绘底部被裁切且接地点为自动时返回 null。 */
-export function shadowParams({ doc, background, info, ambient, character }: ShadowInputs): ShadowParams | null {
+/** 接地点与地面平面：接地点在水中（水体遮挡开启）或立绘是半身像且接地点为自动时为 null */
+function groundFrame(doc: DocState, background: DepthResult | undefined, info: CharacterInfo | undefined) {
   const bg = doc.background
-  const ch = doc.character
-  const s = doc.fusion.shadow
-  if (!bg || !ch || (s.contact <= 0 && s.cast <= 0 && s.self <= 0) || waterActive(doc.focus)) return null
+  if (!bg || !doc.character || waterActive(doc.focus) || cutOff(doc, info)) return null
   const bbox = info?.bbox ?? FULL_BOX
-  if (cutOff(doc, info)) return null
-
   const fov = doc.camera.fovDeg
   const ground = characterGround(doc, bg, bbox)
   const depth = characterDepth(doc, background, bbox)
   const scale = depthScaleFor(doc.camera, bg, background)
   const at = unproject(ground, depth, bg, fov, scale)
-  const normal = cameraUp(doc.camera)
+  const groundZ = sceneDepth(depth, scale)
+  const focal = focalLength(bg.width, bg.height, fov)
+  /** 人物高度（米）：不透明区域的高度按立绘平面的距离换算 */
+  const height = (characterHeight(doc, bbox) * groundZ) / focal
+  return { bg, bbox, fov, ground, scale, at, groundZ, focal, height, normal: cameraUp(doc.camera) }
+}
+
+/** 地面反光的取色范围（融合 Worker 按它统计地面颜色）；接地点无效时为 null */
+export function groundSampling(doc: DocState, background: DepthResult | undefined, info: CharacterInfo | undefined): GroundSampling | null {
+  const frame = groundFrame(doc, background, info)
+  if (!frame) return null
+  const { at, normal, height, focal, bg, scale } = frame
+  return { point: at, up: normal, radius: BOUNCE_RADIUS * height, focal, size: { width: bg.width, height: bg.height }, depthScale: { a: scale.a, b: scale.b, far: scale.far } }
+}
+
+/** 没有立绘、各项都关闭、水体遮挡开启（接地点是水线），或立绘底部被裁切且接地点为自动时返回 null。 */
+export function shadowParams({ doc, background, info, ambient, character, groundColor }: ShadowInputs): ShadowParams | null {
+  const ch = doc.character
+  const s = doc.fusion.shadow
+  const g = doc.fusion.grounding
+  if (s.contact <= 0 && s.cast <= 0 && s.self <= 0 && g.occlusion <= 0 && g.bounce <= 0) return null
+  const frame = groundFrame(doc, background, info)
+  if (!frame || !ch) return null
+  const { bg, bbox, fov, ground, scale, at, groundZ, focal, height, normal } = frame
   const t = doc.charTransform
 
   // 接触阴影：宽度取脚部的不透明宽度，扁度取视线与地面法线夹角的余弦
@@ -188,15 +220,12 @@ export function shadowParams({ doc, background, info, ambient, character }: Shad
     }
   }
 
-  const groundZ = sceneDepth(depth, scale)
-  const focal = focalLength(bg.width, bg.height, fov)
   const mode: ShadowMode = s.mode === 'surface' && scale.state === 'ground' && !!background ? 'surface' : 'plane'
+  const relief = character ? doc.focus.thickness * height : 0
+  const reference = info?.reliefMedian ?? 0.5
   let map: ShadowMapInfo | null = null
   if (main >= 0 && ((mode === 'surface' && cast.strength > 0) || s.self > 0)) {
     const mainLight = doc.lighting.lights.filter((l) => l.enabled)[main]
-    const height = (characterHeight(doc, bbox) * groundZ) / focal
-    const relief = character ? doc.focus.thickness * height : 0
-    const reference = info?.reliefMedian ?? 0.5
     const body = s.bodyDepth * height
     const near = groundZ - (RELIEF_RANGE[1] - reference) * relief
     const far = groundZ + (reference - RELIEF_RANGE[0]) * relief + body
@@ -208,8 +237,13 @@ export function shadowParams({ doc, background, info, ambient, character }: Shad
         ? { point: false, vector: mainLight.direction }
         : { point: true, vector: unproject(mainLight.position, mainLight.position.depth, bg, fov, scale) }
     const params = shadowMapParams(light, corners)
-    if (params) map = { ...params, planeZ: groundZ, relief, reference, body, height, self: s.self, lightIndex: main }
+    if (params) map = { ...params, body, self: s.self, lightIndex: main }
   }
+  const bounce = groundColor ? g.bounce : 0
+  const grounding =
+    g.occlusion > 0 || bounce > 0
+      ? { point: at, occlusion: g.occlusion, occlusionRange: g.occlusionRange * height, bounce, bounceRange: g.bounceRange * height, bounceColor: groundColor ?? ([0, 0, 0] as Vec3) }
+      : null
 
   return {
     ground,
@@ -220,6 +254,8 @@ export function shadowParams({ doc, background, info, ambient, character }: Shad
     contact: { strength: s.contact, center, dir: horizonLine(doc.camera, bg).dir, axes: [a, Math.max(1.5, a * aspect)], softness: s.contactSoftness, tint: contactTint },
     cast,
     mode,
+    figure: { planeZ: groundZ, relief, reference, height },
     map,
+    grounding,
   }
 }

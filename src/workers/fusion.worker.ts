@@ -15,6 +15,7 @@ import { estimateForeground } from '@/fusion/matte'
 import { characterNormals, rimMap } from '@/fusion/normals'
 import { rasterizeWarp, warpMesh } from '@/fusion/warp'
 import { ROW_BINS, type BackgroundInfo, type BackgroundInput, type CharacterInfo, type CharacterInput, type FusionStats, type FusionWorkerApi, type MatteMap, type NormalMap, type NormalRequest, type StatsRequest, type WarpedGeometry, type WarpRequest } from '@/fusion/protocol'
+import { groundColor } from '@/fusion/grounding'
 import { labStats, noiseSigma, whitePoint } from '@/fusion/stats'
 
 /** 统计用的分辨率（长边） */
@@ -302,7 +303,7 @@ const api: FusionWorkerApi = {
       for (let i = 0; i < alpha.length; i++) adapted.set(mat3Vec(request.cat, [linear[i * 3], linear[i * 3 + 1], linear[i * 3 + 2]]), i * 3)
       characterStats = labStats(oklabImage(adapted), Float32Array.from(alpha, (a) => (a > 0.5 ? 1 : 0)))
     }
-    if (!bg || bg.id !== request.backgroundId) return { character: characterStats, local: null, localColor: [0.18, 0.18, 0.18] }
+    if (!bg || bg.id !== request.backgroundId) return { character: characterStats, local: null, localColor: [0.18, 0.18, 0.18], groundColor: null }
 
     // 权重：以立绘包围盒为中心的高斯 × 深度相近 × 非天空 × 未过曝
     const { cx, cy, rx, ry } = request.region
@@ -329,7 +330,7 @@ const api: FusionWorkerApi = {
       sw += weights[i]
     }
     const localColor = (sw > 0 ? color.map((v) => v / sw) : [0.18, 0.18, 0.18]) as Vec3
-    return { character: characterStats, local, localColor }
+    return { character: characterStats, local, localColor, groundColor: request.ground ? groundColor(bg, request.ground) : null }
   },
 }
 

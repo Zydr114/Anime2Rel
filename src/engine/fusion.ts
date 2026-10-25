@@ -1,12 +1,13 @@
 /**
  * 立绘融合的 TSL 节点（docs/Plan.md §3.3），参数由 src/fusion/params.ts 换算：
- * 边缘羽化 → 颜色匹配（白平衡、Oklab 影调与色度）→ 比值式重光照（含轮廓光、高光、立绘自身的投影）→ Light Wrap → 噪声匹配。
+ * 边缘羽化 → 颜色匹配（白平衡、Oklab 影调与色度）→ 比值式重光照（含轮廓光、高光、立绘自身的投影、离地遮蔽与地面反光）→ Light Wrap → 噪声匹配。
  * 输入输出都是线性预乘 alpha。
  */
 import * as THREE from 'three/webgpu'
 import { abs, atan, cos, dFdx, dFdy, dot, exp, float, hash, int, length, log2, max, min, mix, normalize, pow, saturate, select, sin, smoothstep, texture, textureSize, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { RIM_WIDTH } from '@/fusion/normals'
 import { FUSION_LIGHTS, type FusionParams } from '@/fusion/params'
+import type { ShadowParams } from '@/fusion/shadow'
 import { evalSh, fromOklab, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type TileMapping, type Vec3Node, type Vec4Node } from './nodes'
 import { shadowLookup, type ShadowMapUniforms } from './shadowMap'
 
@@ -101,6 +102,14 @@ export function createFusionNode(input: FusionNodeInput) {
     rim: uniform(0),
     specular: uniform(0),
     mid: uniform(0.2),
+    /** 离地遮蔽与地面反光（M8.8d）：接地点与地面法线（相机空间），范围为米 */
+    groundPoint: v3(),
+    groundUp: uniform(new THREE.Vector3(0, 1, 0)),
+    occlusion: uniform(0),
+    occlusionRange: uniform(1),
+    bounce: uniform(0),
+    bounceRange: uniform(1),
+    bounceColor: v3(),
 
     lightWrap: uniform(0),
     wrapRadius: uniform(1),
@@ -170,7 +179,12 @@ export function createFusionNode(input: FusionNodeInput) {
   const offset = mu.height.mul(float(SELF_OFFSET[1]).mul(float(1).sub(saturate(dot(N, toMain)))).add(SELF_OFFSET[0]))
   const receiver = front.add(normalize(front).mul(offset.negate()))
   const unblocked = select(mu.self.greaterThan(0), float(1).sub(shadowLookup(mu, input.self.map, receiver, mu.height.mul(SELF_BIAS)).mul(mu.self)), float(1))
-  let irradiance: Vec3Node = max(evalSh(u.sh, N), vec3(0))
+  // 离地遮蔽乘在环境光上，地面反光加在光照中：都按立绘正面到地面平面的高度衰减，朝下的面更明显
+  const h = dot(front.sub(u.groundPoint), u.groundUp)
+  const down = max(dot(N, u.groundUp).negate(), 0)
+  const occlusion = float(1).sub(u.occlusion.mul(float(1).sub(smoothstep(0, u.occlusionRange, h))).mul(down.mul(0.6).add(0.4)))
+  const bounce = u.bounceColor.mul(u.bounce.mul(down).mul(float(1).sub(smoothstep(0, u.bounceRange, h))))
+  let irradiance: Vec3Node = max(evalSh(u.sh, N), vec3(0)).mul(occlusion).add(bounce)
   let rimLight: Vec3Node = vec3(0)
   let specLight: Vec3Node = vec3(0)
   u.lights.forEach((l, i) => {
@@ -293,4 +307,17 @@ export function applyFusionParams(u: FusionUniforms, params: FusionParams): void
   u.feather.value = params.feather
   u.shrink.value = params.shrink
   u.noise.value.set(...params.noise)
+}
+
+/** 离地遮蔽与地面反光的参数；没有站立阴影参数或都关闭时为 0 */
+export function applyGroundingParams(u: FusionUniforms, params: ShadowParams | null): void {
+  const g = params?.grounding
+  u.occlusion.value = g?.occlusion ?? 0
+  u.bounce.value = g?.bounce ?? 0
+  if (!params || !g) return
+  u.groundPoint.value.set(...g.point)
+  u.groundUp.value.set(...params.normal)
+  u.occlusionRange.value = Math.max(g.occlusionRange, 1e-4)
+  u.bounceRange.value = Math.max(g.bounceRange, 1e-4)
+  u.bounceColor.value.set(...g.bounceColor)
 }
