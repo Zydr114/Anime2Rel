@@ -40,7 +40,7 @@ export const MANIFEST_NAME = 'project.json'
 
 export class ProjectError extends Error {}
 
-const STEPS: readonly StepId[] = ['assets', 'scene', 'place', 'fusion', 'adjust', 'lens', 'export']
+const STEPS: readonly StepId[] = ['assets', 'scene', 'place', 'fusion', 'lens', 'adjust', 'export']
 /** M8.7 之前的步骤对应到现在的步骤 */
 const LEGACY_STEPS: Readonly<Record<string, StepId>> = { camera: 'scene', depth: 'scene', character: 'place', light: 'fusion', focus: 'lens', effects: 'lens' }
 const ESTIMATORS: readonly Estimator[] = ['A', 'B', 'C', 'D']

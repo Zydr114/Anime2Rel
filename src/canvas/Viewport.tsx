@@ -109,7 +109,7 @@ export function Viewport() {
           e.setMasks(maskParams(doc.masks))
           e.setBrushMasks(currentBrushMasks(doc))
           e.setPost(postParams(doc.post, doc.lighting, doc.background, doc.camera.fovDeg, doc.focus.dof))
-          // 调色、镜头步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果；场景步骤中只看背景原图，调试视图除外
+          // 镜头、调色步骤中的前后对比显示调色前的结果，其他步骤显示直接贴上去的结果；场景步骤中只看背景原图，调试视图除外
           const compare = !f.compare ? 'off' : isGradeStep(step) ? 'grade' : 'raw'
           // 二维摆放步骤中使用深度画笔时，立绘叠加深度伪彩色
           const relief = step === 'place' && f.tool === 'depth' && !useView3d.getState().open

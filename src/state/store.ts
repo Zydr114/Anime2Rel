@@ -28,7 +28,7 @@ import { DEFAULT_POST, type PostDoc, type PostSection, type ToneMapping } from '
 import { matchesPreset, presetPost, type Preset } from '@/grade/preset'
 import { DEFAULT_LIGHTING, MAX_LIGHTS, type Light, type LightingDoc } from '@/lighting/model'
 
-/** 步骤（docs/Plan.md §3.7 M8.7）：素材、场景（相机与深度）、摆放、融合、调色、镜头（景深与后期）、导出 */
+/** 步骤（docs/Plan.md §3.7 M8.7）：素材、场景（相机与深度）、摆放、融合、镜头（景深与后期）、调色、导出 */
 export type StepId = 'assets' | 'scene' | 'place' | 'fusion' | 'adjust' | 'lens' | 'export'
 
 /** 可撤销的文档状态。所有字段必须可序列化（资源只保存引用）。 */

@@ -67,8 +67,8 @@ export const zhCN = {
     scene: '场景',
     place: '摆放',
     fusion: '融合',
-    adjust: '调色',
     lens: '镜头',
+    adjust: '调色',
     export: '导出',
   },
   assets: {
