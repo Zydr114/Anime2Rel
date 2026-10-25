@@ -8,10 +8,12 @@ import type { AnalysisResult } from '@/analysis/protocol'
 import { reanalyze } from '@/analysis/service'
 import { fromGround, toGround } from '@/camera/geometry'
 import { t } from '@/i18n'
-import { MAX_LIGHTS, newDirectionalLight, type Light, type LightType } from '@/lighting/model'
+import { characterBox, characterDepth } from '@/fusion/placement'
+import { MAX_LIGHTS, lampPosition, newDirectionalLight, newPointLight, type Light, type LightType } from '@/lighting/model'
 import { computeBallPreview } from '@/lighting/preview'
+import { sampleDepth } from '@/lighting/sampling'
 import { getDepthResult, useDepth } from '@/state/depth'
-import { useCharacterInfo } from '@/state/fusion'
+import { characterInfo, useCharacterInfo } from '@/state/fusion'
 import { openGroup } from '@/state/groups'
 import { useHints } from '@/state/hints'
 import { useLighting } from '@/state/lighting'
@@ -57,8 +59,21 @@ export function LightSections({ assetId }: { assetId: string }) {
   )
 }
 
-function LightIcon({ type, className }: { type: LightType; className?: string }) {
-  return type === 'directional' ? <mdui-icon-wb-sunny--outlined className={className} /> : <mdui-icon-lightbulb--outlined className={className} />
+function LightIcon({ type, className, slot }: { type: LightType; className?: string; slot?: string }) {
+  return type === 'directional' ? <mdui-icon-wb-sunny--outlined className={className} slot={slot} /> : <mdui-icon-lightbulb--outlined className={className} slot={slot} />
+}
+
+/** 按钮添加的光源（docs/Plan.md §3.7 M8.9）：太阳 / 天光取默认方向；灯放在人物肩部的斜上方，与人物同一深度 */
+function newLight(type: LightType): Light | null {
+  if (type === 'directional') return newDirectionalLight()
+  const doc = useApp.getState().doc
+  const bg = doc.background
+  if (!bg) return null
+  const bbox = characterInfo(doc)?.bbox
+  const box = characterBox(doc, bbox)
+  const depth = getDepthResult(bg.id)
+  const at = lampPosition(box, bg)
+  return newPointLight({ ...at, depth: box.length ? characterDepth(doc, depth, bbox) : sampleDepth(depth, { x: bg.width / 2, y: bg.height / 2 }, bg).depth })
 }
 
 /** 初次使用的说明：两种光源的区别和光照方向球的用法，关闭后不再显示 */
@@ -163,8 +178,9 @@ function LightsSection() {
   const tool = useLighting((s) => s.tool)
   const full = lights.length >= MAX_LIGHTS
 
-  const addDirectional = () => {
-    const light = newDirectionalLight()
+  const add = (type: LightType) => {
+    const light = newLight(type)
+    if (!light) return
     if (!useApp.getState().addLight(light)) return notify(t.light.full(MAX_LIGHTS))
     useLighting.getState().select(light.id)
   }
@@ -186,19 +202,32 @@ function LightsSection() {
         ))}
       </ul>
       <div className="grid grid-cols-2 gap-2">
-        <mdui-button variant="tonal" onClick={addDirectional} disabled={full || undefined} data-testid="light-add-directional">
-          <mdui-icon-add--outlined slot="icon" />
-          {t.light.addDirectional}
-        </mdui-button>
-        <mdui-button
-          variant={tool === 'add' ? 'filled' : 'outlined'}
+        {(['directional', 'point'] as const).map((type) => (
+          <div key={type} className="flex flex-col gap-1">
+            <mdui-button variant="tonal" onClick={() => add(type)} disabled={full || undefined} data-testid={`light-add-${type}`}>
+              <LightIcon type={type} slot="icon" />
+              {type === 'directional' ? t.light.addDirectional : t.light.addPoint}
+            </mdui-button>
+            <span className="text-center text-[11px] leading-4 whitespace-nowrap text-on-surface-variant">{t.light.addShort[type]}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-col items-center">
+        <button
+          type="button"
+          className={cn(
+            'flex cursor-pointer items-center gap-1 rounded-full px-3 py-1 text-xs leading-5 text-primary transition-colors hover:bg-primary/10 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent',
+            tool === 'add' && 'bg-primary/15 hover:bg-primary/15',
+          )}
           onClick={() => useLighting.getState().setTool(tool === 'add' ? 'select' : 'add')}
-          disabled={full || undefined}
+          disabled={full}
+          aria-pressed={tool === 'add'}
           data-testid="light-add-canvas"
         >
-          <mdui-icon-ads-click--outlined slot="icon" />
+          <mdui-icon-ads-click--outlined className="size-4" />
           {t.light.addOnCanvas}
-        </mdui-button>
+        </button>
+        <span className="text-[11px] leading-4 text-on-surface-variant">{t.light.addOnCanvasShort}</span>
       </div>
       {full && <Hint>{t.light.full(MAX_LIGHTS)}</Hint>}
       {tool === 'add' && <p className="text-xs leading-5 text-primary">{t.light.addHint}</p>}
@@ -295,6 +324,7 @@ function SelectedSection() {
       defaultOpen
       testId="light-selected"
     >
+      <Hint testId="light-type-hint">{t.light.typeHints[light.type]}</Hint>
       <LightEditor key={light.id} light={light} />
     </Group>
   )

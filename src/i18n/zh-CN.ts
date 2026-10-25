@@ -489,7 +489,7 @@ export const zhCN = {
     },
     lights: '光源',
     count: (n: number, enabled: number) => (n === 0 ? '暂无' : enabled === n ? `${n} 个` : `${n} 个，开启 ${enabled} 个`),
-    empty: '暂无光源。可以添加太阳 / 天光，或在画面上点击添加。',
+    empty: '暂无光源。可以用下面的按钮添加太阳 / 天光或灯，也可以在画面上点击添加。',
     types: {
       directional: '太阳 / 天光',
       point: '灯',
@@ -509,7 +509,14 @@ export const zhCN = {
     confidence: { high: '置信度高', medium: '置信度中', low: '置信度低' },
     remove: '删除',
     addDirectional: '添加太阳 / 天光',
-    addOnCanvas: '在画面上添加',
+    addPoint: '添加灯',
+    /** 两个添加按钮下方的一行说明 */
+    addShort: {
+      directional: '远处，只有方向',
+      point: '近处，有位置，越远越暗',
+    } as Record<LightType, string>,
+    addOnCanvas: '在画面上点击添加',
+    addOnCanvasShort: '点天空为太阳 / 天光，其他为灯',
     addHint: '点击画面添加光源：点在天空中添加太阳 / 天光，点在其他地方添加灯，深度取该处的背景深度。按 Esc 取消。',
     full: (n: number) => `最多 ${n} 个光源`,
     intro: {

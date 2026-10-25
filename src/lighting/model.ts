@@ -81,8 +81,28 @@ export function newDirectionalLight(intensity = DEFAULT_INTENSITY): Light {
   return { ...base('directional'), intensity }
 }
 
+/** 新的灯：位于文档像素 (x, y)、归一化逆深度 depth 处。 */
+export function newPointLight(position: Light['position'], intensity = DEFAULT_INTENSITY): Light {
+  return { ...base('point'), position, softness: 0.4, intensity }
+}
+
+/**
+ * 新灯在画面上的默认位置（docs/Plan.md §3.7 M8.9）：人物肩部的斜上方，约在头部的高度，放在画面中空间较大的一侧。
+ * @param box 立绘不透明区域的四个角（文档像素，见 characterBox）；没有立绘时为空，放在画面中央偏上
+ */
+export function lampPosition(box: readonly Point[], doc: Size): Point {
+  if (box.length === 0) return { x: doc.width * 0.5, y: doc.height * 0.3 }
+  const xs = box.map((p) => p.x)
+  const ys = box.map((p) => p.y)
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+  const cx = (x0 + x1) / 2
+  const side = cx < doc.width / 2 ? 1 : -1
+  const clamp = (v: number, hi: number) => Math.min(Math.max(v, 0), hi)
+  return { x: clamp(cx + side * 0.6 * (x1 - x0), doc.width), y: clamp(y0 + 0.1 * (y1 - y0), doc.height) }
+}
+
 /** 在画面上的点 p 处添加光源：落在天空里是方向光（穿过该像素的射线），否则是位于该处深度的点光源。 */
 export function newLightAt(p: Point, doc: Size, fovDeg: number, sample: { depth: number; sky: number }, intensity = DEFAULT_INTENSITY): Light {
   if (sample.sky > 0.5) return { ...base('directional'), direction: pixelToRay(p, doc, fovDeg), softness: 0.1, intensity }
-  return { ...base('point'), position: { x: p.x, y: p.y, depth: sample.depth }, softness: 0.4, intensity }
+  return newPointLight({ x: p.x, y: p.y, depth: sample.depth }, intensity)
 }
