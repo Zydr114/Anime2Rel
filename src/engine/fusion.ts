@@ -1,17 +1,24 @@
 /**
  * 立绘融合的 TSL 节点（docs/Plan.md §3.3），参数由 src/fusion/params.ts 换算：
- * 边缘羽化 → 颜色匹配（白平衡、Oklab 影调与色度）→ 比值式重光照（含轮廓光、高光）→ Light Wrap → 噪声匹配。
+ * 边缘羽化 → 颜色匹配（白平衡、Oklab 影调与色度）→ 比值式重光照（含轮廓光、高光、立绘自身的投影）→ Light Wrap → 噪声匹配。
  * 输入输出都是线性预乘 alpha。
  */
 import * as THREE from 'three/webgpu'
-import { atan, cos, dFdx, dFdy, dot, exp, float, hash, int, length, log2, max, min, mix, normalize, pow, saturate, select, sin, smoothstep, texture, textureSize, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, atan, cos, dFdx, dFdy, dot, exp, float, hash, int, length, log2, max, min, mix, normalize, pow, saturate, select, sin, smoothstep, texture, textureSize, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { RIM_WIDTH } from '@/fusion/normals'
 import { FUSION_LIGHTS, type FusionParams } from '@/fusion/params'
 import { evalSh, fromOklab, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type TileMapping, type Vec3Node, type Vec4Node } from './nodes'
+import { shadowLookup, type ShadowMapUniforms } from './shadowMap'
 
 type Vec2Node = THREE.Node<'vec2'>
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722)
+/**
+ * 立绘自身投影的偏移（相对人物高度）：受影点先沿视线朝相机移出，固定部分加上随表面背离光源增加的部分，
+ * 光线贴着正面掠过时不会被正面自己挡住，只有凸出在前面的部分（手臂、膝盖）投下影子；再沿光线留出一点余量，避免立绘深度的噪声造成斑点
+ */
+const SELF_OFFSET = [0.02, 0.03] as const
+const SELF_BIAS = 0.02
 
 /** 三个控制点的单调 Hermite 曲线，控制点之外线性延伸（与 src/algo/curve.ts 一致） */
 function evalCurve(x: FloatNode, xs: Vec3Node, ys: Vec3Node, ms: Vec3Node): FloatNode {
@@ -62,6 +69,8 @@ export interface FusionNodeInput {
   charRotation: THREE.UniformNode<'float', number>
   charScale: THREE.UniformNode<'float', number>
   charFlip: THREE.UniformNode<'float', number>
+  /** 立绘自身的投影（M8.8d）：阴影贴图与它的参数，relief 为该处立绘的起伏 r（与立绘深度相同的计算） */
+  self: { uniforms: ShadowMapUniforms; map: THREE.TextureNode; relief: FloatNode }
 }
 
 export function createFusionNode(input: FusionNodeInput) {
@@ -153,16 +162,25 @@ export function createFusionNode(input: FusionNodeInput) {
 
   // 重光照：像素在立绘平面上的相机空间位置，用于点光源的方向和衰减
   const P = vec3(p.x.sub(docSize.x.mul(0.5)).mul(u.planeK), docSize.y.mul(0.5).sub(p.y).mul(u.planeK), u.planeDepth.negate())
+  // 立绘自身的投影：立绘正面（含起伏）的三维位置查阴影贴图，乘在主光源的直射光、轮廓光和高光上；强度为 0 时原样输出
+  const mu = input.self.uniforms
+  const zFront = mu.planeZ.sub(input.self.relief.sub(mu.reference).mul(mu.relief))
+  const front = vec3(p.x.sub(docSize.x.mul(0.5)), docSize.y.mul(0.5).sub(p.y), mu.focal.negate()).mul(zFront.div(mu.focal))
+  const toMain = select(mu.point.greaterThan(0.5), normalize(mu.light.sub(front)), mu.forward.negate())
+  const offset = mu.height.mul(float(SELF_OFFSET[1]).mul(float(1).sub(saturate(dot(N, toMain)))).add(SELF_OFFSET[0]))
+  const receiver = front.add(normalize(front).mul(offset.negate()))
+  const unblocked = select(mu.self.greaterThan(0), float(1).sub(shadowLookup(mu, input.self.map, receiver, mu.height.mul(SELF_BIAS)).mul(mu.self)), float(1))
   let irradiance: Vec3Node = max(evalSh(u.sh, N), vec3(0))
   let rimLight: Vec3Node = vec3(0)
   let specLight: Vec3Node = vec3(0)
-  for (const l of u.lights) {
+  u.lights.forEach((l, i) => {
     const toLight = l.vector.sub(P)
     const dist = length(toLight)
     const point = l.type
     const dir = normalize(mix(l.vector, toLight.div(max(dist, 1e-6)), point))
     const r = dist.div(u.referenceDistance)
-    const color = l.color.mul(mix(1, float(1).div(r.mul(r).add(1)), point))
+    const shadowed = select(abs(mu.lightIndex.sub(i)).lessThan(0.5), unblocked, float(1))
+    const color = l.color.mul(mix(1, float(1).div(r.mul(r).add(1)), point)).mul(shadowed)
     const x = dot(N, dir)
     const wrap = max(x.add(l.softness).div(l.softness.add(1)), 0)
     const soft = x.add(1).mul(0.5).pow(2)
@@ -174,7 +192,7 @@ export function createFusionNode(input: FusionNodeInput) {
     rimLight = rimLight.add(color.mul(side).mul(saturate(dir.z.mul(-0.7).add(0.3))))
     const h = normalize(dir.add(vec3(0, 0, 1)))
     specLight = specLight.add(color.mul(pow(max(dot(N, h), 0), 40)))
-  }
+  })
   // 边缘带 = alpha × (1 − 模糊 alpha)，轮廓光与 Light Wrap 共用
   const radius = u.wrapRadius
   const charLod = log2(max(radius.div(charScale), 1)).sub(1)

@@ -5,7 +5,7 @@ import { belowWaterline, cocPx, isMode, MODE, occlusionStyles, reflectance, REFL
 import { DEPTH_SHIFT } from '@/focus/dof'
 import { srgbToLinear } from '@/algo/color'
 import { SURROUND } from './backdrop'
-import { createFusionNode } from './fusion'
+import { createFusionNode, type FusionNodeInput } from './fusion'
 import type { ShadowUniforms } from './shadow'
 import { dustLight, type AtmosphereUniforms } from './atmosphere'
 import { evalSh, material, sampleAt, srgbDecode, srgbEncode, type FloatNode, type TileMapping, type Vec2Node, type Vec3Node, type Vec4Node } from './nodes'
@@ -181,7 +181,14 @@ export function createDepthNodes(
 export type DepthNodes = ReturnType<typeof createDepthNodes>
 
 /** 立绘层：融合后的立绘按变换摆放到文档空间（线性预乘 alpha）。 */
-export function createCharacterPass(placement: Placement, character: TextureNode, background: TextureNode, normalPlaceholder: THREE.Texture, rimPlaceholder: THREE.Texture) {
+export function createCharacterPass(
+  placement: Placement,
+  character: TextureNode,
+  background: TextureNode,
+  normalPlaceholder: THREE.Texture,
+  rimPlaceholder: THREE.Texture,
+  self: FusionNodeInput['self'],
+) {
   const u = placement.uniforms
   const fusion = createFusionNode({
     p: placement.p,
@@ -196,6 +203,7 @@ export function createCharacterPass(placement: Placement, character: TextureNode
     charRotation: u.charRotation,
     charScale: u.charScale,
     charFlip: u.charFlip,
+    self,
   })
   return {
     fusion: fusion.uniforms,

@@ -524,7 +524,11 @@ export class Engine {
     // 立绘的雾按立绘自身的深度（含深度起伏和修正）计算，倒影 pass 中随镜像的坐标一起变化
     const characterFogDepth = characterDepthNode(dof, this.depthNodes.character.depth, this.depthNodes.uniforms.hasCharDepth)
     const lt = (level: GradeLevel): LocalTone => ({ ...this.local, uv: this.tile.uv, tone: nodes.tone, coef: nodes[COEF[level]] })
-    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder)
+    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder, {
+      uniforms: this.shadowMap,
+      map: this.shadowMapNode,
+      relief: this.depthNodes.character.depth,
+    })
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder, this.tile)
