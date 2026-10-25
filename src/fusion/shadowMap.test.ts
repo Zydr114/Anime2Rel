@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Vec3 } from '@/algo/sh'
-import { boxSegment, lightUV, occupancyCorners, penumbraRadius, shadowMapParams, texelRay } from './shadowMap'
+import { boxSegment, extrudeCorners, lightUV, occupancyCorners, penumbraRadius, shadowMapParams, texelRay } from './shadowMap'
 
 const size = { width: 1000, height: 800 }
 const focal = 900
@@ -50,6 +50,20 @@ describe('shadow map', () => {
     expect(width(side, slab)).toBeGreaterThan(0.28)
     expect(width(side, slab)).toBeLessThan(0.36)
     expect(width(front, slab)).toBeLessThan(0.3)
+  })
+
+  it('extrudes the body horizontally, away from the camera', () => {
+    // 相机略向下看：地面法线不是 y 轴。向后延伸后离地高度不变，水平方向远了 body
+    const up: Vec3 = [0, Math.cos(0.2), Math.sin(0.2)]
+    const all = extrudeCorners(corners, up, 0.3)
+    expect(all).toHaveLength(16)
+    const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    const flat = (c: Vec3): Vec3 => c.map((x, k) => x - dot(c, up) * up[k]) as Vec3
+    corners.forEach((c, i) => {
+      const back = all[8 + i]
+      expect(dot(back, up)).toBeCloseTo(dot(c, up), 9)
+      expect(Math.hypot(...flat(back)) - Math.hypot(...flat(c))).toBeCloseTo(0.3, 9)
+    })
   })
 
   it('refuses a lamp inside the occupied box', () => {

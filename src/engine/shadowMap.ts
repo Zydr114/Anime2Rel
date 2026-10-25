@@ -2,7 +2,10 @@
  * 投影的阴影贴图（docs/Plan.md M8.8d）的 TSL 实现，几何与参数见 src/fusion/shadowMap.ts、src/fusion/shadow.ts。
  *
  * 生成：每个纹素沿光线穿过立绘占据体积的包围盒，等间隔步进；每一步投影回文档像素、换算到立绘纹理坐标，
- * 判断是否在 [正面, 正面 + 身体厚度] 内。立绘的 alpha 取与步长相当的 mip 级别，细的部分变淡而不会漏判。
+ * 判断是否在正面之后、身体厚度之内。身体从正面沿水平方向（与地面平行、背离相机）向后延伸，像一块立着的厚板：
+ * 若沿视线延伸，画面下部向下倾斜的视线会让背面贴到脚后的地面上，脚后也有影子。
+ * 厚度从地面向上逐渐增加（脚边 FEET、膝盖高度 LEGS 以上为设定值）：小腿和脚比躯干薄，等厚的板在脚后的地面上露出一块占地。
+ * 立绘的 alpha 取与步长相当的 mip 级别，细的部分变淡而不会漏判。
  * 纹素记录覆盖率 C 与第一次被挡处沿光线的距离 s，存为 (C, C·s)，生成 mipmap 后按受影点到遮挡点的距离选取级别做半影。
  * 贴图只依赖立绘、摆放和主光源，与渲染目标无关：预览、整幅导出、分块导出用同一张。
  */
@@ -20,6 +23,9 @@ type Vec2Node = THREE.Node<'vec2'>
 export const SHADOW_MAP_STEPS = 64
 /** 估计遮挡距离时所用 mip 级别的纹素大小（相对人物高度） */
 const COARSE = 0.03
+/** 身体厚度达到设定值的高度、脚边的厚度（相对人物高度） */
+const LEGS = 0.25
+const FEET = 0.03
 
 export function createShadowMapUniforms() {
   const v3 = () => uniform(new THREE.Vector3())
@@ -41,12 +47,16 @@ export function createShadowMapUniforms() {
     focal: uniform(1),
     /** 贴图边长（纹素） */
     size: uniform(1),
-    /** 单位遮挡距离的半影半径，与平面方式的柔和度换算相同 */
+    /** 单位遮挡距离的半影半径（ShadowMapInfo.penumbra） */
     softness: uniform(0.1),
     /** 立绘自身的投影强度；没有贴图时为 0 */
     self: uniform(0),
     /** 主光源在重光照光源中的序号，−1 为没有 */
     lightIndex: uniform(-1),
+    /** 地面法线（相机空间）：身体沿与它垂直的方向向后延伸 */
+    up: uniform(new THREE.Vector3(0, 1, 0)),
+    /** 地面平面 dot(x, up) = floor：身体厚度按离地高度变化 */
+    floor: uniform(0),
   }
 }
 
@@ -88,8 +98,13 @@ export function createShadowMapPass(u: ShadowMapUniforms, placement: Placement, 
       Loop(SHADOW_MAP_STEPS, ({ i }) => {
         const t = t0.add(float(i).add(0.5).mul(stepLen))
         const x = origin.add(dir.mul(t))
-        const dist = x.z.negate()
-        const q = vec2(pu.docSize.x.mul(0.5).add(x.x.div(max(dist, 1e-4)).mul(u.focal)), pu.docSize.y.mul(0.5).sub(x.y.div(max(dist, 1e-4)).mul(u.focal)))
+        // 水平向后的方向：相机到 x 的方向去掉竖直分量。先沿它把 x 移回立绘平面的距离上，取该处的立绘
+        const flat = x.sub(u.up.mul(dot(x, u.up))).add(vec3(0, 0, -1e-4))
+        const backward = normalize(flat)
+        const lambda = x.z.negate().sub(u.planeZ).div(max(backward.z.negate(), 0.05))
+        const moved = x.sub(backward.mul(lambda))
+        const dist = moved.z.negate()
+        const q = vec2(pu.docSize.x.mul(0.5).add(moved.x.div(max(dist, 1e-4)).mul(u.focal)), pu.docSize.y.mul(0.5).sub(moved.y.div(max(dist, 1e-4)).mul(u.focal)))
         const uv = placement.toCharUV(q)
         const inside = step(0, uv.x).mul(step(uv.x, 1)).mul(step(0, uv.y)).mul(step(uv.y, 1)).mul(step(1e-3, dist))
         // 采样的范围取步长与纹素宽度中较大的一个，换算到立绘纹素
@@ -97,11 +112,14 @@ export function createShadowMapPass(u: ShadowMapUniforms, placement: Placement, 
         const sample = sampleLevel(character, uv, log2(max(footprint.div(pu.charScale), 1)))
         const alpha = sample.a.mul(inside)
         If(alpha.greaterThan(0.02), () => {
+          // 正面在 q 的视线上、距离 front 处；x 在正面之后的水平距离
           const front = u.planeZ.sub(reliefAt(uv, sample).sub(u.reference).mul(u.relief))
-          const back = front.add(u.body)
+          const behind = lambda.sub(front.sub(u.planeZ).mul(dot(moved.div(max(dist, 1e-4)), backward)))
           // 前后边界按半个步长柔化，光线擦过时不会忽有忽无
           const soft = max(stepLen.mul(0.5), u.height.mul(0.005))
-          const within = smoothstep(front.sub(soft), front.add(soft), dist).mul(float(1).sub(smoothstep(back.sub(soft), back.add(soft), dist)))
+          const lift = dot(x, u.up).sub(u.floor)
+          const body = max(u.body.mul(smoothstep(0, u.height.mul(LEGS), lift)), min(u.body, u.height.mul(FEET)))
+          const within = smoothstep(soft.negate(), soft, behind).mul(float(1).sub(smoothstep(body.sub(soft), body.add(soft), behind)))
           const occ = smoothstep(0.3, 0.7, alpha).mul(within)
           If(occ.greaterThan(coverage), () => {
             coverage.assign(occ)
@@ -153,6 +171,7 @@ export function applyShadowMapParams(u: ShadowMapUniforms, params: ShadowParams)
   u.reference.value = figure.reference
   u.height.value = figure.height
   u.focal.value = params.focal
+  u.up.value.set(...params.normal)
   u.self.value = map?.self ?? 0
   u.lightIndex.value = map ? map.lightIndex : -1
   if (!map) return
@@ -166,5 +185,6 @@ export function applyShadowMapParams(u: ShadowMapUniforms, params: ShadowParams)
   u.boxMin.value.set(...map.boxMin)
   u.boxMax.value.set(...map.boxMax)
   u.body.value = map.body
-  u.softness.value = 0.02 + 0.25 * params.cast.softness
+  u.floor.value = map.floor
+  u.softness.value = map.penumbra
 }

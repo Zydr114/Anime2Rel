@@ -1,8 +1,8 @@
 /**
  * 投影的阴影贴图（docs/Plan.md M8.8d）：从主光源的视角记录立绘占据的体积，GPU 实现见 src/engine/shadowMap.ts。
  *
- * 立绘的占据：画面上 alpha > 0.5、沿视线的距离在 [正面, 正面 + 身体厚度] 内的点。正面是立绘起伏换算到米的结果，
- * 与 3D 视图一致：z正面 = z平面 − (r − r基准) × 立绘厚度 × H。
+ * 立绘的占据：画面上 alpha > 0.5 处的正面，向后（水平、背离相机）延伸身体厚度。正面是立绘起伏换算到米的结果，
+ * 与 3D 视图一致：z正面 = z平面 − (r − r基准) × 立绘厚度 × H。身体厚度从地面向上逐渐增加，到膝盖高度达到设定值。
  * 方向光用沿光线方向的正交投影，灯用从灯的位置出发的透视投影；贴图只覆盖占据体积的包围盒，与影子的长短无关。
  * 光源空间坐标 (a, b, s)：a、b 为贴图平面上的位置（方向光为米，灯为相对 forward 的正切），s 为沿光线到光源一侧的距离（米）。
  */
@@ -55,6 +55,16 @@ export function occupancyCorners(rect: [number, number, number, number], size: S
     ])
       out.push([((x - size.width / 2) * z) / focal, ((size.height / 2 - y) * z) / focal, -z])
   return out
+}
+
+/** 占据体积的角再加上它们水平向后（与地面平行、背离相机）移动 body 后的位置：身体从正面水平向后延伸 */
+export function extrudeCorners(corners: readonly Vec3[], up: Vec3, body: number): Vec3[] {
+  const back = corners.map((c) => {
+    const k = dot(c, up)
+    const flat = unit([c[0] - k * up[0], c[1] - k * up[1], c[2] - k * up[2]])
+    return [c[0] + body * flat[0], c[1] + body * flat[1], c[2] + body * flat[2]] as Vec3
+  })
+  return [...corners, ...back]
 }
 
 /** 一组文档像素的外接矩形，四周各放大 margin 倍的尺寸 */

@@ -25,7 +25,7 @@ import type { ShadowMode } from './model'
 import { characterBox, characterDepth, characterGround, characterHeight, characterOutline, groundUV, layerUVToDoc } from './placement'
 import { ROW_BINS, type CharacterInfo } from './protocol'
 import { BOUNCE_RADIUS, type GroundSampling } from './grounding'
-import { boundingRect, occupancyCorners, shadowMapParams, type ShadowMapParams } from './shadowMap'
+import { boundingRect, extrudeCorners, occupancyCorners, shadowMapParams, type ShadowMapParams } from './shadowMap'
 import { isIdentityWarp } from './warp'
 
 const FULL_BOX: CharacterInfo['bbox'] = { x0: 0, y0: 0, x1: 1, y1: 1 }
@@ -92,6 +92,13 @@ export interface ShadowParams {
 export interface ShadowMapInfo extends ShadowMapParams {
   /** 身体厚度（米） */
   body: number
+  /** 地面平面：dot(x, normal) = floor */
+  floor: number
+  /**
+   * 单位遮挡距离的半影半径：平面方式的柔和度换算再乘主光源仰角的正弦。
+   * 平面方式的半影与遮挡点的离地高度成正比，遮挡距离 × 仰角正弦就是离地高度，平地上两种方式一样柔和
+   */
+  penumbra: number
   /** 立绘自身的投影强度 */
   self: number
   /** 主光源在启用的光源中的序号：重光照把自身投影乘在这个光源上 */
@@ -228,16 +235,17 @@ export function shadowParams({ doc, background, info, ambient, character, ground
     const mainLight = doc.lighting.lights.filter((l) => l.enabled)[main]
     const body = s.bodyDepth * height
     const near = groundZ - (RELIEF_RANGE[1] - reference) * relief
-    const far = groundZ + (reference - RELIEF_RANGE[0]) * relief + body
+    const far = groundZ + (reference - RELIEF_RANGE[0]) * relief
     // 不透明区域的包围盒经变形后的外框：变形是连续的，边界的像就围住了整个区域
     const outline = isIdentityWarp(doc.charWarp) ? characterBox(doc, bbox) : characterOutline(doc, 8, bbox)
-    const corners = occupancyCorners(boundingRect(outline, 0.05), bg, focal, Math.max(near, groundZ * 0.05), far)
+    const corners = extrudeCorners(occupancyCorners(boundingRect(outline, 0.05), bg, focal, Math.max(near, groundZ * 0.05), far), normal, body)
     const light =
       mainLight.type === 'directional'
         ? { point: false, vector: mainLight.direction }
         : { point: true, vector: unproject(mainLight.position, mainLight.position.depth, bg, fov, scale) }
     const params = shadowMapParams(light, corners)
-    if (params) map = { ...params, body, self: s.self, lightIndex: main }
+    const sin = Math.max(0.05, dot(normal, lights[main].direction))
+    if (params) map = { ...params, body, floor: dot(at, normal), penumbra: (0.02 + 0.25 * s.castSoftness) * sin, self: s.self, lightIndex: main }
   }
   const bounce = groundColor ? g.bounce : 0
   const grounding =
