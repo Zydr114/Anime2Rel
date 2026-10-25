@@ -4,7 +4,7 @@ import type { SolveError } from '@/camera/geometry'
 import type { GuideKind } from '@/camera/guides'
 import type { CalibrationMethod, HeightSource, LineAxis } from '@/camera/model'
 import type { OcclusionMode } from '@/focus/model'
-import type { RelightStyle } from '@/fusion/model'
+import type { RelightStyle, ShadowMode } from '@/fusion/model'
 import type { FlareElementType, FlarePresetId } from '@/grade/flare'
 import type { MaskRangeKind, MaskShape } from '@/grade/mask'
 import type { BlendKind, BlendMode, CurveChannel, GradeLevel, HslBand, ToneKey, WheelKey } from '@/grade/model'
@@ -234,16 +234,29 @@ export const zhCN = {
     groundReset: '恢复自动',
     groundHint: '接地点：在画布上把立绘脚下的三角标记拖到脚底，双击恢复自动。站在水中时放在人物与水面相交处，那里就是水线。',
     depthHint: '深度越大越靠近镜头。遮挡、灯的方向和衰减、立绘周围的颜色统计都按它计算。',
-    shadow: '站立阴影',
+    shadow: '人物与地面',
     contact: '接触阴影',
     contactSize: '接触阴影大小',
     contactSoftness: '接触阴影柔和度',
     cast: '投影',
     castSoftness: '投影柔和度',
-    shadowSummary: (contact: string, cast: string) => `接触 ${contact} · 投影 ${cast}`,
-    shadowHint: '接触阴影画在接地点周围；投影沿主光源方向投到地面上，光源越低影子越长，阴天时很淡。阴影只落在与地面深度一致的地方。',
-    shadowWater: '水体遮挡开启时接地点就是水线，不画站立阴影。',
-    shadowCut: '立绘底部被图片边缘截断，按半身像处理，不画阴影；在画布上拖动接地点后会显示。',
+    shadowModes: { plane: '平面', surface: '贴合表面' } as Record<ShadowMode, string>,
+    bodyDepth: '身体厚度',
+    selfShadow: '自身投影',
+    occlusion: '离地遮蔽',
+    occlusionRange: '离地遮蔽范围',
+    bounce: '地面反光',
+    bounceRange: '地面反光范围',
+    shadowSummary: (contact: string, cast: string, surface: boolean) => `接触 ${contact} · 投影 ${cast}${surface ? ' · 贴合' : ''}`,
+    shadowHint: '接触阴影画在接地点周围；投影沿主光源方向投出，光源越低影子越长，阴天时很淡。',
+    shadowModeHint:
+      '平面：把立绘当作立在接地点上、转向光源的竖板，影子只落在与地面深度一致的地方。贴合表面：按立绘的起伏和身体厚度从主光源的方向投影，影子随台阶、墙面弯折，侧光时影子变窄；需要按地面校准的背景深度。',
+    selfShadowHint: '自身投影：手臂、刘海等挡在前面的部分投到立绘自己身上的影子，只减弱主光源的直射光、轮廓光和高光。身体厚度决定侧光时影子的宽度。',
+    groundingHint: '离地遮蔽让靠近地面的部分变暗，朝下的面更明显；地面反光把接地点周围地面的颜色反射到朝下的面上。范围按人物高度的比例计算，两者都通过重光照起作用。',
+    surfaceNoDepth: '背景深度还没有就绪，贴合表面暂按平面方式计算。',
+    surfaceNotCalibrated: '背景深度没有按地面校准（见“场景”步骤），贴合表面暂按平面方式计算。',
+    shadowWater: '水体遮挡开启时接地点就是水线，不画站立阴影，也没有离地遮蔽和地面反光。',
+    shadowCut: '立绘底部被图片边缘截断，按半身像处理，不画阴影，也没有离地遮蔽和地面反光；在画布上拖动接地点后会显示。',
     colorMatch: '颜色匹配',
     whiteBalance: '白平衡',
     tone: '影调',

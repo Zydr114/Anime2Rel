@@ -1,9 +1,9 @@
 import { useCallback, useRef } from 'react'
 import type { SegmentedButtonGroup } from 'mdui/components/segmented-button-group.js'
 import { waterActive } from '@/focus/model'
-import { RELIGHT_STYLES, type FusionDoc, type FusionSection, type RelightStyle } from '@/fusion/model'
+import { RELIGHT_STYLES, SHADOW_MODES, type FusionDoc, type FusionSection, type RelightStyle, type ShadowMode } from '@/fusion/model'
 import { characterDepth } from '@/fusion/placement'
-import { cutOff } from '@/fusion/shadow'
+import { cutOff, surfaceState } from '@/fusion/shadow'
 import { t } from '@/i18n'
 import { getDepthResult, useDepth } from '@/state/depth'
 import { useCharacterInfo, useFusion } from '@/state/fusion'
@@ -104,21 +104,55 @@ export function DepthSection() {
   )
 }
 
+/** 人物与地面：站立阴影、自身投影、离地遮蔽与地面反光（分组 id 沿用站立阴影的） */
 function ShadowSection() {
   const doc = useApp((s) => s.doc)
   const info = useCharacterInfo(doc)
-  const { contact, cast } = doc.fusion.shadow
+  const depth = useDepth(() => getDepthResult(doc.background?.id))
+  const { contact, cast, mode } = doc.fusion.shadow
+  const groupRef = useRef<SegmentedButtonGroup>(null)
+  useDomEvent(groupRef, 'change', (e, el) => {
+    if (e.target !== el) return
+    const v = el.value as ShadowMode
+    if (v) useApp.getState().updateFusion('shadow', { mode: v })
+    else el.value = useApp.getState().doc.fusion.shadow.mode
+  })
   const f = t.fusion
   const warning = waterActive(doc.focus) ? f.shadowWater : cutOff(doc, info) ? f.shadowCut : null
+  const surface = mode === 'surface' ? surfaceState(doc, depth) : 'ok'
   return (
-    <Group id="fusion.shadow" title={f.shadow} summary={f.shadowSummary(formatPercent(contact * 100), formatPercent(cast * 100))} help={f.shadowHint} testId="fusion-shadow">
+    <Group
+      id="fusion.shadow"
+      title={f.shadow}
+      summary={f.shadowSummary(formatPercent(contact * 100), formatPercent(cast * 100), mode === 'surface')}
+      help={[f.shadowHint, f.shadowModeHint, f.selfShadowHint, f.groundingHint]}
+      testId="fusion-shadow"
+    >
       {warning && <Hint warn>{warning}</Hint>}
+      {!warning && surface !== 'ok' && (
+        <Hint warn testId="fusion-shadow-surface-state">
+          {surface === 'noDepth' ? f.surfaceNoDepth : f.surfaceNotCalibrated}
+        </Hint>
+      )}
       <FusionSlider section="shadow" field="contact" label={f.contact} min={0} max={100} />
       <FusionSlider section="shadow" field="cast" label={f.cast} min={0} max={100} />
+      <mdui-segmented-button-group ref={groupRef} selects="single" value={mode} full-width data-testid="fusion-shadow-mode">
+        {SHADOW_MODES.map((v) => (
+          <mdui-segmented-button key={v} value={v}>
+            {f.shadowModes[v]}
+          </mdui-segmented-button>
+        ))}
+      </mdui-segmented-button-group>
       <More id="fusion.shadow.more">
         <FusionSlider section="shadow" field="contactSize" label={f.contactSize} min={30} max={300} />
         <FusionSlider section="shadow" field="contactSoftness" label={f.contactSoftness} min={0} max={100} />
         <FusionSlider section="shadow" field="castSoftness" label={f.castSoftness} min={0} max={100} />
+        <FusionSlider section="shadow" field="bodyDepth" label={f.bodyDepth} min={5} max={50} />
+        <FusionSlider section="shadow" field="self" label={f.selfShadow} min={0} max={100} />
+        <FusionSlider section="grounding" field="occlusion" label={f.occlusion} min={0} max={100} />
+        <FusionSlider section="grounding" field="occlusionRange" label={f.occlusionRange} min={5} max={100} />
+        <FusionSlider section="grounding" field="bounce" label={f.bounce} min={0} max={100} />
+        <FusionSlider section="grounding" field="bounceRange" label={f.bounceRange} min={5} max={100} />
       </More>
     </Group>
   )
