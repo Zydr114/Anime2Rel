@@ -204,7 +204,7 @@ function LightsSection() {
       <div className="grid grid-cols-2 gap-2">
         {(['directional', 'point'] as const).map((type) => (
           <div key={type} className="flex flex-col gap-1">
-            <mdui-button variant="tonal" onClick={() => add(type)} disabled={full || undefined} data-testid={`light-add-${type}`}>
+            <mdui-button variant="tonal" className="light-add w-full" onClick={() => add(type)} disabled={full || undefined} data-testid={`light-add-${type}`}>
               <LightIcon type={type} slot="icon" />
               {type === 'directional' ? t.light.addDirectional : t.light.addPoint}
             </mdui-button>

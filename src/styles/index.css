@@ -377,6 +377,20 @@ mdui-segmented-button::part(label) {
   padding-left: 0;
 }
 
+/* 光源的两个添加按钮（M8.9）：检查器的一半宽放不下“图标 + 添加太阳 / 天光”，图标放到文字上方 */
+mdui-button.light-add {
+  --shape-corner: 1rem;
+  height: auto;
+}
+mdui-button.light-add::part(button) {
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.5rem 0.25rem;
+}
+mdui-button.light-add::part(label) {
+  padding-inline: 0;
+}
+
 /* 输入框和下拉框用填充样式，底色改为半透明：描边样式的浮动标签要用不透明底色遮住描边，在玻璃上会显出一块黑底 */
 mdui-text-field,
 mdui-select {
