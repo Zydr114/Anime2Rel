@@ -7,7 +7,6 @@ import { figure } from './figure'
 import { swiftshader } from './gpu'
 import { encodePng } from './png'
 // M8.8a 镜头与滤镜、M8.8b 局部调整蒙版、M8.8c 空气与光线、M8.8d 人物与地面（docs/Plan.md §3.7 M8.8）。场景与 m5.spec.ts 相同：太阳在右上方的画面内，立绘为蓝色裙子的简笔人物。
-// M8.8a 镜头与滤镜、M8.8b 局部调整蒙版（docs/Plan.md §3.7 M8.8）。场景与 m5.spec.ts 相同：太阳在右上方的画面内，立绘为蓝色裙子的简笔人物。
 const W = 640
 const H = 480
 const DRESS: DocPoint = [320 / W, 293 / H]

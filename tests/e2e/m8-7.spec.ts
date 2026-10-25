@@ -32,7 +32,8 @@ test('seven steps with collapsible groups, a toolbar 3D toggle, operation hints,
   await page.getByTestId('start').click()
 
   const steps = await page.locator('[data-testid^="step-"]').evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')))
-  expect(steps).toEqual(['step-assets', 'step-scene', 'step-place', 'step-fusion', 'step-adjust', 'step-lens', 'step-export'])
+  // M8.9 起调色在镜头之后
+  expect(steps).toEqual(['step-assets', 'step-scene', 'step-place', 'step-fusion', 'step-lens', 'step-adjust', 'step-export'])
   // 后台任务显示在工具栏中
   await expect(page.getByTestId('task-status')).toHaveAttribute('data-state', 'running')
 
