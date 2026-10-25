@@ -17,6 +17,7 @@ import type { GradeTab } from '@/state/grade'
 import type { BrushTool } from '@/state/regions'
 import type { CharacterTool, WarpTool } from '@/state/fusion'
 import type { DepthBrushMode } from '@/fusion/depthEdit'
+import type { StepId } from '@/state/store'
 
 export const zhCN = {
   app: {
@@ -1028,6 +1029,65 @@ export const zhCN = {
     hints: '提示',
     opHints: '显示操作提示',
     opHintsHint: '在视图左下角显示当前可用的鼠标和键盘操作。',
+    tour: '新手指引',
+    tourShow: '再次查看新手指引',
+    tourHint: '介绍界面各部分的作用和大致的制作流程。',
+  },
+  /** 新手指引（docs/Plan.md §3.7 M8.9） */
+  tour: {
+    label: '新手指引',
+    progress: (i: number, n: number) => `${i} / ${n}`,
+    prev: '上一步',
+    next: '下一步',
+    skip: '跳过',
+    done: '开始使用',
+    welcome: {
+      title: '欢迎使用 Anime2Real',
+      body: '把动漫立绘融进照片，大致按下面的顺序制作。素材已在首页导入，可以在“素材”步骤中更换。',
+      flow: [
+        { name: '标定相机', step: 'scene', text: '对齐视平线或照片中的平行线，立绘才能按透视摆放。' },
+        { name: '摆放角色', step: 'place', text: '位置、大小和变形，前后位置与遮挡。' },
+        { name: '光源和阴影', step: 'fusion', text: '确认光源，调整重光照、阴影和颜色匹配。' },
+        { name: '镜头效果', step: 'lens', text: '对焦与景深、雾、泛光、光晕等。' },
+        { name: '调色', step: 'adjust', text: '最后统一整个画面的色调和风格。' },
+        { name: '导出', step: 'export', text: '导出图片，或保存工程文件。' },
+      ] as { name: string; step: StepId; text: string }[],
+    },
+    steps: {
+      title: '步骤导航',
+      body: '左侧按制作顺序列出七个步骤，点击切换：',
+      items: {
+        assets: '更换背景和立绘。',
+        scene: '标定相机，查看深度估计。确认标定后才能进入后面的步骤。',
+        place: '位置、大小、透视和变形；前后位置与立绘厚度；遮挡与水面。',
+        fusion: '光源、重光照、阴影、颜色匹配和边缘。',
+        lens: '对焦与景深、雾与尘埃、泛光、光晕等镜头效果。',
+        adjust: '基础调整、局部调整、色彩风格与预设。',
+        export: '导出图片，保存工程文件。',
+      } as Record<StepId, string>,
+    },
+    canvas: {
+      title: '画布',
+      body: ['显示合成的结果。滚轮缩放，按住空格或中键拖动平移。', '画布上的控件随步骤变化，例如标定时的视平线、摆放时的立绘控件、融合时的光源。'],
+    },
+    inspector: {
+      title: '检查器',
+      body: ['显示当前步骤的参数，分组可以折叠和展开。', '“更多”中是不常用的参数，“?”查看分组的说明。'],
+    },
+    toolbar: {
+      title: '工具栏',
+      body: ['缩放、前后对比、撤销和重做、3D 视图、调试视图、后台任务的进度和导出。'],
+    },
+    hints: {
+      title: '操作提示',
+      body: ['左下角显示当前可用的鼠标和键盘操作，随步骤和工具变化。', '可以收起，也可以在设置中关闭。'],
+      hidden: '操作提示现在没有显示：已在设置中关闭，或当前没有可用的操作。',
+    },
+    settings: {
+      title: '设置',
+      body: ['外观、操作提示、深度模型都在这里设置，也可以再次查看本指引。'],
+      calibrate: '接下来先在“场景”中标定相机。',
+    },
   },
   errors: {
     gpuTitle: '无法初始化图形渲染',

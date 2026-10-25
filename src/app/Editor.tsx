@@ -4,7 +4,8 @@ import { startAutoAnalysis } from '@/analysis/service'
 import { startAutoDepth } from '@/depth/service'
 import { startAutoFusion } from '@/fusion/service'
 import { t } from '@/i18n'
-import { useSettingsDialog } from '@/state/dialogs'
+import { TOUR_HINT, useSettingsDialog, useTour } from '@/state/dialogs'
+import { useHints } from '@/state/hints'
 import { cameraPending, needsCamera, useApp, type StepId } from '@/state/store'
 import { cn } from '@/ui/lib/cn'
 import { useDomEvent } from '@/ui/useDomEvent'
@@ -23,6 +24,7 @@ import { OperationHints } from './OperationHints'
 import { startAutosave } from './project'
 import { steps } from './steps'
 import { Toolbar } from './Toolbar'
+import { Tour } from './Tour'
 import { useShortcuts } from './useShortcuts'
 
 function StepPanel({ step }: { step: StepId }) {
@@ -48,6 +50,13 @@ export function Editor() {
   useEffect(() => startAutoFusion(), [])
   // 编辑内容自动保存在浏览器中，下次打开页面时可以在首屏继续
   useEffect(() => startAutosave(), [])
+  // 第一次进入编辑器时显示新手指引（在标定之前），显示过就记在浏览器中
+  useEffect(() => {
+    const hints = useHints.getState()
+    if (hints.dismissed.includes(TOUR_HINT)) return
+    hints.dismiss(TOUR_HINT)
+    useTour.getState().show()
+  }, [])
 
   useDomEvent(railRef, 'change', (_e, el) => {
     if (!el.value || goToStep(el.value as StepId)) return
@@ -61,7 +70,7 @@ export function Editor() {
 
   return (
     <>
-      <nav className="glass absolute top-4 bottom-4 left-4 w-20 overflow-hidden rounded-3xl">
+      <nav className="glass absolute top-4 bottom-4 left-4 w-20 overflow-hidden rounded-3xl" data-tour="steps">
         <mdui-navigation-rail ref={railRef} contained value={step} alignment="center" style={{ background: 'transparent' }} data-testid="steps">
           <div slot="top" className="flex flex-col items-center gap-1 pt-2 pb-3">
             <img src="./favicon.svg" alt="" className="size-9" />
@@ -114,6 +123,7 @@ export function Editor() {
 
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
       <SettingsDialog />
+      <Tour />
       <span className="sr-only">{t.app.name}</span>
     </>
   )

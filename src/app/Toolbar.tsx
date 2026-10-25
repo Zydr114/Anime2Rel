@@ -32,7 +32,7 @@ export function Toolbar() {
   const view3d = useView3d((s) => s.open) && view3dStep
 
   return (
-    <Dock className="glass relative" iconSize={40} iconMagnification={52} iconDistance={110}>
+    <Dock className="glass relative" iconSize={40} iconMagnification={52} iconDistance={110} data-tour="toolbar">
       <DockIcon>
         <IconButton label={t.toolbar.zoomOut} onClick={() => zoomBy(1 / 1.25)}>
           <mdui-icon-zoom-out--outlined />

@@ -44,6 +44,8 @@ export default defineConfig({
             { name: 'a2r.depth.settings', value: JSON.stringify({ version: 2, source: 'self', device: swiftshader ? 'wasm' : 'auto', precision: 'auto' }) },
             { name: 'a2r.ui.groups', value: JSON.stringify(groups) },
             { name: 'a2r.ui.prefs', value: JSON.stringify({ opHints: false, opHintsCollapsed: false }) },
+            // 新手指引已看过，不会盖住界面（docs/Plan.md §3.7 M8.9）
+            { name: 'a2r.ui.dismissedHints', value: JSON.stringify(['tour']) },
           ],
         },
       ],

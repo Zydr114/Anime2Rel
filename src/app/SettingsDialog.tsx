@@ -5,7 +5,7 @@ import { clearModelCache, modelCacheSize, reloadDepth } from '@/depth/service'
 import { t } from '@/i18n'
 import { THEME_CHOICES, useAppearance } from '@/state/appearance'
 import { useDepth, type DepthSettings } from '@/state/depth'
-import { useSettingsDialog } from '@/state/dialogs'
+import { useSettingsDialog, useTour } from '@/state/dialogs'
 import { usePrefs } from '@/state/prefs'
 import { glassMode } from '@/ui/glass/liquid'
 import { Segmented } from '@/ui/Segmented'
@@ -17,13 +17,20 @@ import { Hint, ToggleRow } from './panels/Group'
 
 const formatBytes = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`
 
-/** 设置（docs/Plan.md §3.7 M8.7）：外观、操作提示、深度模型。都记在浏览器中，不进工程文件 */
+/** 设置（docs/Plan.md §3.7 M8.7、M8.9）：外观、操作提示、新手指引、深度模型。都记在浏览器中，不进工程文件 */
 export function SettingsDialog() {
   const ref = useRef<Dialog>(null)
   const open = useSettingsDialog((s) => s.open)
   const opHints = usePrefs((s) => s.opHints)
   const close = useCallback(() => useSettingsDialog.getState().setOpen(false), [])
-  useDomEvent(ref, 'closed', (e, el) => e.target === el && close())
+  // 再次查看新手指引：等对话框关闭、焦点回到设置按钮（mdui 在 closed 之后的下一个任务中恢复焦点）之后再显示，指引的按钮才能拿到焦点
+  const tourAfterClose = useRef(false)
+  useDomEvent(ref, 'closed', (e, el) => {
+    if (e.target !== el) return
+    close()
+    if (tourAfterClose.current) setTimeout(() => useTour.getState().show())
+    tourAfterClose.current = false
+  })
   useDialogEscape(ref, open, close)
 
   return (
@@ -34,6 +41,21 @@ export function SettingsDialog() {
           <h3 className="font-medium">{t.settings.hints}</h3>
           <ToggleRow label={t.settings.opHints} checked={opHints} onChange={(opHints) => usePrefs.getState().setPrefs({ opHints })} testId="settings-op-hints" />
           <Hint>{t.settings.opHintsHint}</Hint>
+        </section>
+        <section className="flex flex-col items-start gap-1">
+          <h3 className="font-medium">{t.settings.tour}</h3>
+          <Hint>{t.settings.tourHint}</Hint>
+          <mdui-button
+            variant="tonal"
+            onClick={() => {
+              tourAfterClose.current = true
+              close()
+            }}
+            data-testid="settings-tour"
+          >
+            <mdui-icon-tour--outlined slot="icon" />
+            {t.settings.tourShow}
+          </mdui-button>
         </section>
         <DepthModelSection />
       </div>
