@@ -29,11 +29,11 @@ const sunny = (() => {
 test.setTimeout(150_000)
 test.slow(swiftshader, '软件渲染')
 
-async function open(page: Page, renderer: string) {
+async function open(page: Page, renderer: string, character = figure(240, 480)) {
   await page.goto(renderer === 'webgl' ? '/?renderer=webgl' : '/')
   for (const [testId, name, buffer] of [
     ['drop-background', 'bg.png', sunny],
-    ['drop-character', 'figure.png', figure(240, 480)],
+    ['drop-character', 'figure.png', character],
   ] as const) {
     const chooser = page.waitForEvent('filechooser')
     await page.getByTestId(testId).click()
@@ -218,6 +218,34 @@ test('contact point can be dragged and reset, and the standing shadow darkens th
   await expect(page.getByTestId('fusion-ground-state')).toHaveText('手动')
   await handle.dblclick()
   await expect(handle).toHaveAttribute('data-manual', 'false')
+})
+
+test('the standing shadow in front of the feet stays when nearer ground occludes the transparent part of the character', async ({ page }, info) => {
+  // 立绘脚下有 120 行透明边距：缩放 50% 后纹理范围到 y ≈ 477，脚前的地面在纹理范围内，且比立绘近
+  await open(page, info.project.metadata.renderer as string, figure(240, 480, 120))
+  await page.getByTestId('step-place').click()
+  await setSlider(page, 'char-scale', 50)
+  await setSlider(page, 'char-y', 327)
+  await page.getByTestId('step-fusion').click()
+  await setSlider(page, 'fusion-shadow-contact', 100)
+  await setSlider(page, 'fusion-shadow-cast', 100)
+  const free = await exportFrom(page, 'place')
+  await page.getByTestId('focus-occlusion-enabled').click()
+  // 开启后分组展开有动画，点击可能落空：直到“更多”展开为止
+  const more = page.locator('[data-group-header="focus.occlusion.more"]')
+  await expect(async () => {
+    if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click()
+    await expect(more).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 })
+  }).toPass()
+  await setSlider(page, 'focus-occlusion-tolerance', 0)
+  const occluded = await exportFrom(page, 'fusion')
+  await setSlider(page, 'fusion-shadow-contact', 0)
+  await setSlider(page, 'fusion-shadow-cast', 0)
+  const plain = await exportFrom(page, 'fusion')
+  // 光源在右上方的远处，投影朝左下方落在脚前；开启遮挡前后脚前的地面一样暗
+  const FRONT = { x0: 270, x1: 325, y0: 425, y1: 470 }
+  expect(meanLuminance(free, FRONT)).toBeLessThan(meanLuminance(plain, FRONT) - 3)
+  expect(Math.abs(meanLuminance(occluded, FRONT) - meanLuminance(free, FRONT))).toBeLessThan(1)
 })
 
 test('water occlusion covers the character below the waterline at the contact point, medium mode lets it show through', async ({ page }, info) => {

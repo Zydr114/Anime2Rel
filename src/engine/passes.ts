@@ -240,7 +240,9 @@ export function createCompositePass(input: { placement: Placement; layers: Layer
   // 没有景深时直接用预处理后（已加雾）的背景
   const bg = mix(sampleLevel(layers.backgroundDof, screenUV).rgb, prep.rgb, dof.bypass).mul(shadow)
   const charDepth = sampleLevel(layers.characterDepth, screenUV)
-  const occ = sampleLevel(layers.occlusion, screenUV).mul(dof.occlusion)
+  // 遮挡层取自背景，同样乘阴影：立绘纹理范围内比立绘近的地面（如脚前的地面）也算遮挡层，不乘的话盖在上面会抹掉那里的阴影
+  const occlusion = sampleLevel(layers.occlusion, screenUV).mul(dof.occlusion)
+  const occ = vec4(occlusion.rgb.mul(shadow), occlusion.a)
 
   // 按区域把各遮挡方式的权重和参数累加起来；水体的波纹取水体区域的加权平均
   const styles = occlusionStyles(dof, placement.tile.uv)

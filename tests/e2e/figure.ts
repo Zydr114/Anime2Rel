@@ -19,9 +19,9 @@ const trapezoid = (cx: number, top: number, bottom: number, w0: number, w1: numb
 
 /**
  * 程序生成的简笔立绘：头、头发、裙子、双腿，带 2 px 黑色描边，背景透明。
- * 尺寸 w×h，形状按比例摆放，便于在不同分辨率下复用。
+ * 尺寸 w×h，形状按比例摆放，便于在不同分辨率下复用；margin 为脚下额外的透明行数（实际的立绘图片常有）。
  */
-export function figure(w: number, h: number): Buffer {
+export function figure(w: number, h: number, margin = 0): Buffer {
   const skin: Rgb = [250, 222, 205]
   const shapes: Shape[] = [
     { sdf: circle(w * 0.5, h * 0.17, w * 0.2), color: [95, 62, 52] },
@@ -31,7 +31,7 @@ export function figure(w: number, h: number): Buffer {
     { sdf: trapezoid(w * 0.6, h * 0.74, h * 0.99, w * 0.05, w * 0.04), color: skin },
   ]
   const outline = 2
-  const rgba = new Uint8Array(w * h * 4)
+  const rgba = new Uint8Array(w * (h + margin) * 4)
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const px = x + 0.5
@@ -51,5 +51,5 @@ export function figure(w: number, h: number): Buffer {
       for (let c = 0; c < 3; c++) rgba[i + c] = Math.round(color[c] * (1 - line) + 20 * line)
       rgba[i + 3] = Math.round(alpha * 255)
     }
-  return encodePng(w, h, rgba)
+  return encodePng(w, h + margin, rgba)
 }
