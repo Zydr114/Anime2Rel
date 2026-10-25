@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { pixelToRay } from '@/algo/camera'
 import { renderScene } from '@/analysis/synthetic'
-import { docPixels, docRegion, type DocPoint } from './canvas'
+import { docPixels, type DocPoint } from './canvas'
 import { exportPixels, pixel, type ExportedImage } from './export'
 import { figure } from './figure'
 import { swiftshader } from './gpu'
@@ -521,96 +521,4 @@ test('backlit dust shows toward the sun and is hidden before fusion, and a tiled
   await settle(page)
   const tiled = await exportPixels(page)
   expect(maxImageDiff(whole, tiled)).toBeLessThanOrEqual(4)
-})
-
-// ── M8.8d 人物与地面 ──
-
-/** 导出图像的一块矩形（文档归一化坐标）内与另一张图像的差异 */
-function rectDiff(a: ExportedImage, b: ExportedImage, [u0, v0, u1, v1]: readonly [number, number, number, number]) {
-  const x0 = Math.round(u0 * a.width)
-  const x1 = Math.round(u1 * a.width)
-  const y0 = Math.round(v0 * a.height)
-  const y1 = Math.round(v1 * a.height)
-  let changed = 0
-  let max = 0
-  for (let y = y0; y < y1; y++)
-    for (let x = x0; x < x1; x++) {
-      const i = (y * a.width + x) * 4
-      const d = Math.max(...[0, 1, 2].map((c) => Math.abs(a.data[i + c] - b.data[i + c])))
-      if (d > 0) changed++
-      max = Math.max(max, d)
-    }
-  return { changed, max, pixels: Math.max(1, (x1 - x0) * (y1 - y0)) }
-}
-
-test('grounding darkens and tints only the part of the character near the ground', async ({ page }, info) => {
-  await open(page, info.project.metadata.renderer)
-  await page.getByTestId('step-fusion').click()
-  const lower: readonly [number, number, number, number] = [0.45, 0.78, 0.55, 0.94]
-  const upper: readonly [number, number, number, number] = [0.45, 0.3, 0.55, 0.45]
-  const base = { lower: await docRegion(page, lower), upper: await docRegion(page, upper) }
-
-  // 贴合表面与离地遮蔽都要按地面校准的深度，合成场景满足条件
-  expect(await page.locator('[data-testid="fusion-shadow-method"] mdui-segmented-button[value="surface"]').getAttribute('disabled')).toBeNull()
-
-  await setSlider(page, 'fusion-grounding-ao', 100)
-  await page.waitForTimeout(900)
-  const ao = { lower: await docRegion(page, lower), upper: await docRegion(page, upper) }
-  expect(luma(ao.lower)).toBeLessThan(luma(base.lower) - 4)
-  expect(Math.abs(luma(ao.upper) - luma(base.upper))).toBeLessThan(2)
-
-  // 关掉遮蔽、打开地面反光：下半身被地面的颜色照亮，上半身几乎不变
-  await setSlider(page, 'fusion-grounding-ao', 0)
-  await setSlider(page, 'fusion-grounding-bounce', 100)
-  await page.waitForTimeout(1600)
-  const bounce = { lower: await docRegion(page, lower), upper: await docRegion(page, upper) }
-  const lit = luma(bounce.lower) - luma(base.lower)
-  expect(lit).toBeGreaterThan(1)
-  expect(Math.abs(luma(bounce.upper) - luma(base.upper))).toBeLessThan(lit)
-})
-
-test('self shadow changes only the character, and a tiled export with every M8.8d effect matches the whole render', async ({ page }, info) => {
-  const query = rendererQuery(info.project.metadata.renderer)
-  await open(page, info.project.metadata.renderer)
-  await page.getByTestId('step-fusion').click()
-  const base = await exportPixels(page)
-
-  await page.getByTestId('step-fusion').click()
-  await setSlider(page, 'fusion-shadow-self', 100)
-  await page.waitForTimeout(1000)
-  const self = await exportPixels(page)
-  // 自身投影只乘在主光源的直射光上：立绘两侧的背景逐像素不变
-  expect(rectDiff(base, self, [0.02, 0.2, 0.28, 0.9]).max).toBe(0)
-  // 简笔立绘几乎是平的、太阳又在镜头这一侧：不应把整块立绘误判成自身的阴影
-  const inside = rectDiff(base, self, [0.32, 0.1, 0.68, 0.95])
-  expect(inside.changed / inside.pixels).toBeLessThan(0.005)
-
-  // 贴合表面：影子仍落在脚边附近，与平面方式不是同一张图
-  await page.getByTestId('step-fusion').click()
-  await segment(page, 'fusion-shadow-method', 'surface')
-  await page.waitForTimeout(1200)
-  const surface = await exportPixels(page)
-  const surfaceDiff = rectDiff(self, surface, [0, 0, 1, 1])
-  expect(surfaceDiff.max).toBeGreaterThan(4)
-  // 两种方式都只改变影子附近：差得多的像素占画幅的一小部分
-  let strong = 0
-  for (let i = 0; i < self.data.length; i += 4) strong += Math.max(...[0, 1, 2].map((c) => Math.abs(self.data[i + c] - surface.data[i + c]))) > 20 ? 1 : 0
-  expect(strong / (self.width * self.height)).toBeLessThan(0.08)
-
-  // 打开离地遮蔽与地面反光，一起按 128 像素分块导出
-  await page.getByTestId('step-fusion').click()
-  await setSlider(page, 'fusion-grounding-ao', 100)
-  await setSlider(page, 'fusion-grounding-bounce', 100)
-  await page.waitForTimeout(1600)
-  const all = await exportPixels(page)
-  expect(maxImageDiff(surface, all)).toBeGreaterThan(4)
-
-  // 同一个工程按 128 像素分块导出，接缝处一致
-  await page.waitForTimeout(1500)
-  await page.goto(`/?${query}exportTile=128`)
-  await page.getByTestId('resume-project').click()
-  await settle(page)
-  const tiled = await exportPixels(page)
-  expect([tiled.width, tiled.height]).toEqual([W, H])
-  expect(maxImageDiff(all, tiled)).toBeLessThanOrEqual(4)
 })

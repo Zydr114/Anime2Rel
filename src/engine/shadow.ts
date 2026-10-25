@@ -1,26 +1,14 @@
 /**
- * 站立阴影的 TSL 材质：rgb 是背景的颜色倍率，a 是立绘自身的直射光可见度（M8.8d 的自身投影），
- * 参数由 src/fusion/shadow.ts 换算。所有位置都在文档像素空间计算，预览和导出的分辨率不影响结果。
- *
- * 两种投影方式（M8.8d）：平面的解析做法（射线与地面求交）与贴合表面的屏幕空间步进；
- * 自身投影两种方式都要步进。步进要读取立绘深度，因此阴影 pass 排在立绘深度之后、立绘着色之前
- * （Engine.renderDocument），立绘着色时再按文档坐标取 a 通道。
+ * 站立阴影的 TSL 材质：输出背景的颜色倍率（rgb），参数由 src/fusion/shadow.ts 换算。
+ * 所有位置都在文档像素空间计算，预览和导出的分辨率不影响结果。
  */
 import * as THREE from 'three/webgpu'
-import { Fn, If, Loop, abs, cos, dot, float, length, log2, max, min, mix, pow, screenUV, select, sin, smoothstep, step, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, cos, dot, float, length, log2, max, min, mix, sin, smoothstep, step, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { DEPTH_SHIFT } from '@/focus/dof'
 import type { ShadowParams } from '@/fusion/shadow'
-import { SURFACE_STEPS } from '@/fusion/shadow'
 import { sampleLevel } from './dof'
-import { material, type FloatNode, type Vec3Node } from './nodes'
+import { material, type FloatNode } from './nodes'
 import type { Placement } from './passes'
-
-type TextureNode = THREE.TextureNode
-
-/** 贴合表面的基础容差（米）：深度误差与步长的补偿，避免表面自身的深度噪声造成自遮挡 */
-const SURFACE_BIAS = 0.03
-/** 容差随步长增加的比例 */
-const SURFACE_BIAS_STEP = 0.3
 
 export function createShadowUniforms() {
   return {
@@ -44,99 +32,31 @@ export function createShadowUniforms() {
     tanElevation: uniform(1),
     castSoftness: uniform(0.3),
     castTint: uniform(new THREE.Vector3(1, 1, 1)),
-    /** 贴合表面：0 方向光（surfaceLight 为指向光源的单位向量），1 点光源（为相机空间位置） */
-    surfaceType: uniform(0),
-    surfaceLight: uniform(new THREE.Vector3(0, 1, 0)),
-    /** 立绘厚度、第一步的长度与步长比（米） */
-    surfaceThickness: uniform(0.1),
-    surfaceFirst: uniform(0.02),
-    surfaceRatio: uniform(1.2),
-    /** 步进区域的裁剪矩形（文档像素）：x0、y0、x1、y1 */
-    cullRect: uniform(new THREE.Vector4(0, 0, 1e6, 1e6)),
-    /** 自身投影强度 [0,1]，0 为关闭 */
-    selfStrength: uniform(0),
-    /** 阴影纹理比当前渲染目标小多少（log2）：合成按背景的弥散圆选 mip 时要减掉它 */
-    proxyLod: uniform(0),
   }
 }
 
 export type ShadowUniforms = ReturnType<typeof createShadowUniforms>
 
 /**
- * @param character 立绘纹理（立绘 UV，带 mipmap），投影按受影点到遮挡点的距离选用 mip 做半影模糊
+ * @param character 立绘纹理（立绘 UV，带 mipmap），投影按离脚的高度选用 mip 做半影模糊
  * @param background 背景深度与天空遮罩：阴影只落在与地面平面深度一致、不是天空的地方
- * @param characterDepth 立绘深度（文档像素，r 为归一化逆深度，a 为 alpha）：贴合表面用它判断遮挡
- * @param method 平面（解析求交，与 M8.8c 一致）或贴合表面（屏幕空间步进）
  */
-export function createShadowPass(
-  u: ShadowUniforms,
-  placement: Placement,
-  character: TextureNode,
-  background: { depth: FloatNode; sky: FloatNode },
-  characterDepth: TextureNode,
-  method: 'plane' | 'surface',
-) {
+export function createShadowPass(u: ShadowUniforms, placement: Placement, character: THREE.TextureNode, background: { depth: FloatNode; sky: FloatNode }) {
   const pu = placement.uniforms
   const p = placement.p
-  const half = pu.docSize.mul(0.5)
 
   // 接触阴影：以脚部为中心、与地平线平行的椭圆
   const d = p.sub(u.contactCenter)
   const r = length(vec2(dot(d, u.contactDir), dot(d, vec2(u.contactDir.y.negate(), u.contactDir.x))).div(u.contactAxes))
   const contact = float(1).sub(smoothstep(float(1).sub(mix(0.25, 1, u.contactSoftness)), 1, r))
 
-  // 当前像素的视线（相机空间，z 为 -1，即沿光轴的距离 t）
+  // 当前像素的视线与地面平面的交点（沿光轴的距离 t，单位与 groundZ 一致）
+  const half = pu.docSize.mul(0.5)
   const ray = vec3(p.x.sub(half.x).div(u.focal), half.y.sub(p.y).div(u.focal), -1)
-  const inverseDepth = background.depth.mul(u.depthScale.x).add(u.depthScale.y)
-  const zBackground = float(1).div(max(inverseDepth, max(u.depthScale.z, 1e-6)))
-  const notSky = float(1).sub(background.sky)
-
-  // 当前像素的视线与地面平面的交点；接触阴影只落在与地面平面深度一致的地方
   const g3 = vec3(u.ground.x.sub(half.x).div(u.focal).mul(u.groundZ), half.y.sub(u.ground.y).div(u.focal).mul(u.groundZ), u.groundZ.negate())
   const denom = dot(u.normal, ray)
   const t = dot(u.normal, g3).div(min(denom, -1e-5))
   const hit = step(denom, -1e-5).mul(step(0, t))
-  const onGround = float(1).sub(smoothstep(0.2, 0.45, abs(zBackground.sub(t)).div(max(t, 1e-4)))).mul(hit).mul(notSky)
-
-  // 平面方式：遮挡结果仍按“是否落在地面平面上”筛选；贴合表面的受影点可以是任何可见表面
-  // 立绘在该像素处的正面距离与可见度（阴影纹理的 a 通道写的是立绘自身的直射光可见度）
-  const charDepth = sampleLevel(characterDepth, screenUV)
-  const charFront = float(1).div(max(charDepth.r.mul(u.depthScale.x).add(u.depthScale.y), 1e-6))
-  const isCharacter = step(0.5, charDepth.a)
-
-  let cast: FloatNode
-  let visibility: FloatNode
-  if (method === 'plane') {
-    cast = planeCast(u, placement, character, ray, t).mul(u.castStrength).mul(onGround)
-    // 自身投影与投影方式无关。关闭时整段跳过；只对完全由背景像素组成的线程束有收益，但这是大多数。
-    // If 只能在 Fn 的栈里用（three 的 TSLCore），所以包一层
-    const selfRange = Fn(() => {
-      const self = float(1).toVar()
-      If(u.selfStrength.mul(isCharacter).greaterThan(0), () => {
-        self.assign(float(1).sub(march(u, placement, character, characterDepth, ray.mul(charFront)).mul(u.selfStrength)))
-      })
-      return self
-    })
-    visibility = selfRange()
-  } else {
-    // 受影点是立绘自身时从正面出发（自身投影），否则从背景表面出发
-    const occ = march(u, placement, character, characterDepth, ray.mul(mix(zBackground, charFront, isCharacter)))
-    const validDepth = notSky.mul(step(u.depthScale.z.mul(0.999), inverseDepth))
-    cast = occ.mul(u.castStrength).mul(validDepth)
-    visibility = float(1).sub(occ.mul(u.selfStrength))
-  }
-  const mult = mix(vec3(1), u.contactTint, contact.mul(u.contactStrength).mul(onGround)).mul(mix(vec3(1), u.castTint, cast))
-  return material(vec4(mult, visibility))
-}
-
-/**
- * 平面方式：把立绘当作立在接地点上、朝向光源的竖直平面，按离脚的高度取立绘上的点。
- * 地面上沿背离光源方向距离 s 的点，对应立绘上高 s·tan(仰角) 的位置。
- */
-function planeCast(u: ShadowUniforms, placement: Placement, character: TextureNode, ray: Vec3Node, t: FloatNode): FloatNode {
-  const pu = placement.uniforms
-  const half = pu.docSize.mul(0.5)
-  const g3 = vec3(u.ground.x.sub(half.x).div(u.focal).mul(u.groundZ), half.y.sub(u.ground.y).div(u.focal).mul(u.groundZ), u.groundZ.negate())
 
   // 交点相对接地点：沿背离光源方向的距离换算为立绘上的高度，横向距离保持不变
   const delta = ray.mul(t).sub(g3)
@@ -150,58 +70,12 @@ function planeCast(u: ShadowUniforms, placement: Placement, character: TextureNo
   const insideUV = step(0, uv.x).mul(step(uv.x, 1)).mul(step(0, uv.y)).mul(step(uv.y, 1))
   const blur = height.mul(mix(0.02, 0.27, u.castSoftness))
   const lod = log2(max(blur.div(pu.charScale), 1))
-  return sampleLevel(character, uv, lod).a.mul(insideUV).mul(step(0, height))
-}
+  const cast = sampleLevel(character, uv, lod).a.mul(insideUV).mul(step(0, height))
 
-/**
- * 从受影点朝主光源按几何增长的步长前进，每一步投影回文档像素，检查该像素处的立绘是否挡在
- * 受影点与这一步之间（到光源的距离落在 [这一步 − 厚度, 这一步] 内）。贴合表面用它算投影，
- * 两种方式都用它算立绘自身的投影。影子因此贴着台阶、斜坡、墙面弯折，近处步长小，接触处有细小的阴影。
- */
-function march(
-  u: ShadowUniforms,
-  placement: Placement,
-  character: TextureNode,
-  characterDepth: TextureNode,
-  start: Vec3Node,
-): FloatNode {
-  const pu = placement.uniforms
-  const half = pu.docSize.mul(0.5)
-  const cur = start.toVar()
-  const travelled = float(0).toVar()
-  const occluded = float(0).toVar()
-
-  Loop(SURFACE_STEPS, ({ i }) => {
-    const next = u.surfaceFirst.mul(pow(u.surfaceRatio, float(i)))
-    const len = next.sub(travelled).toVar()
-    travelled.assign(next)
-    // 方向光的方向固定；灯的每一步方向略有变化
-    const dir = select(u.surfaceType.equal(0), u.surfaceLight, u.surfaceLight.sub(cur).normalize())
-    cur.addAssign(dir.mul(len))
-
-    const distance = cur.z.negate()
-    const safe = max(distance, 1e-3)
-    const q = vec2(half.x.add(cur.x.div(safe).mul(u.focal)), half.y.sub(cur.y.div(safe).mul(u.focal))).toVar()
-    // 立绘深度与当前渲染目标同尺寸：分块导出时要把文档坐标换算到这一块的 UV
-    const uv = placement.tile.toTarget(q.div(pu.docSize))
-    const inside = step(0, uv.x).mul(step(uv.x, 1)).mul(step(0, uv.y)).mul(step(uv.y, 1)).mul(step(1e-3, distance))
-
-    // 立绘在该像素处占据的深度区间 [正面, 正面 + 厚度]（相机空间的距离）
-    const front = float(1).div(max(sampleLevel(characterDepth, uv).r.mul(u.depthScale.x).add(u.depthScale.y), 1e-6))
-    const bias = float(SURFACE_BIAS).add(len.mul(SURFACE_BIAS_STEP))
-    // 容差放在进入体积的一侧：受影点自己在表面上，避免表面自身的深度误差造成自遮挡
-    const near = smoothstep(front.add(bias), front.add(bias.mul(2)), distance)
-    const back = float(1).sub(smoothstep(front.add(u.surfaceThickness), front.add(u.surfaceThickness).add(bias), distance))
-    // 半影：离受影点越远越模糊，按行进距离与立绘尺寸换算 mip
-    const blur = travelled.mul(u.focal.div(safe)).mul(mix(0.02, 0.27, u.castSoftness))
-    const lod = log2(max(blur.div(pu.charScale), 1))
-    const alpha = sampleLevel(character, placement.toCharUV(q), lod).a
-    occluded.assign(max(occluded, alpha.mul(near).mul(back).mul(inside)))
-  })
-
-  const rect = u.cullRect
-  const inRect = step(rect.x, placement.p.x).mul(step(placement.p.x, rect.z)).mul(step(rect.y, placement.p.y)).mul(step(placement.p.y, rect.w))
-  return occluded.mul(inRect)
+  const zBackground = float(1).div(max(background.depth.mul(u.depthScale.x).add(u.depthScale.y), max(u.depthScale.z, 1e-6)))
+  const valid = float(1).sub(smoothstep(0.2, 0.45, abs(zBackground.sub(t)).div(max(t, 1e-4)))).mul(float(1).sub(background.sky)).mul(hit)
+  const mult = mix(vec3(1), u.contactTint, contact.mul(u.contactStrength).mul(valid)).mul(mix(vec3(1), u.castTint, cast.mul(u.castStrength).mul(valid)))
+  return material(vec4(mult, 1))
 }
 
 export function applyShadowParams(u: ShadowUniforms, params: ShadowParams): void {
@@ -223,18 +97,4 @@ export function applyShadowParams(u: ShadowUniforms, params: ShadowParams): void
   u.tanElevation.value = cast.tanElevation
   u.castSoftness.value = cast.softness
   u.castTint.value.set(...cast.tint)
-  u.selfStrength.value = params.self
-  const surface = params.surface
-  if (surface) {
-    u.surfaceType.value = surface.type
-    u.surfaceLight.value.set(...surface.vector)
-    u.surfaceThickness.value = surface.thickness
-    u.surfaceFirst.value = surface.first
-    u.surfaceRatio.value = surface.ratio
-    if (surface.rect) u.cullRect.value.set(...surface.rect)
-    else u.cullRect.value.set(0, 0, 1e6, 1e6)
-  } else {
-    // 贴合表面的步进参数没有就绪时一律不裁剪；渲染也只会用平面材质
-    u.cullRect.value.set(0, 0, 1e6, 1e6)
-  }
 }

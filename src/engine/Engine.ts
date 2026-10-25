@@ -17,7 +17,7 @@ import {
   TILE,
 } from './dof'
 import { applyFinishParams, createFinishPass, createFinishUniforms, disposeFinish, setFinishLut } from './finish'
-import { applyFusionParams, applyGroundingParams } from './fusion'
+import { applyFusionParams } from './fusion'
 import { applyMaskParams, createMaskPass, createMaskUniforms } from './masks'
 import { createTileMapping } from './nodes'
 import {
@@ -70,7 +70,6 @@ import type { BrushMasks } from '@/grade/maskBrush'
 import type { GradeParams } from '@/grade/params'
 import type { PostParams } from '@/grade/post'
 import type { MatteMap, NormalMap } from '@/fusion/protocol'
-import type { GroundingParams } from '@/fusion/grounding'
 import type { ShadowParams } from '@/fusion/shadow'
 import { IDENTITY_WARP, isIdentityWarp, WARP_SEGMENTS, warpMesh, type Bounds, type CharWarp } from '@/fusion/warp'
 import type { RegionMask } from '@/focus/regions'
@@ -344,17 +343,6 @@ function sizeLayers(targets: Partial<LayerTargets>, width: number, height: numbe
   }
 }
 
-/** 阴影代理分辨率的长边上限：预览与导出（M8.8d 的贴合表面、自身投影用它控制开销） */
-const SHADOW_PREVIEW_EDGE = 1024
-const SHADOW_EXPORT_EDGE = 2048
-
-/** 阴影代理的缩小倍数：长边不超过 cap 的最小 2 的幂（分块导出时按整幅图像算，块之间才一致） */
-function shadowDivisor(width: number, height: number, cap: number): number {
-  let div = 1
-  while (Math.max(width, height) / div > cap) div *= 2
-  return div
-}
-
 /** 渲染方式：预览（叠加调试视图）、整幅导出、分块导出前的整幅代理渲染（到全局调整和 Bloom、光束为止）、分块导出的一块 */
 type RenderMode = 'preview' | 'full' | 'proxy' | 'tile'
 
@@ -390,12 +378,6 @@ export class Engine {
   private display: FusionDisplay = { compare: 'off', showNormals: false, showMask: false, original: false, relief: false, distortion: false, maskOverlay: -1 }
   private focus: FocusParams | null = null
   private shadowParams: ShadowParams | null = null
-  /** 导出时阴影代理的缩小倍数（按整幅图像算好）；0 为按当前的渲染尺寸自动决定 */
-  private shadowDiv = 0
-  /** 文档要求的自身投影强度；阴影关闭（前后对比、法线视图）时不用 */
-  private fusionSelfShadow = 0
-  /** 阴影用贴合表面的材质渲染（参数就绪时为 true，否则退回平面方式） */
-  private surfaceShadow = false
   private regions: { mask: RegionMask; texture: THREE.DataTexture } | null = null
   private grade: GradeParams | null = null
   private masks: MaskParams | null = null
@@ -455,7 +437,6 @@ export class Engine {
     | 'characterDof'
     | 'occlusion'
     | 'shadow'
-    | 'shadowSurface'
     | 'composite'
     | 'globalAdjust'
     | 'localAdjust'
@@ -532,7 +513,7 @@ export class Engine {
     // 立绘的雾按立绘自身的深度（含深度起伏和修正）计算，倒影 pass 中随镜像的坐标一起变化
     const characterFogDepth = characterDepthNode(dof, this.depthNodes.character.depth, this.depthNodes.uniforms.hasCharDepth)
     const lt = (level: GradeLevel): LocalTone => ({ ...this.local, uv: this.tile.uv, tone: nodes.tone, coef: nodes[COEF[level]] })
-    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder, nodes.shadow, nodes.characterDepth)
+    this.character = createCharacterPass(placement, characterNode, this.backgroundNode, this.normalPlaceholder, this.rimPlaceholder)
     this.debugView = createDisplayPass({ placement, depth: this.depthNodes, background: this.backgroundNode, colormap: this.colormap, layers: nodes, dof })
     this.present = createPresentPass(this.docRT.texture)
     this.encode = createEncodePass(this.placeholder, this.tile)
@@ -579,9 +560,7 @@ export class Engine {
       ),
       characterDof: quad(createCharacterDofPass(dof, nodes.characterAdjusted, nodes.characterDepth)),
       occlusion: quad(createOcclusionPass(dof, nodes.prep, nodes.tiles, nodes.characterDepth)),
-      shadow: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background, nodes.characterDepth, 'plane')),
-      // 贴合表面与平面方式共用同一组统一量，按投影方式选用其中一个材质（平面方式不受步进的开销影响）
-      shadowSurface: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background, nodes.characterDepth, 'surface')),
+      shadow: quad(createShadowPass(this.shadow, placement, this.shadowCharacter, this.depthNodes.background)),
       composite: quad(createCompositePass({ placement, layers: nodes, dof, shadow: this.shadow, atmosphere })),
       globalAdjust: quad(createGlobalAdjustPass(this.adjust.global, lt('global'), nodes.composited)),
       // 有局部调整时，全局调整的结果先写入 graded（预览中它在终处理时才用到）
@@ -772,7 +751,6 @@ export class Engine {
   /** 设置融合参数；null 表示数据未就绪，立绘按原样显示。 */
   setFusion(params: FusionParams | null): void {
     this.fusionReady = !!params
-    this.fusionSelfShadow = params?.selfShadow ?? 0
     if (params) applyFusionParams(this.character.fusion, params)
     this.decontaminate = params?.decontaminate ?? false
     this.syncDisplay()
@@ -798,16 +776,8 @@ export class Engine {
   /** 站立阴影；null 为不画阴影 */
   setShadow(params: ShadowParams | null): void {
     this.shadowParams = params
-    this.surfaceShadow = params?.method === 'surface'
     if (params) applyShadowParams(this.shadow, params)
     this.syncDisplay()
-  }
-
-  /** 离地遮蔽与地面反光；null 为关闭 */
-  setGrounding(params: GroundingParams | null): void {
-    applyGroundingParams(this.character.fusion, params)
-    this.docDirty = true
-    this.schedule()
   }
 
   /** 雾与尘埃；null 为没有背景深度 */
@@ -906,10 +876,7 @@ export class Engine {
 
   private syncDisplay(display = this.display): void {
     const fusion = this.character.fusion
-    const effects = this.effects(display)
     fusion.enabled.value = this.fusionReady && display.compare !== 'raw' ? 1 : 0
-    // 自身投影的可见度写在阴影纹理里：前后对比、法线视图不画阴影，也就不采信
-    fusion.selfShadow.value = effects.shadow ? this.fusionSelfShadow : 0
     // 对比直接贴上去的效果时，立绘保留原来的边缘
     const matte = !!this.matte && this.decontaminate && fusion.enabled.value === 1
     if (matte !== this.matteApplied) {
@@ -917,6 +884,7 @@ export class Engine {
       this.prepCharacter()
     }
     fusion.showNormals.value = display.showNormals ? 1 : 0
+    const effects = this.effects(display)
     this.dof.bypass.value = effects.dof ? 0 : 1
     this.dof.occlusion.value = effects.occlusion ? 1 : 0
     this.dof.showMask.value = display.showMask && effects.occlusion ? 1 : 0
@@ -1194,19 +1162,15 @@ export class Engine {
       pass(this.quads.tiles, targets.tiles)
       if (effects.dof) pass(this.quads.backgroundDof, targets.backgroundDof)
     }
-    // 立绘深度只用到立绘的 alpha 与浮雕，与融合的结果无关；提前渲染，阴影 pass 才能用它做贴合表面与自身投影（M8.8d）
-    pass(this.quads.characterDepth, targets.characterDepth)
-    if (effects.shadow) {
-      this.sizeShadow(targets, mode)
-      pass(this.surfaceShadow ? this.quads.shadowSurface : this.quads.shadow, targets.shadow)
-    }
     pass(this.quads.character, targets.character)
     tone('character')
     pass(this.quads.characterAdjust, targets.characterAdjusted)
     if (effects.reflection) this.renderMirror(targets, effects)
     else for (const key of MIRROR_KEYS) if (targets[key].width > 1) targets[key].setSize(1, 1)
+    pass(this.quads.characterDepth, targets.characterDepth)
     if (effects.dof) pass(this.quads.characterDof, targets.characterDof)
     if (effects.occlusion) pass(this.quads.occlusion, targets.occlusion)
+    if (effects.shadow) pass(this.quads.shadow, targets.shadow)
     pass(this.quads.composite, targets.composited)
     tone('global')
     if (effects.masks) {
@@ -1218,20 +1182,6 @@ export class Engine {
     if (mode !== 'preview') return pass(this.quads.finish, out)
     pass(this.quads.finish, targets.graded)
     pass(this.quads.display, out)
-  }
-
-  /**
-   * 阴影在不超过上限的 2 的幂分辨率上计算：贴合表面与自身投影要逐像素步进，输出越大越吃不消。
-   * 平面方式且没有自身投影时保持文档分辨率，输出与 M8.8c 一致。合成按代理的缩小倍数调整选 mip。
-   */
-  private sizeShadow(targets: LayerTargets, mode: RenderMode): void {
-    const full = targets.character
-    // 分块导出按整幅图像算，各块的代理网格才对齐（块宽都是 2880 的倍数，能被 2、4 整除）
-    const div = this.shadowDiv || (this.surfaceShadow || this.fusionSelfShadow > 0 ? shadowDivisor(full.width, full.height, mode === 'preview' ? SHADOW_PREVIEW_EDGE : SHADOW_EXPORT_EDGE) : 1)
-    const width = Math.max(1, Math.ceil(full.width / div))
-    const height = Math.max(1, Math.ceil(full.height / div))
-    if (targets.shadow.width !== width || targets.shadow.height !== height) targets.shadow.setSize(width, height)
-    this.shadow.proxyLod.value = Math.log2(div)
   }
 
   /**
@@ -1247,9 +1197,6 @@ export class Engine {
     const character = this.layerNodes.character
     const [a, b, c, d, e, f, g, h, i] = this.focus!.occlusion.water.mirror
     mirror.set(a, b, c, d, e, f, g, h, i)
-    // 倒影里不计算自身投影：阴影纹理按文档坐标取样，镜像后对不上
-    const self = this.character.fusion.selfShadow.value
-    this.character.fusion.selfShadow.value = 0
     try {
       r.setRenderTarget(targets.mirror)
       this.quads.character.render(r)
@@ -1262,7 +1209,6 @@ export class Engine {
       this.quads.characterAdjust.render(r)
     } finally {
       character.value = targets.character.texture
-      this.character.fusion.selfShadow.value = self
       mirror.identity()
     }
   }
@@ -1318,7 +1264,6 @@ export class Engine {
     }
     const downscaled = size.width !== this.docSize.width || size.height !== this.docSize.height
     if (this.warpDirty) this.applyWarp()
-    this.shadowDiv = shadowDivisor(size.width, size.height, SHADOW_EXPORT_EDGE)
     this.exporting = true
     this.syncDisplay(FINAL_DISPLAY)
     try {
@@ -1327,7 +1272,6 @@ export class Engine {
       return size
     } finally {
       this.exporting = false
-      this.shadowDiv = 0
       this.bindLayers(this.layers)
       const t = this.tile.uniforms
       t.bgOffset.value.set(0, 0)

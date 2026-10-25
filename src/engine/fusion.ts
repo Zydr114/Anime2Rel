@@ -4,9 +4,8 @@
  * 输入输出都是线性预乘 alpha。
  */
 import * as THREE from 'three/webgpu'
-import { atan, cos, dFdx, dFdy, dot, exp, float, hash, int, length, log2, max, min, mix, normalize, pow, saturate, screenUV, select, sin, smoothstep, texture, textureSize, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { atan, cos, dFdx, dFdy, dot, exp, float, hash, int, length, log2, max, min, mix, normalize, pow, saturate, select, sin, smoothstep, texture, textureSize, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { RIM_WIDTH } from '@/fusion/normals'
-import type { GroundingParams } from '@/fusion/grounding'
 import { FUSION_LIGHTS, type FusionParams } from '@/fusion/params'
 import { evalSh, fromOklab, sampleAt, srgbDecode, srgbEncode, toOklab, type FloatNode, type TextureNode, type TileMapping, type Vec3Node, type Vec4Node } from './nodes'
 
@@ -57,10 +56,6 @@ export interface FusionNodeInput {
   normalPlaceholder: THREE.Texture
   /** 轮廓光的边缘带（src/fusion/normals.ts 的 rimMap），带 mipmap */
   rimPlaceholder: THREE.Texture
-  /** 阴影纹理（文档像素，a 为立绘的直射光可见度，M8.8d） */
-  shadow: THREE.TextureNode
-  /** 立绘深度（r 为归一化逆深度），离地遮蔽与地面反光按它求每个像素到地面的高度 */
-  characterDepth: THREE.TextureNode
   tile: TileMapping
   docSize: THREE.UniformNode<'vec2', THREE.Vector2>
   charSize: THREE.UniformNode<'vec2', THREE.Vector2>
@@ -85,21 +80,12 @@ export function createFusionNode(input: FusionNodeInput) {
     skinProtect: uniform(0),
 
     relight: uniform(0),
-    /** 自身投影：1 时按阴影纹理的 a 减弱主光源的直射光 */
-    selfShadow: uniform(0),
     style: uniform(0),
     celThreshold: uniform(0),
     celSoftness: uniform(0.05),
     inverseReference: uniform(new THREE.Vector3(1, 1, 1)),
     sh: Array.from({ length: 9 }, v3),
-    lights: Array.from({ length: FUSION_LIGHTS }, () => ({
-      type: uniform(0),
-      vector: uniform(new THREE.Vector3(0, 0, 1)),
-      color: v3(),
-      softness: uniform(0),
-      /** 1 表示它是投影用的主光源，只有它乘自身投影 */
-      main: uniform(0),
-    })),
+    lights: Array.from({ length: FUSION_LIGHTS }, () => ({ type: uniform(0), vector: uniform(new THREE.Vector3(0, 0, 1)), color: v3(), softness: uniform(0) })),
     planeK: uniform(0),
     planeDepth: uniform(1),
     referenceDistance: uniform(1),
@@ -112,16 +98,6 @@ export function createFusionNode(input: FusionNodeInput) {
     feather: uniform(0),
     shrink: uniform(0),
     noise: v3(),
-    /** 离地遮蔽与地面反光（M8.8d）：地面法线、接地点（相机空间）、强度与范围（米）、地面颜色（线性） */
-    groundUp: v3(),
-    groundPoint: v3(),
-    ao: uniform(0),
-    aoRange: uniform(1),
-    bounce: uniform(0),
-    bounceRange: uniform(1),
-    bounceColor: v3(),
-    /** 立绘深度 1/z = a·d + b 的 a、b */
-    groundDepthScale: uniform(new THREE.Vector3(1, 0, 0)),
     /** 输出图像像素 / 文档像素，用于把噪声换算到当前分辨率 */
     targetScale: uniform(1),
     /** 边缘带距离的单位：原边缘带图的长边换算到当前边缘带纹理的像素数（立绘变形后纹理是重采样的） */
@@ -177,19 +153,7 @@ export function createFusionNode(input: FusionNodeInput) {
 
   // 重光照：像素在立绘平面上的相机空间位置，用于点光源的方向和衰减
   const P = vec3(p.x.sub(docSize.x.mul(0.5)).mul(u.planeK), docSize.y.mul(0.5).sub(p.y).mul(u.planeK), u.planeDepth.negate())
-  const docUV = p.div(docSize)
-  // 离地遮蔽与地面反光：这个像素到标定地面的高度（米），三维位置按立绘深度（含起伏与修正）重建
-  const charDistance = float(1).div(max(input.characterDepth.sample(screenUV).r.mul(u.groundDepthScale.x).add(u.groundDepthScale.y), 1e-6))
-  const height = max(dot(P.mul(charDistance.div(u.planeDepth)).sub(u.groundPoint), u.groundUp), 0)
-  // 朝下的法线遮蔽更多，也要更多地面反光
-  const facing = saturate(dot(N, u.groundUp).negate())
-  const ambientLight = max(evalSh(u.sh, N), vec3(0))
-    .mul(float(1).sub(u.ao.mul(float(1).sub(smoothstep(0, u.aoRange, height))).mul(facing.mul(0.6).add(0.4))))
-    .add(u.bounceColor.mul(u.bounce.mul(facing).mul(exp(height.div(u.bounceRange).negate()))))
-  // 立绘自身的投影：阴影纹理的 a 是主光源的可见度（环境光与轮廓光不受影响）。
-  // 阴影与当前渲染目标同尺寸、同一套 UV（分块导出时也按渲染目标 UV 取样，不是文档 UV）
-  const selfVisibility = mix(float(1), input.shadow.sample(screenUV).a, u.selfShadow)
-  let irradiance: Vec3Node = ambientLight
+  let irradiance: Vec3Node = max(evalSh(u.sh, N), vec3(0))
   let rimLight: Vec3Node = vec3(0)
   let specLight: Vec3Node = vec3(0)
   for (const l of u.lights) {
@@ -203,14 +167,13 @@ export function createFusionNode(input: FusionNodeInput) {
     const wrap = max(x.add(l.softness).div(l.softness.add(1)), 0)
     const soft = x.add(1).mul(0.5).pow(2)
     const cel = smoothstep(u.celThreshold.sub(u.celSoftness), u.celThreshold.add(u.celSoftness), x)
-    const direct = mix(float(1), selfVisibility, l.main)
-    irradiance = irradiance.add(color.mul(select(u.style.equal(1), soft, select(u.style.equal(2), cel, wrap))).mul(direct))
+    irradiance = irradiance.add(color.mul(select(u.style.equal(1), soft, select(u.style.equal(2), cel, wrap))))
     // 轮廓光：朝向光源一侧的边缘；光源在人物后方时整圈都有
     const lxy = dir.xy.div(max(length(dir.xy), 1e-4))
     const side = mix(saturate(dot(nxy, lxy)), 1, saturate(dir.z.negate()))
     rimLight = rimLight.add(color.mul(side).mul(saturate(dir.z.mul(-0.7).add(0.3))))
     const h = normalize(dir.add(vec3(0, 0, 1)))
-    specLight = specLight.add(color.mul(pow(max(dot(N, h), 0), 40)).mul(direct))
+    specLight = specLight.add(color.mul(pow(max(dot(N, h), 0), 40)))
   }
   // 边缘带 = alpha × (1 − 模糊 alpha)，轮廓光与 Light Wrap 共用
   const radius = u.wrapRadius
@@ -222,6 +185,7 @@ export function createFusionNode(input: FusionNodeInput) {
     .map((d) => sampleAt(character, charUV.add(d.mul(texel).mul(half)), charLod).a)
     .reduce<FloatNode>((acc, a) => acc.add(a), sampleAt(character, charUV, charLod).a)
     .div(5)
+  const docUV = p.div(docSize)
   const blurredBg = diagonal
     .map((d) => sampleAt(background, tile.toBackground(docUV.add(d.mul(half).div(docSize))), bgLod).rgb)
     .reduce<Vec3Node>((acc, v) => acc.add(v), sampleAt(background, tile.toBackground(docUV), bgLod).rgb)
@@ -274,18 +238,6 @@ export function createFusionNode(input: FusionNodeInput) {
 
 export type FusionUniforms = ReturnType<typeof createFusionNode>['uniforms']
 
-/** 离地遮蔽与地面反光；null 为关闭 */
-export function applyGroundingParams(u: FusionUniforms, params: GroundingParams | null): void {
-  u.ao.value = params?.ao ?? 0
-  u.aoRange.value = Math.max(params?.aoRange ?? 1, 1e-3)
-  u.bounce.value = params?.bounce ?? 0
-  u.bounceRange.value = Math.max(params?.bounceRange ?? 1, 1e-3)
-  u.bounceColor.value.set(...(params?.bounceColor ?? [0, 0, 0]))
-  u.groundUp.value.set(...(params?.up ?? [0, 1, 0]))
-  u.groundPoint.value.set(...(params?.ground ?? [0, 0, 0]))
-  u.groundDepthScale.value.set(params?.depthScale.a ?? 1, params?.depthScale.b ?? 0, 0)
-}
-
 /** 把换算好的参数写入统一量 */
 export function applyFusionParams(u: FusionUniforms, params: FusionParams): void {
   const m = params.cat
@@ -299,7 +251,6 @@ export function applyFusionParams(u: FusionUniforms, params: FusionParams): void
   u.skinProtect.value = params.skinProtect
 
   u.relight.value = params.relight
-  u.selfShadow.value = params.selfShadow
   u.style.value = params.style
   u.celThreshold.value = params.cel.threshold
   u.celSoftness.value = Math.max(params.cel.softness, 1e-3)
@@ -311,7 +262,6 @@ export function applyFusionParams(u: FusionUniforms, params: FusionParams): void
     node.vector.value.set(...(l?.vector ?? [0, 0, 1]))
     node.color.value.set(...(l?.color ?? [0, 0, 0]))
     node.softness.value = l?.softness ?? 0
-    node.main.value = i === params.mainLight ? 1 : 0
   })
   u.planeK.value = params.plane.k
   u.planeDepth.value = params.plane.depth

@@ -5,7 +5,7 @@ import { importFiles } from '@/app/importer'
 import { isGradeStep, showsDistortion } from '@/app/steps'
 import { currentAtmosphereParams } from '@/atmosphere/service'
 import { currentFocusParams, currentRegionMask } from '@/focus/service'
-import { currentFusionParams, currentGroundingParams, currentMatte, currentNormals, currentShadowParams } from '@/fusion/service'
+import { currentFusionParams, currentMatte, currentNormals, currentShadowParams } from '@/fusion/service'
 import { maskParams } from '@/grade/mask'
 import { currentBrushMasks } from '@/grade/maskBrush'
 import { gradeParams } from '@/grade/params'
@@ -100,13 +100,10 @@ export function Viewport() {
           const f = useFusion.getState()
           e.setCharacterNormals(currentNormals(doc))
           e.setCharacterMatte(currentMatte(doc))
-          // 自身投影乘在站立阴影挑出的主光源上，两个参数用同一个下标
-          const shadow = currentShadowParams(doc)
-          e.setFusion(currentFusionParams(doc, shadow?.main ?? -1))
+          e.setFusion(currentFusionParams(doc))
           e.setOcclusionRegions(currentRegionMask(doc))
           e.setFocus(currentFocusParams(doc))
-          e.setShadow(shadow)
-          e.setGrounding(currentGroundingParams(doc))
+          e.setShadow(currentShadowParams(doc))
           e.setAtmosphere(currentAtmosphereParams(doc))
           e.setGrade(gradeParams(doc.grade))
           e.setMasks(maskParams(doc.masks))

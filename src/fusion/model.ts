@@ -4,10 +4,6 @@ import { DEFAULT_INFLATE_RADIUS, DEFAULT_NORMAL_WEIGHTS } from './normals'
 export type RelightStyle = 'realistic' | 'soft' | 'cel'
 export const RELIGHT_STYLES: readonly RelightStyle[] = ['realistic', 'soft', 'cel']
 
-/** 投影方式：平面（射线与地面求交）或贴合表面（屏幕空间步进，docs/Plan.md M8.8d） */
-export type ShadowMethod = 'plane' | 'surface'
-export const SHADOW_METHODS: readonly ShadowMethod[] = ['plane', 'surface']
-
 export interface FusionDoc {
   colorMatch: {
     /** 白平衡适配：把立绘的白点（D65）适配到背景白点 */
@@ -63,21 +59,6 @@ export interface FusionDoc {
     cast: number
     /** 投影柔和度：离脚越远越模糊的程度 [0,1] */
     castSoftness: number
-    /** 投影方式：默认平面，输出与 M8.8c 一致；贴合表面需要按地面校准的深度 */
-    method: ShadowMethod
-    /** 立绘自身的投影（手臂挡在身前等），1 为完全挡住主光源；0 为关闭 */
-    self: number
-  }
-  /** 离地遮蔽与地面反光（M8.8d），只作用在环境光上 */
-  grounding: {
-    /** 离地遮蔽强度 [0,1] */
-    ao: number
-    /** 离地遮蔽范围，相对人物高度 */
-    aoRange: number
-    /** 地面反光强度 [0,1] */
-    bounce: number
-    /** 地面反光的高度范围，相对人物高度 */
-    bounceRange: number
   }
   /** 立绘所在深度（归一化逆深度）；null 为自动，取接地点处的背景深度 */
   depth: number | null
@@ -85,15 +66,14 @@ export interface FusionDoc {
   ground: { u: number; v: number } | null
 }
 
-export type FusionSection = 'colorMatch' | 'relight' | 'normals' | 'edge' | 'shadow' | 'grounding'
+export type FusionSection = 'colorMatch' | 'relight' | 'normals' | 'edge' | 'shadow'
 
 export const DEFAULT_FUSION: FusionDoc = {
   colorMatch: { whiteBalance: 0.7, tone: 0.4, chroma: 0.3, saturation: 0.3, skinProtect: true },
   relight: { style: 'realistic', strength: 0.6, celThreshold: 0.1, celSoftness: 0.05, rim: 0.6, specular: 0 },
   normals: { ...DEFAULT_NORMAL_WEIGHTS, inflateRadius: DEFAULT_INFLATE_RADIUS },
   edge: { lightWrap: 0.15, wrapRadius: 0.008, feather: 0.5, noise: 1, decontaminate: true, shrink: 0 },
-  shadow: { contact: 0.5, contactSize: 1, contactSoftness: 0.6, cast: 0.6, castSoftness: 0.3, method: 'plane', self: 0 },
-  grounding: { ao: 0, aoRange: 0.35, bounce: 0, bounceRange: 0.5 },
+  shadow: { contact: 0.5, contactSize: 1, contactSoftness: 0.6, cast: 0.6, castSoftness: 0.3 },
   depth: null,
   ground: null,
 }

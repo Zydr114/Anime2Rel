@@ -25,14 +25,7 @@ function sampleDoc(): DocState {
     charDepthEdit: { strokes: [{ mode: 'smooth', radius: 0.04, strength: 0.7, hardness: 0.2, points: [0.3, 0.4, 0.35, 0.42] }] },
     camera: { ...initialDoc.camera, fovDeg: 50, pitch: -0.2, roll: 0.05, confirmed: true, method: 'lines', lines: { first: [[{ x: 0.1, y: 0.8 }, { x: 0.4, y: 0.6 }], [{ x: 0.2, y: 0.95 }, { x: 0.5, y: 0.7 }]], second: [[{ x: 0.6, y: 0.6 }, { x: 0.9, y: 0.8 }], [{ x: 0.5, y: 0.7 }, { x: 0.8, y: 0.95 }]], secondAxis: 'horizontal' } },
     lighting: { lights: [sun, lamp], ambient: 1.3, analyzedFor: 'bg' },
-    fusion: {
-      ...initialDoc.fusion,
-      relight: { ...initialDoc.fusion.relight, style: 'cel', rim: 1.2 },
-      shadow: { ...initialDoc.fusion.shadow, method: 'surface', self: 0.4 },
-      grounding: { ao: 0.5, aoRange: 0.6, bounce: 0.3, bounceRange: 0.8 },
-      depth: 0.42,
-      ground: { u: 0.5, v: 0.9 },
-    },
+    fusion: { ...initialDoc.fusion, relight: { ...initialDoc.fusion.relight, style: 'cel', rim: 1.2 }, depth: 0.42, ground: { u: 0.5, v: 0.9 } },
     focus: {
       ...DEFAULT_FOCUS,
       dof: { ...DEFAULT_FOCUS.dof, blades: 6 },
@@ -118,17 +111,12 @@ describe('project', () => {
   it('replaces invalid values with defaults or clamps them', () => {
     const manifest = projectManifest(sampleDoc(), 'lens', { background: meta('bg'), character: meta('ch') }) as { doc: Record<string, Record<string, unknown>> }
     manifest.doc.fusion.relight = { style: 'evil', strength: 99, rim: 'x' }
-    manifest.doc.fusion.shadow = { method: 'evil', self: 9, contact: -1 }
-    manifest.doc.fusion.grounding = { ao: 7, aoRange: 0, bounce: -1, bounceRange: 'wide' }
     manifest.doc.focus.dof = { blades: 7, aperture: -1 }
     manifest.doc.lighting.lights = [{ type: 'laser' }, { type: 'directional', direction: [0, 0, 0], intensity: Infinity }]
     manifest.doc.atmosphere = { fog: { density: 5, start: -3, color: 'blue', noiseSize: 0 }, dust: { amount: 'lots', far: 1e9, seed: 3.6 } }
     manifest.doc.masks = Array.from({ length: 12 }, () => ({ shape: 'star', range: { kind: 'evil', softness: 3 }, adjust: { exposure: 99, mode: 'evil', color: 'red' } })) as never
     const doc = conformProject(readManifest(JSON.stringify(manifest)), { background: asset('bg', 1000, 800), character: null })
     expect(doc.fusion.relight).toMatchObject({ style: 'realistic', strength: 1, rim: initialDoc.fusion.relight.rim })
-    // 投影方式只能取已知的值，强度截断到 [0,1]，范围不小于 5%（否则遮蔽退化成一条硬边）
-    expect(doc.fusion.shadow).toEqual({ ...initialDoc.fusion.shadow, self: 1, contact: 0 })
-    expect(doc.fusion.grounding).toEqual({ ao: 1, aoRange: 0.05, bounce: 0, bounceRange: initialDoc.fusion.grounding.bounceRange })
     expect(doc.focus.dof).toMatchObject({ blades: 0, aperture: 0 })
     expect(doc.lighting.lights).toHaveLength(1)
     expect(doc.lighting.lights[0].direction).toEqual([0, 0, 1])
@@ -138,16 +126,6 @@ describe('project', () => {
     expect(doc.masks[0]).toMatchObject({ shape: 'ellipse', range: { kind: 'all', softness: 0.5 }, adjust: { exposure: 5, mode: 'soft-light', color: '#ff9d4d' } })
     // 没有立绘时，立绘上的接地点没有意义
     expect(doc.fusion.ground).toBeNull()
-  })
-
-  it('fills the shadow method and grounding fields for projects saved before them', () => {
-    const manifest = projectManifest(sampleDoc(), 'fusion', { background: meta('bg'), character: meta('ch') }) as { doc: Record<string, unknown> }
-    const fusion = manifest.doc.fusion as Record<string, unknown>
-    delete fusion.shadow
-    delete fusion.grounding
-    const doc = conformProject(readManifest(JSON.stringify(manifest)), { background: asset('bg', 1000, 800), character: asset('ch', 200, 400) })
-    expect(doc.fusion.shadow).toEqual(initialDoc.fusion.shadow)
-    expect(doc.fusion.grounding).toEqual(initialDoc.fusion.grounding)
   })
 
   it('rejects other files and newer versions', () => {
