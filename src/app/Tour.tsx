@@ -34,6 +34,8 @@ interface Page {
 const PAD = 6
 const GAP = 14
 const MARGIN = 16
+/** 定时复查高亮区域位置的间隔（ms） */
+const RECHECK_MS = 300
 
 const s = t.tour
 
@@ -167,7 +169,10 @@ function place(side: Side, rect: Rect | null, size: { w: number; h: number }): {
   return { left: clamp(left, innerWidth - size.w), top: clamp(top, innerHeight - size.h) }
 }
 
-/** 当前页高亮区域的位置，随窗口和目标元素的大小变化更新 */
+/**
+ * 当前页高亮区域的位置，随窗口和目标元素的大小变化更新。
+ * 另外定时复查：位置可能单独变化，ResizeObserver 也只在浏览器渲染一帧时通知，渲染很慢时（软件渲染）会落后。
+ */
 function useTargetRect(page: Page): Rect | null {
   const [rect, setRect] = useState<Rect | null>(() => measure(page))
   useLayoutEffect(() => {
@@ -180,9 +185,11 @@ function useTargetRect(page: Page): Rect | null {
     const el = page.selector ? document.querySelector(page.selector) : null
     const observer = new ResizeObserver(update)
     if (el) observer.observe(el)
+    const timer = setInterval(update, RECHECK_MS)
     return () => {
       window.removeEventListener('resize', update)
       observer.disconnect()
+      clearInterval(timer)
     }
   }, [page])
   return rect

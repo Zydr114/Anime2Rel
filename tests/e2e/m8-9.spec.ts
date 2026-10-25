@@ -39,19 +39,19 @@ async function box(locator: Locator) {
   return b!
 }
 
-/** 高亮框比目标向外多出 6 px（src/app/Tour.tsx 的 PAD） */
+/** 高亮框比目标向外多出 6 px（src/app/Tour.tsx 的 PAD）。工具栏的宽度随后台任务的状态变化，每次都重新取目标的位置 */
 async function expectSpotlightOn(page: Page, target: Locator) {
-  const t = await box(target)
-  // 高亮框移动时有过渡动画
   await expect
     .poll(async () => {
-      const s = await box(page.getByTestId('tour-spotlight'))
+      const [t, s] = [await box(target), await box(page.getByTestId('tour-spotlight'))]
       return Math.max(Math.abs(s.x + 6 - t.x), Math.abs(s.y + 6 - t.y), Math.abs(s.width - 12 - t.width), Math.abs(s.height - 12 - t.height))
     })
     .toBeLessThan(2)
 }
 
 test('onboarding tour shows once before calibration, walks through the interface and reopens from settings', async ({ page }, info) => {
+  // 减少动态效果：高亮框直接到位，不做移动动画（软件渲染时动画的进度取决于渲染的帧）
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto(`/${rendererQuery(info.project.metadata.renderer)}`)
   // 测试的初始状态把指引标为已看过（playwright.config.ts），这里还原为第一次使用
   await page.evaluate(() => localStorage.removeItem('a2r.ui.dismissedHints'))
