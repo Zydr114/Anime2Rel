@@ -4,6 +4,10 @@ import { DEFAULT_INFLATE_RADIUS, DEFAULT_NORMAL_WEIGHTS } from './normals'
 export type RelightStyle = 'realistic' | 'soft' | 'cel'
 export const RELIGHT_STYLES: readonly RelightStyle[] = ['realistic', 'soft', 'cel']
 
+/** 投影方式（M8.8d）：平面为投到过接地点的地面平面上；贴合表面为按背景深度落在可见的表面上 */
+export type ShadowMode = 'plane' | 'surface'
+export const SHADOW_MODES: readonly ShadowMode[] = ['plane', 'surface']
+
 export interface FusionDoc {
   colorMatch: {
     /** 白平衡适配：把立绘的白点（D65）适配到背景白点 */
@@ -59,6 +63,18 @@ export interface FusionDoc {
     cast: number
     /** 投影柔和度：离脚越远越模糊的程度 [0,1] */
     castSoftness: number
+    mode: ShadowMode
+    /** 立绘自身的投影强度：乘在主光源的直射光上 */
+    self: number
+    /** 身体的前后厚度，相对人物高度：立绘起伏的正面向后延伸这么多，构成挡光的体积 */
+    bodyDepth: number
+  }
+  /** 人物与地面（M8.8d）：离地遮蔽与地面反光，范围相对人物高度 */
+  grounding: {
+    occlusion: number
+    occlusionRange: number
+    bounce: number
+    bounceRange: number
   }
   /** 立绘所在深度（归一化逆深度）；null 为自动，取接地点处的背景深度 */
   depth: number | null
@@ -66,14 +82,15 @@ export interface FusionDoc {
   ground: { u: number; v: number } | null
 }
 
-export type FusionSection = 'colorMatch' | 'relight' | 'normals' | 'edge' | 'shadow'
+export type FusionSection = 'colorMatch' | 'relight' | 'normals' | 'edge' | 'shadow' | 'grounding'
 
 export const DEFAULT_FUSION: FusionDoc = {
   colorMatch: { whiteBalance: 0.7, tone: 0.4, chroma: 0.3, saturation: 0.3, skinProtect: true },
   relight: { style: 'realistic', strength: 0.6, celThreshold: 0.1, celSoftness: 0.05, rim: 0.6, specular: 0 },
   normals: { ...DEFAULT_NORMAL_WEIGHTS, inflateRadius: DEFAULT_INFLATE_RADIUS },
   edge: { lightWrap: 0.15, wrapRadius: 0.008, feather: 0.5, noise: 1, decontaminate: true, shrink: 0 },
-  shadow: { contact: 0.5, contactSize: 1, contactSoftness: 0.6, cast: 0.6, castSoftness: 0.3 },
+  shadow: { contact: 0.5, contactSize: 1, contactSoftness: 0.6, cast: 0.6, castSoftness: 0.3, mode: 'plane', self: 0, bodyDepth: 0.15 },
+  grounding: { occlusion: 0, occlusionRange: 0.25, bounce: 0, bounceRange: 0.3 },
   depth: null,
   ground: null,
 }

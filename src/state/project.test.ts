@@ -25,7 +25,14 @@ function sampleDoc(): DocState {
     charDepthEdit: { strokes: [{ mode: 'smooth', radius: 0.04, strength: 0.7, hardness: 0.2, points: [0.3, 0.4, 0.35, 0.42] }] },
     camera: { ...initialDoc.camera, fovDeg: 50, pitch: -0.2, roll: 0.05, confirmed: true, method: 'lines', lines: { first: [[{ x: 0.1, y: 0.8 }, { x: 0.4, y: 0.6 }], [{ x: 0.2, y: 0.95 }, { x: 0.5, y: 0.7 }]], second: [[{ x: 0.6, y: 0.6 }, { x: 0.9, y: 0.8 }], [{ x: 0.5, y: 0.7 }, { x: 0.8, y: 0.95 }]], secondAxis: 'horizontal' } },
     lighting: { lights: [sun, lamp], ambient: 1.3, analyzedFor: 'bg' },
-    fusion: { ...initialDoc.fusion, relight: { ...initialDoc.fusion.relight, style: 'cel', rim: 1.2 }, depth: 0.42, ground: { u: 0.5, v: 0.9 } },
+    fusion: {
+      ...initialDoc.fusion,
+      relight: { ...initialDoc.fusion.relight, style: 'cel', rim: 1.2 },
+      shadow: { ...initialDoc.fusion.shadow, mode: 'surface', self: 0.4, bodyDepth: 0.2 },
+      grounding: { occlusion: 0.5, occlusionRange: 0.3, bounce: 0.6, bounceRange: 0.4 },
+      depth: 0.42,
+      ground: { u: 0.5, v: 0.9 },
+    },
     focus: {
       ...DEFAULT_FOCUS,
       dof: { ...DEFAULT_FOCUS.dof, blades: 6 },
@@ -111,12 +118,17 @@ describe('project', () => {
   it('replaces invalid values with defaults or clamps them', () => {
     const manifest = projectManifest(sampleDoc(), 'lens', { background: meta('bg'), character: meta('ch') }) as { doc: Record<string, Record<string, unknown>> }
     manifest.doc.fusion.relight = { style: 'evil', strength: 99, rim: 'x' }
+    manifest.doc.fusion.shadow = { mode: 'evil', bodyDepth: 9, self: -1 }
+    delete manifest.doc.fusion.grounding
     manifest.doc.focus.dof = { blades: 7, aperture: -1 }
     manifest.doc.lighting.lights = [{ type: 'laser' }, { type: 'directional', direction: [0, 0, 0], intensity: Infinity }]
     manifest.doc.atmosphere = { fog: { density: 5, start: -3, color: 'blue', noiseSize: 0 }, dust: { amount: 'lots', far: 1e9, seed: 3.6 } }
     manifest.doc.masks = Array.from({ length: 12 }, () => ({ shape: 'star', range: { kind: 'evil', softness: 3 }, adjust: { exposure: 99, mode: 'evil', color: 'red' } })) as never
     const doc = conformProject(readManifest(JSON.stringify(manifest)), { background: asset('bg', 1000, 800), character: null })
     expect(doc.fusion.relight).toMatchObject({ style: 'realistic', strength: 1, rim: initialDoc.fusion.relight.rim })
+    expect(doc.fusion.shadow).toMatchObject({ mode: 'plane', bodyDepth: 0.5, self: 0 })
+    // 旧工程没有人物与地面的字段：取默认值，输出与之前一致
+    expect(doc.fusion.grounding).toEqual(initialDoc.fusion.grounding)
     expect(doc.focus.dof).toMatchObject({ blades: 0, aperture: 0 })
     expect(doc.lighting.lights).toHaveLength(1)
     expect(doc.lighting.lights[0].direction).toEqual([0, 0, 1])
