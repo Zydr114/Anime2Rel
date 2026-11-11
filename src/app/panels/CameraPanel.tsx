@@ -241,7 +241,7 @@ function ScaleSection() {
           {measured === null ? sc.rodUnknown : `${measured.toFixed(2)} m`}
         </span>
       </div>
-      <NumberField label={sc.real} value={rodReal} onCommit={(v) => v > 0 && setRodReal(v)} testId="camera-rod-real" />
+      <NumberField label={sc.real} value={rodReal} step={0.01} min={0.01} onCommit={(v) => v > 0 && setRodReal(v)} testId="camera-rod-real" />
       <mdui-button variant="tonal" onClick={applyRod} data-testid="camera-rod-apply">
         {sc.apply}
       </mdui-button>
